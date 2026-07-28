@@ -1,0 +1,88 @@
+# Lyrics Companion（歌词伴侣）
+
+一个采用 Material Design 3 的独立 Android 歌词显示应用。它读取系统中的标准 `MediaSession`，按歌名、歌手和时长跨乐库匹配歌词，并同时支持：
+
+- 主屏可拖动悬浮窗；轻触可返回设置页。
+- 非默认 `Display` 上的副屏歌词悬浮层；可在有触摸能力的副屏上直接拖动。
+- 播放器封面 Bitmap、`content://`、本地文件和网络封面 URI 的异步加载与缓存。
+- YRC 逐字时间轴按完整 Unicode 字符阶梯点亮；普通 LRC 按整句切换，避免伪造匀速逐字效果。
+- 网易云、QQ 音乐、酷狗、酷我歌词结果本地缓存 30 天。
+- 切换播放器或曲目时每 600ms 重新选择活跃会话，降低旧会话、旧歌词残留概率。
+- 默认、Refined Now Playing、PiPWindow 和自定义布局四种悬浮窗风格。
+- 可视化布局编辑器：在模拟渲染区拖动内容块，拖入备选区即可隐藏。
+- AMap Companion 同款手感的副屏位置摇杆，以及窗口整体大小、字号、封面、背景和同步参数。
+
+## 副屏原理
+
+副屏路径与 `zuo-qirun/amap-companion` 的仪表屏投屏方式一致：
+
+1. 用 `DisplayManager` 枚举系统中的非默认屏幕，并允许用户指定 Display ID。
+2. 对目标屏调用 `createDisplayContext(display)`。
+3. 从副屏上下文获取独立的 `WindowManager`。
+4. 使用 `TYPE_APPLICATION_OVERLAY` 直接把歌词 View 添加到该屏幕，并用主界面摇杆持续微调坐标。
+
+它不做截图、录屏或视频编码，同一份媒体/歌词状态由主屏和副屏各自绘制。副屏断开时窗口会立即释放；重新接入后会按已保存设置恢复。
+
+## 歌词链路
+
+歌词实现源自 `Amap-for-ESP32/android_forwarder` 的成熟逻辑，并扩展为多乐库回退：
+
+```text
+NotificationListenerService
+  -> MediaSessionManager.getActiveSessions()
+  -> 选择正在播放且有元数据的会话
+  -> 当前播放器同源乐库优先匹配
+  -> 网易云 / QQ 音乐 / 酷狗 / 酷我并行兜底
+  -> 优先解析 YRC，失败时回退 LRC
+  -> 按 PlaybackState 的位置和速度实时插值
+  -> 主屏悬浮窗 + 副屏 WindowManager 同步绘制
+```
+
+支持网易云音乐、QQ 音乐、酷狗、酷我、Spotify、汽水音乐、咪咕音乐、小米音乐、华为音乐、Apple Music、YouTube Music、Amazon Music，以及其他正确发布标准 `MediaSession` 的播放器。网易云、QQ 音乐、酷狗、酷我会优先使用各自乐库；汽水音乐等来源会按歌名、歌手、时长跨四个乐库并行匹配。
+
+## 构建
+
+环境要求：JDK 17+、Android SDK 36、Android Build Tools，以及 Gradle 8.7+。
+
+```powershell
+.\gradlew.bat testDebugUnitTest assembleDebug
+```
+
+APK 输出：
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+安装到已连接设备：
+
+```powershell
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+也可以用 Android Studio 直接打开项目根目录。
+
+## 首次使用
+
+1. 打开“歌词伴侣”。
+2. 授予通知权限（Android 13+，用于前台服务通知）。
+3. 点击“音乐读取权限”，在系统“通知使用权”中允许“歌词伴侣 · 音乐读取”。
+4. 点击“悬浮窗权限”，允许显示在其他应用上层。
+5. 打开“主屏悬浮窗”和/或“副屏歌词”。
+6. 如有多块副屏，在“投屏屏幕”中选择目标 Display。
+7. 打开音乐播放器并开始播放。
+
+“悬浮窗风格与同步”中可切换四种风格；进入“可视化布局编辑器”后，将内容块拖到上方启用并定位，拖回下方备选区即可隐藏。主界面处于前台时会临时收起主屏悬浮窗，避免遮挡设置与拖拽操作。
+
+正数歌词偏移会让歌词提前，负数会让歌词延后。推荐每次调整 100–200ms。
+
+## 平台边界
+
+- 播放器若不发布标准 Android `MediaSession`，普通应用无法可靠获得曲目和进度。
+- 网易云、QQ 音乐、酷狗和酷我的搜索/歌词接口是在线服务且并非本项目控制；单一接口失败时会自动尝试其他乐库，全部失败时歌曲信息仍可显示。
+- 少数深度定制车机 ROM 会限制普通应用在外接 Display 上创建 overlay；此时请先确认系统已授予悬浮窗权限，再结合 `adb logcat -s LyricsDisplay LyricsMediaSession LyricsMusicState` 排查。
+- 本应用不会录制屏幕、读取通知正文或上传用户通知内容；通知监听仅用于取得系统允许访问的活跃媒体会话。
+
+## 许可证与来源
+
+本项目以 [GNU General Public License v3.0](LICENSE) 开源发布。歌词解析和媒体状态代码基于同一作者的 `Amap-for-ESP32` 项目衍生，并由版权所有者授权在本项目中以 GPL-3.0 发布。副屏与摇杆来自同一作者的 [zuo-qirun/amap-companion](https://github.com/zuo-qirun/amap-companion) 设计；两套新增视觉风格分别参考 [Refined Now Playing](https://github.com/solstice23/refined-now-playing-netease) 与 [PiPWindow](https://github.com/Lukoning/PiPWindow)，具体边界见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

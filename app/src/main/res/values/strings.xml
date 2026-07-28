@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">歌词伴侣</string>
+    <string name="notification_listener_label">歌词伴侣 · 音乐读取</string>
+    <string name="service_channel_name">歌词显示</string>
+    <string name="service_notification_title">歌词伴侣正在运行</string>
+</resources>

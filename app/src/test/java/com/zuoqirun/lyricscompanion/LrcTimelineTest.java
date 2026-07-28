@@ -1,0 +1,68 @@
+package com.zuoqirun.lyricscompanion;
+
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public class LrcTimelineTest {
+    @Test public void parsesLrcAndClosestTranslation() {
+        LrcTimeline timeline = LrcTimeline.parse(
+                "[00:01.00]第一句\n[00:04.500]第二句",
+                "[00:01.20]First\n[00:04.50]Second");
+        LrcTimeline.At at = timeline.at(4_800L);
+        assertEquals("第一句", at.previousLyric);
+        assertEquals("第二句", at.lyric);
+        assertEquals("Second", at.translatedLyric);
+    }
+
+    @Test public void yrcTracksCompletedTextAndCurrentWordProgress() {
+        LrcTimeline timeline = LrcTimeline.parse("", "",
+                "[1000,2000](1000,500,0)你(1500,500,0)好(2000,1000,0)世界");
+        LrcTimeline.At at = timeline.at(1_750L);
+        assertEquals("你", at.completedLyric);
+        assertEquals("好", at.currentWord);
+        assertEquals(500, at.wordProgressPermille);
+    }
+
+    @Test public void longUntimedGapBecomesInterlude() {
+        LrcTimeline timeline = LrcTimeline.parse(
+                "[00:01.00]开场\n[00:20.00]下一句", "");
+        LrcTimeline.At gap = timeline.at(10_000L);
+        assertTrue(gap.interlude);
+        assertEquals("下一句", gap.nextLyric);
+        assertFalse(timeline.isEmpty());
+    }
+
+    @Test public void plainLrcNeverPretendsToHaveWordTiming() {
+        LrcTimeline timeline = LrcTimeline.parse("[00:01.00]整句歌词", "");
+        LrcTimeline.At at = timeline.at(1_500L);
+        assertEquals("整句歌词", at.lyric);
+        assertFalse(at.wordTimed);
+        assertEquals("", at.completedLyric);
+        assertEquals("", at.currentWord);
+    }
+
+    @Test public void revealQuantizationCountsWholeUnicodeCodePoints() {
+        String value = "你😀好";
+        assertEquals(0, LrcTimeline.revealedCodePointCount(value, 0));
+        assertEquals(1, LrcTimeline.revealedCodePointCount(value, 1));
+        assertEquals(1, LrcTimeline.revealedCodePointCount(value, 333));
+        assertEquals(2, LrcTimeline.revealedCodePointCount(value, 334));
+        assertEquals(3, LrcTimeline.revealedCodePointCount(value, 1000));
+    }
+
+    @Test public void exposesNearbyLinesForRefinedScrollingLayout() {
+        LrcTimeline timeline = LrcTimeline.parse(
+                "[00:01.00]一\n[00:02.00]二\n[00:03.00]三\n[00:04.00]四\n[00:05.00]五",
+                "[00:03.00]Three");
+        LrcTimeline.At at = timeline.at(3_200L);
+        assertEquals(5, at.nearbyLines.size());
+        assertEquals(-2, at.nearbyLines.get(0).offset);
+        assertEquals(0, at.nearbyLines.get(2).offset);
+        assertEquals("三", at.nearbyLines.get(2).text);
+        assertEquals("Three", at.nearbyLines.get(2).translated);
+        assertEquals(2, at.nearbyLines.get(4).offset);
+    }
+}

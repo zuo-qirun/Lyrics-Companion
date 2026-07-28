@@ -1,0 +1,65 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <queries>
+        <package android:name="com.netease.cloudmusic" />
+        <package android:name="com.tencent.qqmusic" />
+        <package android:name="com.kugou.android" />
+        <package android:name="cn.kuwo.player" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.luna.music" />
+        <package android:name="cmccwm.mobilemusic" />
+        <package android:name="com.miui.player" />
+        <package android:name="com.android.mediacenter" />
+        <package android:name="com.apple.android.music" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.amazon.mp3" />
+    </queries>
+
+    <application
+        android:name=".LyricsCompanionApp"
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+        <activity
+            android:name=".LayoutEditorActivity"
+            android:exported="false" />
+        <activity
+            android:name=".RefinedSettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".LyricsDisplayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent lyrics overlay and secondary-display rendering" />
+        </service>
+
+        <service
+            android:name=".MusicNotificationListener"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

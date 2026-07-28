@@ -1,0 +1,555 @@
+package com.zuoqirun.lyricscompanion;
+
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.hardware.display.DisplayManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.view.Display;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.Spinner;
+import android.widget.TextView;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.shape.MaterialShapeDrawable;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@SuppressLint("SetTextI18n")
+public final class MainActivity extends AppCompatActivity {
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private TextView permissionStatus;
+    private TextView musicStatus;
+    private TextView displayStatus;
+    private MaterialSwitch mainOverlaySwitch;
+    private MaterialSwitch secondaryOverlaySwitch;
+    private Spinner displaySpinner;
+    private LyricsPanelView previewPanel;
+    private boolean bindingUi;
+
+    private final Runnable statusRefresh = new Runnable() {
+        @Override public void run() {
+            refreshStatus();
+            handler.postDelayed(this, 700L);
+        }
+    };
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(0xFF07111F);
+        getWindow().setNavigationBarColor(0xFF07111F);
+        setContentView(buildContent());
+        MusicStateStore.initialize(this);
+        requestNotificationPermissionIfNeeded();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        bindPreferences();
+        refreshDisplayChoices();
+        refreshPreview();
+        LyricsDisplayService.startOrRefresh(this);
+        LyricsDisplayService.setSettingsVisible(this, true);
+        handler.removeCallbacks(statusRefresh);
+        handler.post(statusRefresh);
+    }
+
+    @Override protected void onPause() {
+        handler.removeCallbacks(statusRefresh);
+        LyricsDisplayService.setSettingsVisible(this, false);
+        super.onPause();
+    }
+
+    private View buildContent() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(0xFF07111F);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(18), dp(20), dp(34));
+        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
+
+        MaterialToolbar toolbar = new MaterialToolbar(this);
+        toolbar.setTitle("歌词伴侣");
+        toolbar.setSubtitle("主屏悬浮窗 · 副屏歌词");
+        toolbar.setTitleTextColor(Color.WHITE);
+        toolbar.setSubtitleTextColor(0xFFA9B6C8);
+        toolbar.setBackgroundColor(Color.TRANSPARENT);
+        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(64)));
+
+        TextView eyebrow = text("LYRICS · COMPANION", 12, 0xFF6EE7F2, true);
+        root.addView(eyebrow);
+        TextView title = text("让歌词自然地出现在每块屏幕上", 28, Color.WHITE, true);
+        title.setPadding(0, dp(6), 0, dp(5));
+        root.addView(title);
+        TextView intro = text("读取标准 MediaSession 封面与播放状态，并从网易云、QQ 音乐、酷狗、酷我等来源匹配逐字或逐行歌词。", 14,
+                0xFFA9B6C8, false);
+        intro.setLineSpacing(0f, 1.18f);
+        root.addView(intro);
+
+        LinearLayout previewCard = card();
+        TextView previewLabel = sectionLabel("实时预览");
+        previewCard.addView(previewLabel);
+        previewPanel = new LyricsPanelView(this, false);
+        LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1,
+                previewHeightPx());
+        previewLp.topMargin = dp(10);
+        previewCard.addView(previewPanel, previewLp);
+        root.addView(previewCard, cardMargins());
+
+        LinearLayout accessCard = card();
+        accessCard.addView(sectionLabel("使用权限"));
+        permissionStatus = text("", 14, 0xFFD8E1EE, false);
+        permissionStatus.setPadding(0, dp(8), 0, dp(12));
+        accessCard.addView(permissionStatus);
+        LinearLayout permissionButtons = new LinearLayout(this);
+        permissionButtons.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton notificationAccess = button("音乐读取权限", true);
+        notificationAccess.setOnClickListener(v -> openNotificationAccess());
+        permissionButtons.addView(notificationAccess, weightedButton());
+        MaterialButton overlayAccess = button("悬浮窗权限", false);
+        overlayAccess.setOnClickListener(v -> openOverlayPermission());
+        LinearLayout.LayoutParams secondButton = weightedButton();
+        secondButton.leftMargin = dp(10);
+        permissionButtons.addView(overlayAccess, secondButton);
+        accessCard.addView(permissionButtons);
+        root.addView(accessCard, cardMargins());
+
+        LinearLayout outputCard = card();
+        outputCard.addView(sectionLabel("显示位置"));
+        mainOverlaySwitch = toggle("主屏悬浮窗", "离开设置页后显示；可拖动，轻触可返回设置");
+        mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
+            if (checked && !canDrawOverlays()) openOverlayPermission();
+            AppPreferences.changed(this);
+            LyricsDisplayService.setSettingsVisible(this, true);
+        });
+        outputCard.addView(mainOverlaySwitch);
+        secondaryOverlaySwitch = toggle("副屏歌词", "直接在选中的非默认 Display 上创建独立悬浮层");
+        secondaryOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, checked).apply();
+            if (checked && !canDrawOverlays()) openOverlayPermission();
+            AppPreferences.changed(this);
+            LyricsDisplayService.setSettingsVisible(this, true);
+        });
+        outputCard.addView(secondaryOverlaySwitch);
+
+        TextView displayLabel = text("投屏屏幕", 13, 0xFF93A4B9, true);
+        displayLabel.setPadding(0, dp(14), 0, dp(5));
+        outputCard.addView(displayLabel);
+        displaySpinner = new Spinner(this, Spinner.MODE_DIALOG);
+        displaySpinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
+        outputCard.addView(displaySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        displayStatus = text("", 13, 0xFF8392A8, false);
+        displayStatus.setPadding(0, dp(5), 0, 0);
+        outputCard.addView(displayStatus);
+
+        TextView joystickLabel = text("副屏位置微调", 13, 0xFF93A4B9, true);
+        joystickLabel.setPadding(0, dp(16), 0, 0);
+        outputCard.addView(joystickLabel);
+        TextView joystickHelp = text("按住摇杆持续移动；松手后自动回中。副屏接入并开启后生效。", 12,
+                0xFF74869D, false);
+        joystickHelp.setPadding(0, dp(4), 0, dp(4));
+        outputCard.addView(joystickHelp);
+        SecondaryPositionJoystickView joystick = new SecondaryPositionJoystickView(this);
+        joystick.setListener((dx, dy) -> LyricsDisplayService.moveSecondaryBy(this, dx, dy));
+        LinearLayout.LayoutParams joystickParams = new LinearLayout.LayoutParams(dp(148), dp(148));
+        joystickParams.gravity = Gravity.CENTER_HORIZONTAL;
+        outputCard.addView(joystick, joystickParams);
+        root.addView(outputCard, cardMargins());
+
+        LinearLayout styleCard = card();
+        styleCard.addView(sectionLabel("悬浮窗风格与同步"));
+        addStyleSelector(styleCard);
+        MaterialButton layoutEditor = button("打开可视化布局编辑器", false);
+        layoutEditor.setOnClickListener(v -> {
+            AppPreferences.get(this).edit()
+                    .putString(AppPreferences.KEY_OVERLAY_STYLE, "custom").apply();
+            refreshPreview();
+            AppPreferences.changed(this);
+            startActivity(new Intent(this, LayoutEditorActivity.class));
+        });
+        LinearLayout.LayoutParams editorParams = new LinearLayout.LayoutParams(-1, dp(50));
+        editorParams.topMargin = dp(12);
+        styleCard.addView(layoutEditor, editorParams);
+        MaterialButton refinedSettings = button("Refined 风格详细设置", false);
+        refinedSettings.setOnClickListener(v -> {
+            AppPreferences.get(this).edit()
+                    .putString(AppPreferences.KEY_OVERLAY_STYLE, "refined").apply();
+            refreshPreview();
+            AppPreferences.changed(this);
+            startActivity(new Intent(this, RefinedSettingsActivity.class));
+        });
+        LinearLayout.LayoutParams refinedParams = new LinearLayout.LayoutParams(-1, dp(50));
+        refinedParams.topMargin = dp(10);
+        styleCard.addView(refinedSettings, refinedParams);
+        addSeekSetting(styleCard, "悬浮窗宽度", 240, 900,
+                AppPreferences.panelWidthDp(this), " dp",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_PANEL_WIDTH_DP, value).apply());
+        addSeekSetting(styleCard, "悬浮窗高度", 140, 600,
+                AppPreferences.panelHeightDp(this), " dp",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_PANEL_HEIGHT_DP, value).apply());
+        addSeekSetting(styleCard, "字号", 75, 150,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_TEXT_SCALE, 100), "%",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_TEXT_SCALE, value).apply());
+        addSeekSetting(styleCard, "背景不透明度", 45, 100,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_OPACITY, 88), "%",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_OPACITY, value).apply());
+        addSeekSetting(styleCard, "封面大小", 60, 150,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_COVER_SIZE, 100), "%",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_STYLE_COVER_SIZE, value).apply());
+        addSeekSetting(styleCard, "封面背景柔化", 0, 100,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_BLUR, 72), "%",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_STYLE_BLUR, value).apply());
+        addSeekSetting(styleCard, "封面背景遮罩", 0, 80,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_DIM, 38), "%",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_STYLE_DIM, value).apply());
+        addSeekSetting(styleCard, "歌词显示行数", 1, 3,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_STYLE_LYRIC_LINES, value).apply());
+        addSeekSetting(styleCard, "歌词时间校正", -5000, 5000,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_LYRIC_OFFSET, 0), " ms",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_LYRIC_OFFSET, value).apply());
+        root.addView(styleCard, cardMargins());
+
+        LinearLayout stateCard = card();
+        stateCard.addView(sectionLabel("当前媒体状态"));
+        musicStatus = text("等待播放器…", 14, 0xFFD8E1EE, false);
+        musicStatus.setLineSpacing(0f, 1.2f);
+        musicStatus.setPadding(0, dp(9), 0, 0);
+        stateCard.addView(musicStatus);
+        root.addView(stateCard, cardMargins());
+
+        TextView footnote = text("提示：播放器必须发布标准 Android MediaSession。副屏断开后服务会保留设置，重新接入同一 Display 时自动恢复。", 12,
+                0xFF66788F, false);
+        footnote.setLineSpacing(0f, 1.25f);
+        root.addView(footnote);
+        return scroll;
+    }
+
+    private void addStyleSelector(LinearLayout parent) {
+        TextView label = text("显示风格", 14, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(14), 0, dp(6));
+        parent.addView(label);
+        String[] labels = {"歌词伴侣默认", "Refined Now Playing", "PiPWindow", "自定义布局"};
+        String[] values = {"default", "refined", "pip", "custom"};
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels) {
+            @Override public View getView(int position, View convertView, ViewGroup parentView) {
+                TextView view = (TextView) super.getView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                  ViewGroup parentView) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+        };
+        spinner.setAdapter(adapter);
+        String saved = AppPreferences.overlayStyle(this);
+        int selection = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
+        spinner.setSelection(selection, false);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                 View view, int position, long id) {
+                if (values[position].equals(AppPreferences.overlayStyle(MainActivity.this))) return;
+                AppPreferences.get(MainActivity.this).edit()
+                        .putString(AppPreferences.KEY_OVERLAY_STYLE, values[position]).apply();
+                refreshPreview();
+                AppPreferences.changed(MainActivity.this);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView help = text("Refined 偏沉浸式大封面；PiPWindow 是暖色紧凑窗；自定义布局可拖动、隐藏每个内容块。",
+                12, 0xFF74869D, false);
+        help.setPadding(0, dp(5), 0, 0);
+        parent.addView(help);
+    }
+
+    private void bindPreferences() {
+        bindingUi = true;
+        mainOverlaySwitch.setChecked(AppPreferences.mainEnabled(this));
+        secondaryOverlaySwitch.setChecked(AppPreferences.secondaryEnabled(this));
+        bindingUi = false;
+    }
+
+    private void refreshStatus() {
+        boolean listener = hasNotificationAccess();
+        boolean overlay = canDrawOverlays();
+        permissionStatus.setText("音乐读取  " + (listener ? "已授权" : "未授权")
+                + "     悬浮窗  " + (overlay ? "已授权" : "未授权"));
+        permissionStatus.setTextColor(listener && overlay ? 0xFF6EE7F2 : 0xFFFFCA66);
+        musicStatus.setText(MusicStateStore.describe(this));
+    }
+
+    private void refreshDisplayChoices() {
+        DisplayManager manager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        List<DisplayChoice> choices = new ArrayList<>();
+        choices.add(new DisplayChoice(-1, "自动选择首个副屏"));
+        if (manager != null) {
+            for (Display display : manager.getDisplays()) {
+                if (display != null && display.getDisplayId() != Display.DEFAULT_DISPLAY) {
+                    choices.add(new DisplayChoice(display.getDisplayId(),
+                            display.getName() + "  ·  ID " + display.getDisplayId()));
+                }
+            }
+        }
+        ArrayAdapter<DisplayChoice> adapter = new ArrayAdapter<DisplayChoice>(this,
+                android.R.layout.simple_spinner_dropdown_item, choices) {
+            @Override public View getView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                styleSpinnerText(view);
+                return view;
+            }
+
+            @Override public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                styleSpinnerText(view);
+                return view;
+            }
+        };
+        bindingUi = true;
+        displaySpinner.setAdapter(adapter);
+        int selectedId = AppPreferences.displayId(this);
+        int selection = 0;
+        for (int i = 0; i < choices.size(); i++) {
+            if (choices.get(i).id == selectedId) selection = i;
+        }
+        displaySpinner.setSelection(selection);
+        displaySpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                                 int position, long id) {
+                if (bindingUi) return;
+                DisplayChoice choice = choices.get(position);
+                AppPreferences.get(MainActivity.this).edit()
+                        .putInt(AppPreferences.KEY_DISPLAY_ID, choice.id).apply();
+                AppPreferences.changed(MainActivity.this);
+                updateDisplayStatus(choices.size() - 1, choice);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+        bindingUi = false;
+        updateDisplayStatus(choices.size() - 1, choices.get(selection));
+    }
+
+    private void updateDisplayStatus(int count, DisplayChoice selected) {
+        if (count == 0) {
+            displayStatus.setText("当前未检测到副屏；接入 HDMI、虚拟屏或车机仪表屏后会自动出现。");
+        } else {
+            displayStatus.setText("检测到 " + count + " 块副屏 · 当前：" + selected.label);
+        }
+    }
+
+    private void addSeekSetting(LinearLayout parent, String title, int min, int max,
+                                int initial, String suffix, ValueConsumer consumer) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(14), 0, 0);
+        TextView label = text(title, 14, 0xFFD7E1EE, true);
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView valueText = text(formatValue(initial, suffix), 13, 0xFF6EE7F2, true);
+        row.addView(valueText);
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(max - min);
+        seek.setProgress(clamp(initial, min, max) - min);
+        seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+        seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int value = min + progress;
+                valueText.setText(formatValue(value, suffix));
+                if (fromUser) {
+                    consumer.accept(value);
+                    refreshPreview();
+                    AppPreferences.changed(MainActivity.this);
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+    }
+
+    private MaterialSwitch toggle(String title, String subtitle) {
+        MaterialSwitch view = new MaterialSwitch(this);
+        view.setText(title + "\n" + subtitle);
+        view.setTextColor(0xFFF3F7FC);
+        view.setTextSize(14f);
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        view.setPadding(0, dp(12), 0, dp(6));
+        view.setLineSpacing(0f, 1.15f);
+        return view;
+    }
+
+    private void refreshPreview() {
+        if (previewPanel == null) return;
+        previewPanel.reloadStyle();
+        ViewGroup.LayoutParams params = previewPanel.getLayoutParams();
+        if (params != null) {
+            params.height = previewHeightPx();
+            previewPanel.setLayoutParams(params);
+        }
+    }
+
+    private int previewHeightPx() {
+        float density = getResources().getDisplayMetrics().density;
+        float availableWidthDp = getResources().getDisplayMetrics().widthPixels / density - 72f;
+        float aspectHeightDp = availableWidthDp * AppPreferences.panelHeightDp(this)
+                / (float) AppPreferences.panelWidthDp(this);
+        return dp(Math.max(140f, Math.min(420f, aspectHeightDp)));
+    }
+
+    private LinearLayout card() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(15), dp(16), dp(16));
+        MaterialShapeDrawable surface = new MaterialShapeDrawable();
+        surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        surface.setCornerSize(dp(20));
+        surface.setElevation(dp(1));
+        card.setBackground(surface);
+        return card;
+    }
+
+    private LinearLayout.LayoutParams cardMargins() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(16);
+        return params;
+    }
+
+    private TextView sectionLabel(String value) { return text(value, 13, 0xFF6EE7F2, true); }
+
+    private TextView text(String value, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        return view;
+    }
+
+    private MaterialButton button(String value, boolean primary) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(value);
+        button.setTextSize(13f);
+        button.setTextColor(primary ? 0xFF07111F : 0xFFF1F5FA);
+        button.setAllCaps(false);
+        button.setCornerRadius(dp(15));
+        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                primary ? 0xFF6EE7F2 : 0xFF25364D));
+        return button;
+    }
+
+    private LinearLayout.LayoutParams weightedButton() {
+        return new LinearLayout.LayoutParams(0, dp(48), 1f);
+    }
+
+    private GradientDrawable solid(int color, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
+    }
+
+    private void styleSpinnerText(TextView view) {
+        view.setTextColor(0xFFF2F6FB);
+        view.setTextSize(14f);
+        view.setPadding(dp(12), dp(8), dp(12), dp(8));
+        view.setBackgroundColor(0xFF132238);
+    }
+
+    private boolean hasNotificationAccess() {
+        String enabled = Settings.Secure.getString(getContentResolver(),
+                "enabled_notification_listeners");
+        if (enabled == null) return false;
+        String[] entries = enabled.split(":");
+        for (String entry : entries) {
+            ComponentName component = ComponentName.unflattenFromString(entry);
+            if (component != null && getPackageName().equals(component.getPackageName())) return true;
+        }
+        return false;
+    }
+
+    private boolean canDrawOverlays() {
+        return Settings.canDrawOverlays(this);
+    }
+
+    private void openNotificationAccess() {
+        startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+    }
+
+    private void openOverlayPermission() {
+        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName()));
+        try { startActivity(intent); }
+        catch (Throwable ignored) { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)); }
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+        }
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private static String formatValue(int value, String suffix) {
+        return (value > 0 && suffix.trim().equals("ms") ? "+" : "") + value + suffix;
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(value, max));
+    }
+
+    private interface ValueConsumer { void accept(int value); }
+
+    private static final class DisplayChoice {
+        final int id;
+        final String label;
+        DisplayChoice(int id, String label) { this.id = id; this.label = label; }
+        @Override public String toString() { return label; }
+    }
+}
