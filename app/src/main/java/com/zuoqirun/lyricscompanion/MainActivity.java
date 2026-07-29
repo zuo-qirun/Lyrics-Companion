@@ -136,6 +136,20 @@ public final class MainActivity extends AppCompatActivity {
         accessCard.addView(permissionButtons);
         root.addView(accessCard, cardMargins());
 
+        LinearLayout lyricCard = card();
+        lyricCard.addView(sectionLabel("歌词匹配"));
+        MaterialSwitch playerCatalogFallback = toggle("回退到播放器同源词库",
+                "手动选择的词库无结果时，再尝试从应用名称识别出的播放器词库");
+        addLyricCatalogSelector(lyricCard, playerCatalogFallback);
+        playerCatalogFallback.setChecked(AppPreferences.playerCatalogFallback(this));
+        playerCatalogFallback.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_PLAYER_CATALOG_FALLBACK, checked).apply();
+            MusicStateStore.reloadLyrics(this);
+        });
+        lyricCard.addView(playerCatalogFallback);
+        root.addView(lyricCard, cardMargins());
+
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("显示位置"));
         mainOverlaySwitch = toggle("主屏悬浮窗", "离开设置页后显示；可拖动，轻触可返回设置");
@@ -301,6 +315,59 @@ public final class MainActivity extends AppCompatActivity {
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
+    }
+
+    private void addLyricCatalogSelector(LinearLayout parent,
+                                         MaterialSwitch playerCatalogFallback) {
+        TextView label = text("优先匹配词库", 14, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(14), 0, dp(6));
+        parent.addView(label);
+        String[] labels = {"自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐"};
+        String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo"};
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels) {
+            @Override public View getView(int position, View convertView, ViewGroup parentView) {
+                TextView view = (TextView) super.getView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                  ViewGroup parentView) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+        };
+        spinner.setAdapter(adapter);
+        String saved = AppPreferences.lyricCatalog(this);
+        int selection = 0;
+        for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
+        spinner.setSelection(selection, false);
+        updatePlayerCatalogFallbackEnabled(playerCatalogFallback, selection != 0);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                 View view, int position, long id) {
+                updatePlayerCatalogFallbackEnabled(playerCatalogFallback, position != 0);
+                if (values[position].equals(AppPreferences.lyricCatalog(MainActivity.this))) return;
+                AppPreferences.get(MainActivity.this).edit()
+                        .putString(AppPreferences.KEY_LYRIC_CATALOG, values[position]).apply();
+                MusicStateStore.reloadLyrics(MainActivity.this);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView help = text("自动模式优先使用识别出的播放器同源词库；手动模式始终先尝试所选词库。",
+                12, 0xFF74869D, false);
+        help.setPadding(0, dp(5), 0, 0);
+        parent.addView(help);
+    }
+
+    private static void updatePlayerCatalogFallbackEnabled(MaterialSwitch view,
+                                                            boolean enabled) {
+        view.setEnabled(enabled);
+        view.setAlpha(enabled ? 1f : 0.55f);
     }
 
     private void bindPreferences() {

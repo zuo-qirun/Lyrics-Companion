@@ -30,14 +30,12 @@ final class MultiSourceLyricClient {
         kuwo = new KuwoLyricClient(context);
     }
 
-    Result load(String currentSource, String mediaId, String title, String artist,
-                long durationMs) throws Exception {
-        String preferred = providerForSource(currentSource);
-        List<String> providers = new ArrayList<>(Arrays.asList(
-                "netease", "qqmusic", "kugou", "kuwo"));
+    Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
+                String mediaId, String title, String artist, long durationMs) throws Exception {
+        CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback);
         CompletionService<Result> completion = new ExecutorCompletionService<>(fallbackPool);
         List<Future<Result>> futures = new ArrayList<>();
-        for (String provider : providers) {
+        for (String provider : plan.providers) {
             futures.add(completion.submit(() -> tryProvider(
                     provider, directMediaId(currentSource, provider, mediaId),
                     title, artist, durationMs)));
@@ -54,10 +52,13 @@ final class MultiSourceLyricClient {
                     Result result = completed.get();
                     if (!result.timeline.isEmpty()) {
                         successful.add(result);
-                        if (result.providerId.equals(preferred)) return result;
-                        long graceDeadline = System.nanoTime()
-                                + TimeUnit.MILLISECONDS.toNanos(1_500L);
-                        deadline = Math.min(deadline, graceDeadline);
+                        if (!plan.priority.isEmpty()
+                                && result.providerId.equals(plan.priority.get(0))) return result;
+                        if (!plan.manualSelection) {
+                            long graceDeadline = System.nanoTime()
+                                    + TimeUnit.MILLISECONDS.toNanos(1_500L);
+                            deadline = Math.min(deadline, graceDeadline);
+                        }
                     }
                 } catch (Exception error) {
                     Log.d(TAG, "Fallback catalog failed", error);
@@ -66,7 +67,7 @@ final class MultiSourceLyricClient {
         } finally {
             for (Future<Result> future : futures) future.cancel(true);
         }
-        return chooseResult(preferred, successful);
+        return chooseResult(plan.priority, successful);
     }
 
     private Result tryProvider(String provider, String mediaId, String title, String artist,
@@ -110,19 +111,52 @@ final class MultiSourceLyricClient {
         return "";
     }
 
+    static CatalogPlan catalogPlan(String currentSource, String selectedCatalog,
+                                   boolean playerCatalogFallback) {
+        List<String> providers = new ArrayList<>(Arrays.asList(
+                "netease", "qqmusic", "kugou", "kuwo"));
+        List<String> priority = new ArrayList<>();
+        String selected = providerForSource(selectedCatalog);
+        String player = providerForSource(currentSource);
+        if (selected.isEmpty()) {
+            if (!player.isEmpty()) priority.add(player);
+        } else {
+            priority.add(selected);
+            if (!player.isEmpty() && !player.equals(selected)) {
+                if (playerCatalogFallback) priority.add(player);
+                else providers.remove(player);
+            }
+        }
+        return new CatalogPlan(providers, priority, !selected.isEmpty());
+    }
+
     static String directMediaId(String currentSource, String provider, String mediaId) {
         return "netease".equals(currentSource) && "netease".equals(provider)
                 ? mediaId : "";
     }
 
-    static Result chooseResult(String preferred, List<Result> successful) {
+    static Result chooseResult(List<String> priority, List<Result> successful) {
         if (successful == null || successful.isEmpty()) return Result.EMPTY;
-        if (preferred != null && !preferred.isEmpty()) {
-            for (Result result : successful) {
-                if (preferred.equals(result.providerId)) return result;
+        if (priority != null) {
+            for (String provider : priority) {
+                for (Result result : successful) {
+                    if (provider.equals(result.providerId)) return result;
+                }
             }
         }
         return successful.get(0);
+    }
+
+    static final class CatalogPlan {
+        final List<String> providers;
+        final List<String> priority;
+        final boolean manualSelection;
+
+        CatalogPlan(List<String> providers, List<String> priority, boolean manualSelection) {
+            this.providers = providers;
+            this.priority = priority;
+            this.manualSelection = manualSelection;
+        }
     }
 
     static final class Result {

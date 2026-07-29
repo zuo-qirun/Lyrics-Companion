@@ -46,9 +46,34 @@ public class MusicAppRegistryTest {
         MultiSourceLyricClient.Result netease = new MultiSourceLyricClient.Result(
                 LrcTimeline.EMPTY, "网易云音乐", "netease");
         assertEquals("qqmusic", MultiSourceLyricClient.chooseResult(
-                "", Arrays.asList(qq, netease)).providerId);
+                Arrays.asList(), Arrays.asList(qq, netease)).providerId);
         assertEquals("netease", MultiSourceLyricClient.chooseResult(
-                "netease", Arrays.asList(qq, netease)).providerId);
+                Arrays.asList("netease"), Arrays.asList(qq, netease)).providerId);
+    }
+
+    @Test public void manualCatalogCanFallbackToRecognizedPlayerCatalog() {
+        MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
+                "qqmusic", "kugou", true);
+        assertEquals(Arrays.asList("kugou", "qqmusic"), plan.priority);
+        assertTrue(plan.providers.contains("qqmusic"));
+        assertTrue(plan.manualSelection);
+    }
+
+    @Test public void playerCatalogCanBeExcludedFromManualFallback() {
+        MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
+                "qqmusic", "kugou", false);
+        assertEquals(Arrays.asList("kugou"), plan.priority);
+        assertFalse(plan.providers.contains("qqmusic"));
+        assertTrue(plan.providers.contains("kugou"));
+    }
+
+    @Test public void automaticCatalogStillUsesRecognizedPlayerFirst() {
+        MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
+                "kuwo", "auto", false);
+        assertEquals(Arrays.asList("kuwo"), plan.priority);
+        assertFalse(plan.manualSelection);
+        assertTrue(plan.providers.containsAll(Arrays.asList(
+                "netease", "qqmusic", "kugou", "kuwo")));
     }
 
     private static void assertSource(String expected, String packageName, String label) {

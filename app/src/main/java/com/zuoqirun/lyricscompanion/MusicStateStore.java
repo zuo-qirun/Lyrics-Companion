@@ -86,8 +86,11 @@ final class MusicStateStore {
         String normalizedSource = TextUtils.isEmpty(newSource) ? "media" : newSource;
         String normalizedSourceName = TextUtils.isEmpty(newSourceName)
                 ? "音乐播放器" : newSourceName;
+        String selectedCatalog = AppPreferences.lyricCatalog(context);
+        boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         String newTrackKey = normalizedSource + "\n" + newTitle + "\n" + newArtist
-                + "\n" + newDuration + "\n" + newMediaId;
+                + "\n" + newDuration + "\n" + newMediaId + "\n" + selectedCatalog
+                + "\n" + playerCatalogFallback;
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
         synchronized (LOCK) {
@@ -122,7 +125,7 @@ final class MusicStateStore {
         }
         if (generationToLoad >= 0L && !TextUtils.isEmpty(newTitle)) {
             scheduleLyricLoad(generationToLoad, normalizedSource, newMediaId,
-                    newTitle, newArtist, newDuration);
+                    newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback);
             if (newAlbumArt == null && TextUtils.isEmpty(newAlbumArtUri)) {
                 scheduleCatalogAlbumArtLoad(generationToLoad, newTitle, newArtist, newDuration);
             }
@@ -165,6 +168,35 @@ final class MusicStateStore {
         }
     }
 
+    static void reloadLyrics(Context context) {
+        initialize(context);
+        long generation;
+        String requestedSource;
+        String requestedMediaId;
+        String requestedTitle;
+        String requestedArtist;
+        long requestedDuration;
+        String selectedCatalog = AppPreferences.lyricCatalog(context);
+        boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
+        synchronized (LOCK) {
+            if (TextUtils.isEmpty(title)) return;
+            requestedSource = source;
+            requestedMediaId = mediaId;
+            requestedTitle = title;
+            requestedArtist = artist;
+            requestedDuration = durationMs;
+            trackKey = requestedSource + "\n" + requestedTitle + "\n" + requestedArtist
+                    + "\n" + requestedDuration + "\n" + requestedMediaId + "\n"
+                    + selectedCatalog + "\n" + playerCatalogFallback;
+            timeline = LrcTimeline.EMPTY;
+            lyricLoadFinished = false;
+            lyricSourceName = "";
+            generation = ++trackGeneration;
+        }
+        scheduleLyricLoad(generation, requestedSource, requestedMediaId, requestedTitle,
+                requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback);
+    }
+
     static String describe(Context context) {
         MusicSnapshot snapshot = snapshot(AppPreferences.lyricOffsetMs(context));
         if (!snapshot.active) return "等待兼容的音乐播放器";
@@ -182,11 +214,13 @@ final class MusicStateStore {
     private static void scheduleLyricLoad(long generation, String requestedSource,
                                           String requestedMediaId,
                                           String requestedTitle, String requestedArtist,
-                                          long requestedDuration) {
+                                          long requestedDuration, String selectedCatalog,
+                                          boolean playerCatalogFallback) {
         LYRIC_EXECUTOR.execute(() -> {
             try {
                 MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
-                        requestedMediaId, requestedTitle, requestedArtist, requestedDuration);
+                        selectedCatalog, playerCatalogFallback, requestedMediaId,
+                        requestedTitle, requestedArtist, requestedDuration);
                 synchronized (LOCK) {
                     if (generation != trackGeneration) return;
                     timeline = result.timeline;

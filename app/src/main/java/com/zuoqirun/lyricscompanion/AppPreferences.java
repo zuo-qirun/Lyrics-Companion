@@ -20,6 +20,8 @@ final class AppPreferences {
     static final String KEY_TEXT_SCALE = "text_scale";
     static final String KEY_OPACITY = "opacity";
     static final String KEY_LYRIC_OFFSET = "lyric_offset";
+    static final String KEY_LYRIC_CATALOG = "lyric_catalog";
+    static final String KEY_PLAYER_CATALOG_FALLBACK = "player_catalog_fallback";
     static final String KEY_MAIN_X = "main_x";
     static final String KEY_MAIN_Y = "main_y";
     static final String KEY_SECONDARY_X = "secondary_x";
@@ -90,6 +92,17 @@ final class AppPreferences {
 
     static int lyricOffsetMs(Context context) {
         return get(context).getInt(KEY_LYRIC_OFFSET, 0);
+    }
+
+    static String lyricCatalog(Context context) {
+        String value = get(context).getString(KEY_LYRIC_CATALOG, "auto");
+        if ("netease".equals(value) || "qqmusic".equals(value)
+                || "kugou".equals(value) || "kuwo".equals(value)) return value;
+        return "auto";
+    }
+
+    static boolean playerCatalogFallback(Context context) {
+        return get(context).getBoolean(KEY_PLAYER_CATALOG_FALLBACK, true);
     }
 
     static String overlayStyle(Context context) {
