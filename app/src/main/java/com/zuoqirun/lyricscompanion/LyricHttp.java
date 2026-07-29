@@ -18,6 +18,7 @@ final class LyricHttp {
 
     static String request(String method, String address, String referer, String body)
             throws Exception {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         try {
             connection.setRequestMethod(method);
@@ -42,6 +43,7 @@ final class LyricHttp {
             if (status < 200 || status >= 300) {
                 throw new IllegalStateException("HTTP " + status + " from " + address);
             }
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             return response;
         } finally {
             connection.disconnect();

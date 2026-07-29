@@ -6,22 +6,14 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
-/** Uses the current player's catalog first, then races the remaining lyric catalogs. */
+/** Uses the preferred catalog first, then checks each remaining catalog in order. */
 final class MultiSourceLyricClient {
     private static final String TAG = "LyricsCatalog";
-    private static final long FALLBACK_TIMEOUT_MS = 13_000L;
     private final NetEaseLyricClient netease;
     private final QQMusicLyricClient qq;
     private final KugouLyricClient kugou;
     private final KuwoLyricClient kuwo;
-    private final ExecutorService fallbackPool = Executors.newFixedThreadPool(4);
 
     MultiSourceLyricClient(Context context) {
         netease = new NetEaseLyricClient(context);
@@ -33,41 +25,16 @@ final class MultiSourceLyricClient {
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
                 String mediaId, String title, String artist, long durationMs) throws Exception {
         CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback);
-        CompletionService<Result> completion = new ExecutorCompletionService<>(fallbackPool);
-        List<Future<Result>> futures = new ArrayList<>();
         for (String provider : plan.providers) {
-            futures.add(completion.submit(() -> tryProvider(
-                    provider, directMediaId(currentSource, provider, mediaId),
-                    title, artist, durationMs)));
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            Log.i(TAG, "Trying catalog " + provider + ": " + title + " / " + artist);
+            Result result = tryProvider(provider,
+                    directMediaId(currentSource, provider, mediaId),
+                    title, artist, durationMs);
+            if (!result.timeline.isEmpty()) return result;
+            Log.i(TAG, "No lyric in catalog " + provider + ": " + title);
         }
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(FALLBACK_TIMEOUT_MS);
-        List<Result> successful = new ArrayList<>();
-        try {
-            for (int remaining = futures.size(); remaining > 0; remaining--) {
-                long waitNanos = deadline - System.nanoTime();
-                if (waitNanos <= 0L) break;
-                Future<Result> completed = completion.poll(waitNanos, TimeUnit.NANOSECONDS);
-                if (completed == null) break;
-                try {
-                    Result result = completed.get();
-                    if (!result.timeline.isEmpty()) {
-                        successful.add(result);
-                        if (!plan.priority.isEmpty()
-                                && result.providerId.equals(plan.priority.get(0))) return result;
-                        if (!plan.manualSelection) {
-                            long graceDeadline = System.nanoTime()
-                                    + TimeUnit.MILLISECONDS.toNanos(1_500L);
-                            deadline = Math.min(deadline, graceDeadline);
-                        }
-                    }
-                } catch (Exception error) {
-                    Log.d(TAG, "Fallback catalog failed", error);
-                }
-            }
-        } finally {
-            for (Future<Result> future : futures) future.cancel(true);
-        }
-        return chooseResult(plan.priority, successful);
+        return Result.EMPTY;
     }
 
     private Result tryProvider(String provider, String mediaId, String title, String artist,
@@ -115,19 +82,30 @@ final class MultiSourceLyricClient {
                                    boolean playerCatalogFallback) {
         List<String> providers = new ArrayList<>(Arrays.asList(
                 "netease", "qqmusic", "kugou", "kuwo"));
+        List<String> ordered = new ArrayList<>();
         List<String> priority = new ArrayList<>();
         String selected = providerForSource(selectedCatalog);
         String player = providerForSource(currentSource);
         if (selected.isEmpty()) {
-            if (!player.isEmpty()) priority.add(player);
+            if (!player.isEmpty()) {
+                priority.add(player);
+                ordered.add(player);
+            }
         } else {
             priority.add(selected);
+            ordered.add(selected);
             if (!player.isEmpty() && !player.equals(selected)) {
-                if (playerCatalogFallback) priority.add(player);
+                if (playerCatalogFallback) {
+                    priority.add(player);
+                    ordered.add(player);
+                }
                 else providers.remove(player);
             }
         }
-        return new CatalogPlan(providers, priority, !selected.isEmpty());
+        for (String provider : providers) {
+            if (!ordered.contains(provider)) ordered.add(provider);
+        }
+        return new CatalogPlan(ordered, priority, !selected.isEmpty());
     }
 
     static String directMediaId(String currentSource, String provider, String mediaId) {

@@ -10,11 +10,12 @@ import android.util.Log;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 final class MusicStateStore {
     private static final String TAG = "LyricsMusicState";
     private static final Object LOCK = new Object();
-    private static final ExecutorService LYRIC_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final ExecutorService LYRIC_EXECUTOR = Executors.newCachedThreadPool();
     private static final ExecutorService ART_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private static Context appContext;
@@ -39,6 +40,7 @@ final class MusicStateStore {
     private static LrcTimeline timeline = LrcTimeline.EMPTY;
     private static boolean lyricLoadFinished;
     private static String lyricSourceName = "";
+    private static Future<?> lyricLoadTask;
 
     private MusicStateStore() {}
 
@@ -132,6 +134,7 @@ final class MusicStateStore {
                 if (newAlbumArt == null) albumArt = null;
                 loadingAlbumArtUri = "";
                 generationToLoad = ++trackGeneration;
+                cancelLyricLoadLocked();
             }
             if (changed || playbackModeChanged) {
                 Log.i(TAG, "Position sync state=" + stateValue + " advancing=" + newPlaying
@@ -178,6 +181,7 @@ final class MusicStateStore {
             lyricLoadFinished = false;
             lyricSourceName = "";
             trackGeneration++;
+            cancelLyricLoadLocked();
         }
     }
 
@@ -231,6 +235,7 @@ final class MusicStateStore {
             lyricLoadFinished = false;
             lyricSourceName = "";
             generation = ++trackGeneration;
+            cancelLyricLoadLocked();
         }
         scheduleLyricLoad(generation, requestedSource, requestedMediaId, requestedTitle,
                 requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback);
@@ -255,24 +260,34 @@ final class MusicStateStore {
                                           String requestedTitle, String requestedArtist,
                                           long requestedDuration, String selectedCatalog,
                                           boolean playerCatalogFallback) {
-        LYRIC_EXECUTOR.execute(() -> {
-            try {
-                MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
-                        selectedCatalog, playerCatalogFallback, requestedMediaId,
-                        requestedTitle, requestedArtist, requestedDuration);
-                synchronized (LOCK) {
-                    if (generation != trackGeneration) return;
-                    timeline = result.timeline;
-                    lyricSourceName = result.sourceName;
-                    lyricLoadFinished = true;
+        synchronized (LOCK) {
+            if (generation != trackGeneration) return;
+            lyricLoadTask = LYRIC_EXECUTOR.submit(() -> {
+                try {
+                    MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
+                            selectedCatalog, playerCatalogFallback, requestedMediaId,
+                            requestedTitle, requestedArtist, requestedDuration);
+                    synchronized (LOCK) {
+                        if (generation != trackGeneration) return;
+                        timeline = result.timeline;
+                        lyricSourceName = result.sourceName;
+                        lyricLoadFinished = true;
+                    }
+                } catch (Throwable error) {
+                    Log.w(TAG, "Unable to load lyric for " + requestedTitle, error);
+                    synchronized (LOCK) {
+                        if (generation == trackGeneration) lyricLoadFinished = true;
+                    }
                 }
-            } catch (Throwable error) {
-                Log.w(TAG, "Unable to load lyric for " + requestedTitle, error);
-                synchronized (LOCK) {
-                    if (generation == trackGeneration) lyricLoadFinished = true;
-                }
-            }
-        });
+            });
+        }
+    }
+
+    private static void cancelLyricLoadLocked() {
+        if (lyricLoadTask != null) {
+            lyricLoadTask.cancel(true);
+            lyricLoadTask = null;
+        }
     }
 
     private static void scheduleAlbumArtLoad(long generation, String address) {

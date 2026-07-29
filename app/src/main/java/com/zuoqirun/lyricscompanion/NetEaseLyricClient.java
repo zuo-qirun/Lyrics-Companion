@@ -121,6 +121,7 @@ final class NetEaseLyricClient {
     }
 
     private String request(String method, String address, String body) throws Exception {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         try {
             connection.setRequestMethod(method);
@@ -143,6 +144,7 @@ final class NetEaseLyricClient {
             if (status < 200 || status >= 300) {
                 throw new IllegalStateException("网易云接口返回 HTTP " + status);
             }
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             return response;
         } finally {
             connection.disconnect();

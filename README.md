@@ -35,13 +35,13 @@ NotificationListenerService
   -> MediaSessionManager.getActiveSessions()
   -> 选择正在播放且有元数据的会话
   -> 当前播放器同源乐库优先匹配
-  -> 网易云 / QQ 音乐 / 酷狗 / 酷我并行兜底
+  -> 网易云 / QQ 音乐 / 酷狗 / 酷我按优先级依次兜底
   -> 优先解析 YRC，失败时回退 LRC
   -> 按 PlaybackState 的位置和速度实时插值
   -> 主屏悬浮窗 + 副屏 WindowManager 同步绘制
 ```
 
-支持网易云音乐、QQ 音乐、酷狗、酷我、Spotify、汽水音乐、咪咕音乐、小米音乐、华为音乐、Apple Music、YouTube Music、Amazon Music，以及其他正确发布标准 `MediaSession` 的播放器。网易云、QQ 音乐、酷狗、酷我会优先使用各自乐库；汽水音乐等来源会按歌名、歌手、时长跨四个乐库并行匹配。
+支持网易云音乐、QQ 音乐、酷狗、酷我、Spotify、汽水音乐、咪咕音乐、小米音乐、华为音乐、Apple Music、YouTube Music、Amazon Music，以及其他正确发布标准 `MediaSession` 的播放器。网易云、QQ 音乐、酷狗、酷我会优先使用各自乐库；汽水音乐等来源会按歌名、歌手、时长依次查询四个乐库，当前库明确无结果后才进入下一库。
 
 ## 构建
 

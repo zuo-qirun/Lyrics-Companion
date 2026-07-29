@@ -447,7 +447,7 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView help = text("自动模式优先使用识别出的播放器同源词库；手动模式始终先尝试所选词库。",
+        TextView help = text("自动模式优先使用识别出的播放器同源词库；手动模式始终先尝试所选词库。当前词库无结果后才依次查询下一词库。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);

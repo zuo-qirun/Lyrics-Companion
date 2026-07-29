@@ -101,6 +101,38 @@ public class LiveEnhancedLyricTest {
         assertFalse(translated.isEmpty());
     }
 
+    @Test public void recordedCarTrackCanBeFoundOnNetEase() throws Exception {
+        requireLive();
+        String title = "Nothin' on Me";
+        String artist = "Leah Marie Perez";
+        JSONObject search = new JSONObject(LyricHttp.request("POST",
+                "https://music.163.com/api/search/get/web",
+                "https://music.163.com/",
+                "s=" + LyricHttp.encode(title + " " + artist)
+                        + "&type=1&limit=10&offset=0"));
+        JSONArray songs = search.optJSONObject("result").optJSONArray("songs");
+        long songId = -1L;
+        for (int index = 0; index < songs.length(); index++) {
+            JSONObject song = songs.optJSONObject(index);
+            JSONArray artists = song.optJSONArray("artists");
+            String candidateArtist = artists == null || artists.length() == 0 ? ""
+                    : artists.optJSONObject(0).optString("name", "");
+            if (NetEaseLyricClient.matchScore(title, artist, 217_000L,
+                    song.optString("name", ""), candidateArtist,
+                    song.optLong("duration", -1L)) >= 100) {
+                songId = song.optLong("id", -1L);
+                break;
+            }
+        }
+        assertTrue(songId > 0L);
+        JSONObject lyric = new JSONObject(LyricHttp.get(
+                "https://music.163.com/api/song/lyric?id=" + songId
+                        + "&lv=-1&kv=-1&tv=-1&yv=-1&rv=-1",
+                "https://music.163.com/"));
+        assertFalse(LrcTimeline.parse(
+                lyric.optJSONObject("lrc").optString("lyric", ""), "").isEmpty());
+    }
+
     private static void requireLive() {
         Assume.assumeTrue("1".equals(System.getenv("LIVE_LYRIC_TEST")));
     }

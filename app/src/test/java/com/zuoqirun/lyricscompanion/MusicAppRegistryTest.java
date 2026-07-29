@@ -57,6 +57,8 @@ public class MusicAppRegistryTest {
         MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
                 "qqmusic", "kugou", true);
         assertEquals(Arrays.asList("kugou", "qqmusic"), plan.priority);
+        assertEquals(Arrays.asList("kugou", "qqmusic", "netease", "kuwo"),
+                plan.providers);
         assertTrue(plan.providers.contains("qqmusic"));
         assertTrue(plan.manualSelection);
     }
@@ -76,6 +78,7 @@ public class MusicAppRegistryTest {
         assertFalse(plan.manualSelection);
         assertTrue(plan.providers.containsAll(Arrays.asList(
                 "netease", "qqmusic", "kugou", "kuwo")));
+        assertEquals("kuwo", plan.providers.get(0));
     }
 
     @Test public void catalogRecognitionDoesNotBiasActiveSessionSelection() {
