@@ -44,7 +44,7 @@ final class MultiSourceLyricClient {
         List<Future<Result>> futures = new ArrayList<>();
         for (String provider : providers) {
             futures.add(completion.submit(() -> tryProvider(
-                    provider, "netease".equals(provider) ? mediaId : "",
+                    provider, directMediaId(currentSource, provider, mediaId),
                     title, artist, durationMs)));
         }
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(FALLBACK_TIMEOUT_MS);
@@ -118,6 +118,11 @@ final class MultiSourceLyricClient {
         if ("netease".equals(source) || "qqmusic".equals(source)
                 || "kugou".equals(source) || "kuwo".equals(source)) return source;
         return "";
+    }
+
+    static String directMediaId(String currentSource, String provider, String mediaId) {
+        return "netease".equals(currentSource) && "netease".equals(provider)
+                ? mediaId : "";
     }
 
     static final class Result {

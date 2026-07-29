@@ -6,8 +6,13 @@ final class MusicAppRegistry {
     private static final App[] KNOWN_APPS = {
             new App("netease", "网易云音乐", "com.netease.cloudmusic"),
             new App("qqmusic", "QQ 音乐", "com.tencent.qqmusic"),
+            new App("qqmusic", "QQ 音乐", "com.tencent.qqmusiccar"),
             new App("kugou", "酷狗音乐", "com.kugou.android"),
+            new App("kugou", "酷狗音乐", "com.kugou.auto"),
             new App("kuwo", "酷我音乐", "cn.kuwo.player"),
+            new App("kuwo", "酷我音乐", "cn.kuwo.kwmusiccar"),
+            new App("kuwo", "酷我音乐", "cn.kuwo.kwmusic"),
+            new App("kuwo", "酷我音乐", "cn.kuwo.car"),
             new App("spotify", "Spotify", "com.spotify.music"),
             new App("soda", "汽水音乐", "com.luna.music"),
             new App("migu", "咪咕音乐", "cmccwm.mobilemusic"),
@@ -27,14 +32,35 @@ final class MusicAppRegistry {
                     || normalizedPackage.startsWith(app.packagePrefix + ".")) return app;
         }
         String label = safe(applicationLabel).trim();
+        App labelMatch = resolveLabel(label, normalizedPackage);
+        if (labelMatch != null) return labelMatch;
         if (label.isEmpty()) {
             int separator = normalizedPackage.lastIndexOf('.');
             label = separator >= 0 ? normalizedPackage.substring(separator + 1) : normalizedPackage;
         }
-        if (label.isEmpty() || "player".equals(label) || "music".equals(label)) {
+        if (label.isEmpty() || "player".equalsIgnoreCase(label)
+                || "music".equalsIgnoreCase(label)) {
             label = "音乐播放器";
         }
         return new App("media", label, normalizedPackage, false);
+    }
+
+    private static App resolveLabel(String applicationLabel, String packageName) {
+        String label = safe(applicationLabel).toLowerCase(Locale.ROOT)
+                .replace(" ", "").replace("-", "").replace("_", "");
+        if (label.contains("网易云") || label.contains("cloudmusic")) {
+            return new App("netease", "网易云音乐", packageName);
+        }
+        if (label.contains("qq音乐") || label.contains("qqmusic")) {
+            return new App("qqmusic", "QQ 音乐", packageName);
+        }
+        if (label.contains("酷狗") || label.contains("kugou")) {
+            return new App("kugou", "酷狗音乐", packageName);
+        }
+        if (label.contains("酷我") || label.contains("kuwo")) {
+            return new App("kuwo", "酷我音乐", packageName);
+        }
+        return null;
     }
 
     static int selectionScore(int playbackRank, boolean hasMetadata,
