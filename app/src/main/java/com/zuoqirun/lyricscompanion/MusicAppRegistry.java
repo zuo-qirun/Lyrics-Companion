@@ -76,7 +76,6 @@ final class MusicAppRegistry {
         int score = playbackRank;
         if (hasMetadata) score += 200;
         if (supportsTransportControls) score += 40;
-        if (known) score += 80;
         if (currentSession) score += 10;
         return score;
     }

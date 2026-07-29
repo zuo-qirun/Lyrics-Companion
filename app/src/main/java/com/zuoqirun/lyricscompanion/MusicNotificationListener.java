@@ -28,6 +28,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     private MediaSessionManager sessionManager;
     private MediaController controller;
     private boolean connected;
+    private static volatile boolean listenerConnected;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsChanged =
             this::onSessionsChanged;
@@ -53,6 +54,8 @@ public final class MusicNotificationListener extends NotificationListenerService
     @Override public void onListenerConnected() {
         super.onListenerConnected();
         connected = true;
+        listenerConnected = true;
+        Log.i(TAG, "Notification listener connected");
         try {
             if (sessionManager != null) {
                 sessionManager.addOnActiveSessionsChangedListener(sessionsChanged,
@@ -157,6 +160,7 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     private void stopListening() {
         connected = false;
+        listenerConnected = false;
         handler.removeCallbacks(sessionPoll);
         try {
             if (sessionManager != null) {
@@ -169,6 +173,10 @@ public final class MusicNotificationListener extends NotificationListenerService
         observedControllers.clear();
         controller = null;
         MusicStateStore.clear();
+    }
+
+    static boolean isListenerConnected() {
+        return listenerConnected;
     }
 
     private static boolean sameSession(MediaController left, MediaController right) {

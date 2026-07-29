@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
@@ -77,6 +78,7 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        ensureNotificationListenerConnected();
         bindPreferences();
         refreshDisplayChoices();
         refreshPreview();
@@ -433,7 +435,11 @@ public final class MainActivity extends AppCompatActivity {
     private void refreshStatus() {
         boolean listener = hasNotificationAccess();
         boolean overlay = canDrawOverlays();
-        permissionStatus.setText("音乐读取  " + (listener ? "已授权" : "未授权")
+        String listenerState = listener
+                ? MusicNotificationListener.isListenerConnected() ? "已授权 · 服务运行"
+                : "已授权 · 正在连接"
+                : "未授权";
+        permissionStatus.setText("音乐读取  " + listenerState
                 + "     悬浮窗  " + (overlay ? "已授权" : "未授权"));
         permissionStatus.setTextColor(listener && overlay ? 0xFF6EE7F2 : 0xFFFFCA66);
         musicStatus.setText(MusicStateStore.describe(this));
@@ -717,6 +723,15 @@ public final class MainActivity extends AppCompatActivity {
 
     private void openNotificationAccess() {
         startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+    }
+
+    private void ensureNotificationListenerConnected() {
+        if (!hasNotificationAccess() || MusicNotificationListener.isListenerConnected()
+                || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        try {
+            NotificationListenerService.requestRebind(
+                    new ComponentName(this, MusicNotificationListener.class));
+        } catch (Throwable ignored) { }
     }
 
     private void openOverlayPermission() {

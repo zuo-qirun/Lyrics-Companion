@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import android.media.session.PlaybackState;
+
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -74,6 +76,18 @@ public class MusicAppRegistryTest {
         assertFalse(plan.manualSelection);
         assertTrue(plan.providers.containsAll(Arrays.asList(
                 "netease", "qqmusic", "kugou", "kuwo")));
+    }
+
+    @Test public void catalogRecognitionDoesNotBiasActiveSessionSelection() {
+        assertEquals(MusicAppRegistry.selectionScore(0, true, false, false, false),
+                MusicAppRegistry.selectionScore(0, true, false, true, false));
+    }
+
+    @Test public void metadataOnlyCarSessionRemainsDisplayable() {
+        assertTrue(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_NONE));
+        assertTrue(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_PAUSED));
+        assertFalse(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_STOPPED));
+        assertFalse(MusicStateStore.isDisplayableSession("", PlaybackState.STATE_PLAYING));
     }
 
     private static void assertSource(String expected, String packageName, String label) {

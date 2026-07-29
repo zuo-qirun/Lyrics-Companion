@@ -75,10 +75,7 @@ final class MusicStateStore {
         boolean newPlaying = stateValue == PlaybackState.STATE_PLAYING
                 || stateValue == PlaybackState.STATE_FAST_FORWARDING
                 || stateValue == PlaybackState.STATE_REWINDING;
-        boolean newActive = !TextUtils.isEmpty(newTitle)
-                && stateValue != PlaybackState.STATE_NONE
-                && stateValue != PlaybackState.STATE_STOPPED
-                && stateValue != PlaybackState.STATE_ERROR;
+        boolean newActive = isDisplayableSession(newTitle, stateValue);
         long newPosition = state == null || state.getPosition() < 0L ? 0L : state.getPosition();
         long newPositionTime = state == null || state.getLastPositionUpdateTime() <= 0L
                 ? SystemClock.elapsedRealtime() : state.getLastPositionUpdateTime();
@@ -293,4 +290,15 @@ final class MusicStateStore {
     }
 
     private static String safe(String value) { return value == null ? "" : value; }
+
+    /**
+     * Some automotive MediaSession implementations publish metadata and position updates while
+     * leaving playbackState at STATE_NONE. The notification listener already treats those
+     * sessions as usable, so hiding them here made every such player look unsupported.
+     */
+    static boolean isDisplayableSession(String sessionTitle, int stateValue) {
+        return sessionTitle != null && !sessionTitle.trim().isEmpty()
+                && stateValue != PlaybackState.STATE_STOPPED
+                && stateValue != PlaybackState.STATE_ERROR;
+    }
 }
