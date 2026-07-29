@@ -47,20 +47,27 @@ final class MusicAppRegistry {
 
     private static App resolveLabel(String applicationLabel, String packageName) {
         String label = safe(applicationLabel).toLowerCase(Locale.ROOT)
-                .replace(" ", "").replace("-", "").replace("_", "");
-        if (label.contains("网易云") || label.contains("cloudmusic")) {
+                .replaceAll("[\\s\\p{Punct}·•]+", "");
+        if (containsAny(label, "网易", "netease", "cloudmusic", "163音乐")) {
             return new App("netease", "网易云音乐", packageName);
         }
-        if (label.contains("qq音乐") || label.contains("qqmusic")) {
+        if (containsAny(label, "qq", "腾讯音乐", "qqmusic")) {
             return new App("qqmusic", "QQ 音乐", packageName);
         }
-        if (label.contains("酷狗") || label.contains("kugou")) {
+        if (containsAny(label, "酷狗", "kugou", "kgmusic")) {
             return new App("kugou", "酷狗音乐", packageName);
         }
-        if (label.contains("酷我") || label.contains("kuwo")) {
+        if (containsAny(label, "酷我", "kuwo", "kwmusic")) {
             return new App("kuwo", "酷我音乐", packageName);
         }
         return null;
+    }
+
+    private static boolean containsAny(String value, String... features) {
+        for (String feature : features) {
+            if (value.contains(feature)) return true;
+        }
+        return false;
     }
 
     static int selectionScore(int playbackRank, boolean hasMetadata,

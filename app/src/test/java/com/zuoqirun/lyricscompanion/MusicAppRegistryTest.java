@@ -16,10 +16,11 @@ public class MusicAppRegistryTest {
     }
 
     @Test public void recognizesVendorWrappedPlayersByApplicationLabel() {
-        assertSource("netease", "vendor.player.one", "网易云音乐车机版");
-        assertSource("qqmusic", "vendor.player.two", "QQ音乐 HD");
+        assertSource("netease", "vendor.player.one", "车载版 - 网易");
+        assertSource("qqmusic", "vendor.player.two", "车机 QQ");
         assertSource("kugou", "vendor.player.three", "酷狗概念版");
-        assertSource("kuwo", "vendor.player.four", "酷我音乐");
+        assertSource("kuwo", "vendor.player.four", "KWMusic Auto");
+        assertSource("qqmusic", "vendor.player.five", "腾讯音乐车载版");
     }
 
     @Test public void keepsUnknownPlayersCatalogNeutral() {
