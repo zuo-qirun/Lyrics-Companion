@@ -31,6 +31,14 @@ public class MusicAppRegistryTest {
         assertSource("soda", "vendor.player.six", "汽水音乐车机版");
     }
 
+    @Test public void recognizesPlayersByPackageNameFeatures() {
+        assertSource("netease", "vendor.car.cloudmusic.player", "");
+        assertSource("qqmusic", "vendor.car.qqmusic.service", "");
+        assertSource("kugou", "vendor.car.kugou.player", "");
+        assertSource("kuwo", "vendor.car.kwmusic.player", "");
+        assertSource("soda", "vendor.car.luna.music.player", "");
+    }
+
     @Test public void mapsRecognizedPlayersToTheirOwnLyricCatalog() {
         assertCatalog("netease", "com.netease.cloudmusic.iot");
         assertCatalog("qqmusic", "com.tencent.qqmusiccar");
@@ -140,6 +148,47 @@ public class MusicAppRegistryTest {
                 "[00:01.00]Keep it moving\n[00:04.00]I can see it in your eyes", "");
         assertTrue(timeline.containsLyricText("I can see it in your eyes"));
         assertFalse(timeline.containsLyricText("Nothin' on Me"));
+    }
+
+    @Test public void keepsSodaTitleWhenCreditsArePublishedAsMetadata() {
+        assertTrue(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "Deadman", "作词：蔡徐坤", "蔡徐坤", "蔡徐坤",
+                201_000L, 201_000L));
+    }
+
+    @Test public void keepsSodaDynamicTitleWhilePlaybackContinuityIsStable() {
+        assertTrue(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "Deadman", "You know I adore ya", "蔡徐坤", "蔡徐坤",
+                201_000L, 201_000L));
+        assertFalse(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "Deadman", "Next Song", "蔡徐坤", "Next Artist",
+                201_000L, 240_000L));
+    }
+
+    @Test public void keepsSodaArtistWhenItIsReplacedByDynamicMetadata() {
+        assertTrue(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "Deadman", "Deadman", "蔡徐坤", "你早知我沉溺",
+                201_000L, 201_000L));
+    }
+
+    @Test public void parsesObservedSodaMetadataIntoStableTrackIdentity() {
+        assertEquals("VALORANT​, Grabbitz", MusicStateStore.sodaStableArtist(
+                "Die For You", "Die For You — VALORANT​, Grabbitz"));
+        assertEquals("蔡徐坤", MusicStateStore.sodaStableArtist(
+                "Deadman", "Deadman-蔡徐坤"));
+        assertEquals("Grabbitz", MusicStateStore.sodaStableArtist(
+                "Die For You", "Grabbitz"));
+    }
+
+    @Test public void sodaLiveTitleBecomesLyricOnlyAfterCatalogsMiss() {
+        assertFalse(MusicStateStore.isSodaLiveLyricFallbackAvailable(
+                "soda", false, LrcTimeline.EMPTY, "You know I adore ya"));
+        assertTrue(MusicStateStore.isSodaLiveLyricFallbackAvailable(
+                "soda", true, LrcTimeline.EMPTY, "You know I adore ya"));
+        assertFalse(MusicStateStore.isSodaLiveLyricFallbackAvailable(
+                "qqmusic", true, LrcTimeline.EMPTY, "You know I adore ya"));
+        assertEquals("You know I adore ya",
+                LrcTimeline.liveLine("You know I adore ya").lyric);
     }
 
     @Test public void netEaseDirectSongIdStillRefreshesIdentity() {

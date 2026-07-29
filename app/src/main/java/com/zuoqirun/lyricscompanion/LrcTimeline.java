@@ -132,6 +132,11 @@ final class LrcTimeline {
         return false;
     }
 
+    static At liveLine(String text) {
+        return new At("", text == null ? "" : text.trim(), "", "", false, false,
+                "", "", -1L, 0L, -1L, 0L, 0, Collections.emptyList());
+    }
+
     long shiftedPosition(long positionMs, int direction) {
         if (lines.isEmpty() || direction == 0) return Math.max(0L, positionMs);
         int low = 0;

@@ -41,6 +41,7 @@ final class MusicStateStore {
     private static LrcTimeline timeline = LrcTimeline.EMPTY;
     private static boolean lyricLoadFinished;
     private static String lyricSourceName = "";
+    private static String liveSessionLyric = "";
     private static Future<?> lyricLoadTask;
 
     private MusicStateStore() {}
@@ -61,11 +62,20 @@ final class MusicStateStore {
             clear();
             return;
         }
-        String newTitle = firstNonEmpty(metadata,
+        String normalizedSource = TextUtils.isEmpty(newSource) ? "media" : newSource;
+        String rawTitle = firstNonEmpty(metadata,
                 MediaMetadata.METADATA_KEY_TITLE, MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
-        String newArtist = firstNonEmpty(metadata,
+        String rawArtist = firstNonEmpty(metadata,
                 MediaMetadata.METADATA_KEY_ARTIST, MediaMetadata.METADATA_KEY_ALBUM_ARTIST,
                 MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+        String albumTitle = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_ALBUM);
+        boolean sodaHasStableAlbumTitle = "soda".equals(normalizedSource)
+                && !TextUtils.isEmpty(albumTitle);
+        String newTitle = sodaHasStableAlbumTitle ? albumTitle : rawTitle;
+        String newArtist = sodaHasStableAlbumTitle
+                ? sodaStableArtist(newTitle, rawArtist) : rawArtist;
+        String incomingSodaLiveLyric = sodaHasStableAlbumTitle
+                && !sameIdentityText(rawTitle, newTitle) ? rawTitle : "";
         String newMediaId = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_MEDIA_ID);
         Bitmap newAlbumArt = firstBitmap(metadata,
                 MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_ART,
@@ -80,7 +90,6 @@ final class MusicStateStore {
         long newPosition = !statePresent || state.getPosition() < 0L ? 0L : state.getPosition();
         long reportedPositionTime = !statePresent ? 0L : state.getLastPositionUpdateTime();
         float newSpeed = state == null ? 0f : state.getPlaybackSpeed();
-        String normalizedSource = TextUtils.isEmpty(newSource) ? "media" : newSource;
         String normalizedSourceName = TextUtils.isEmpty(newSourceName)
                 ? "音乐播放器" : newSourceName;
         String selectedCatalog = AppPreferences.lyricCatalog(context);
@@ -89,13 +98,17 @@ final class MusicStateStore {
         long generationForAlbumArt = -1L;
         synchronized (LOCK) {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
-            if (sameSource && "soda".equals(normalizedSource)
-                    && !sameIdentityText(newTitle, title)
-                    && timeline.containsLyricText(newTitle)) {
-                // Soda Music exposes the currently playing lyric line through TITLE on some
-                // phone/car builds. It is display metadata, not a track change.
-                Log.i(TAG, "Ignoring Soda lyric line published as title: " + newTitle);
+            if (!sodaHasStableAlbumTitle && shouldKeepSodaTrackIdentity(
+                    normalizedSource, sameSource, title, newTitle,
+                    artist, newArtist, durationMs, newDuration)) {
+                // Older Soda builds without ALBUM use TITLE as live lyric and ARTIST as
+                // title-artist. Duration + raw artist changing together identifies a real skip.
+                Log.i(TAG, "Ignoring Soda dynamic metadata: " + newTitle + " / " + newArtist);
+                if (!sameIdentityText(newTitle, title)) incomingSodaLiveLyric = newTitle;
                 newTitle = title;
+                if (!TextUtils.isEmpty(artist)) newArtist = artist;
+                if (!TextUtils.isEmpty(mediaId)) newMediaId = mediaId;
+                if (durationMs > 0L) newDuration = durationMs;
             }
             if (sameSource && TextUtils.isEmpty(newTitle) && !TextUtils.isEmpty(title)) {
                 // Several automotive players publish a playback-state-only update after the
@@ -155,15 +168,25 @@ final class MusicStateStore {
                 timeline = LrcTimeline.EMPTY;
                 lyricLoadFinished = false;
                 lyricSourceName = "";
+                liveSessionLyric = "";
                 if (newAlbumArt == null) albumArt = null;
                 loadingAlbumArtUri = "";
                 generationToLoad = ++trackGeneration;
                 cancelLyricLoadLocked();
             }
+            if ("soda".equals(normalizedSource)
+                    && !TextUtils.isEmpty(incomingSodaLiveLyric)) {
+                liveSessionLyric = incomingSodaLiveLyric.trim();
+            }
             if (changed || playbackModeChanged) {
                 Log.i(TAG, "Position sync state=" + stateValue + " advancing=" + newPlaying
                         + " speed=" + effectiveSpeed + " position=" + positionToStore
                         + " reportedTime=" + reportedPositionTime);
+            }
+            if (changed) {
+                Log.i(TAG, "Track identity source=" + normalizedSource + " title=" + newTitle
+                        + " artist=" + newArtist + " duration=" + newDuration
+                        + " mediaId=" + newMediaId);
             }
             if (albumArt == null && !TextUtils.isEmpty(albumArtUri)
                     && !TextUtils.equals(albumArtUri, loadingAlbumArtUri)) {
@@ -204,6 +227,7 @@ final class MusicStateStore {
             timeline = LrcTimeline.EMPTY;
             lyricLoadFinished = false;
             lyricSourceName = "";
+            liveSessionLyric = "";
             trackGeneration++;
             cancelLyricLoadLocked();
         }
@@ -230,9 +254,15 @@ final class MusicStateStore {
     }
 
     private static MusicSnapshot snapshotLocked(long position, long lyricPosition) {
-        LrcTimeline.At at = timeline.at(lyricPosition);
+        boolean catalogLyricAvailable = !timeline.isEmpty();
+        boolean liveLyricAvailable = isSodaLiveLyricFallbackAvailable(source,
+                lyricLoadFinished, timeline, liveSessionLyric);
+        LrcTimeline.At at = liveLyricAvailable
+                ? LrcTimeline.liveLine(liveSessionLyric) : timeline.at(lyricPosition);
+        String displayedLyricSource = liveLyricAvailable ? "汽水实时歌词" : lyricSourceName;
         return new MusicSnapshot(active, playing, sourceName, title, artist, albumArt, durationMs,
-                position, lyricLoadFinished, !timeline.isEmpty(), lyricSourceName, at);
+                position, lyricLoadFinished, catalogLyricAvailable || liveLyricAvailable,
+                displayedLyricSource, at);
     }
 
     static void reloadLyrics(Context context) {
@@ -258,6 +288,7 @@ final class MusicStateStore {
             timeline = LrcTimeline.EMPTY;
             lyricLoadFinished = false;
             lyricSourceName = "";
+            liveSessionLyric = "";
             generation = ++trackGeneration;
             cancelLyricLoadLocked();
         }
@@ -411,6 +442,47 @@ final class MusicStateStore {
         return safe(source) + "\n" + identityText(title) + "\n" + identityText(artist)
                 + "\n" + directMediaId + "\n" + safe(selectedCatalog)
                 + "\n" + playerCatalogFallback;
+    }
+
+    static boolean shouldKeepSodaTrackIdentity(String incomingSource, boolean sameSource,
+                                               String currentTitle, String incomingTitle,
+                                               String currentArtist, String incomingArtist,
+                                               long currentDuration, long incomingDuration) {
+        if (!sameSource || !"soda".equals(incomingSource)
+                || TextUtils.isEmpty(currentTitle)) return false;
+        boolean titleChanged = !TextUtils.isEmpty(incomingTitle)
+                && !sameIdentityText(currentTitle, incomingTitle);
+        boolean artistChanged = !TextUtils.isEmpty(currentArtist)
+                && !TextUtils.isEmpty(incomingArtist)
+                && !sameIdentityText(currentArtist, incomingArtist);
+        if (!titleChanged && !artistChanged) return false;
+        boolean durationChanged = currentDuration > 0L && incomingDuration > 0L
+                && Math.abs(currentDuration - incomingDuration) > 2_000L;
+        // Observed Soda contract: lyric mode changes TITLE and prefixes ARTIST with the song
+        // name, while a real skip changes both total duration and the raw ARTIST value.
+        return !(durationChanged && artistChanged);
+    }
+
+    static String sodaStableArtist(String stableTitle, String rawArtist) {
+        String titleValue = safe(stableTitle).trim();
+        String artistValue = safe(rawArtist).trim();
+        if (titleValue.isEmpty() || artistValue.length() <= titleValue.length()
+                || !artistValue.regionMatches(true, 0, titleValue, 0, titleValue.length())) {
+            return artistValue;
+        }
+        String suffix = artistValue.substring(titleValue.length()).trim();
+        if (suffix.matches("^[—–\\-·|:：,，].*")) {
+            return suffix.replaceFirst("^[—–\\-·|:：,，]+\\s*", "").trim();
+        }
+        return artistValue;
+    }
+
+    static boolean isSodaLiveLyricFallbackAvailable(String source, boolean loadFinished,
+                                                     LrcTimeline catalogTimeline,
+                                                     String liveLyric) {
+        return "soda".equals(source) && loadFinished
+                && (catalogTimeline == null || catalogTimeline.isEmpty())
+                && !TextUtils.isEmpty(liveLyric);
     }
 
     private static boolean sameIdentityText(String left, String right) {

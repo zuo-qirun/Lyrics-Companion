@@ -36,8 +36,10 @@ final class MusicAppRegistry {
             if (normalizedPackage.equals(app.packagePrefix)
                     || normalizedPackage.startsWith(app.packagePrefix + ".")) return app;
         }
+        App packageFeatureMatch = resolveFeatures(normalizedPackage, normalizedPackage);
+        if (packageFeatureMatch != null) return packageFeatureMatch;
         String label = safe(applicationLabel).trim();
-        App labelMatch = resolveLabel(label, normalizedPackage);
+        App labelMatch = resolveFeatures(label, normalizedPackage);
         if (labelMatch != null) return labelMatch;
         if (label.isEmpty()) {
             int separator = normalizedPackage.lastIndexOf('.');
@@ -50,8 +52,8 @@ final class MusicAppRegistry {
         return new App("media", label, normalizedPackage, false);
     }
 
-    private static App resolveLabel(String applicationLabel, String packageName) {
-        String label = safe(applicationLabel).toLowerCase(Locale.ROOT)
+    private static App resolveFeatures(String value, String packageName) {
+        String label = safe(value).toLowerCase(Locale.ROOT)
                 .replaceAll("[\\s\\p{Punct}·•]+", "");
         if (containsAny(label, "网易", "netease", "cloudmusic", "163音乐")) {
             return new App("netease", "网易云音乐", packageName);
@@ -65,7 +67,7 @@ final class MusicAppRegistry {
         if (containsAny(label, "酷我", "kuwo", "kwmusic")) {
             return new App("kuwo", "酷我音乐", packageName);
         }
-        if (containsAny(label, "汽水", "luna", "soda")) {
+        if (containsAny(label, "汽水", "lunamusic", "sodamusic")) {
             return new App("soda", "汽水音乐", packageName);
         }
         return null;
