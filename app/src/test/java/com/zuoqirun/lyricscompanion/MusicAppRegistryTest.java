@@ -123,13 +123,16 @@ public class MusicAppRegistryTest {
                 MusicAppRegistry.selectionScore(0, true, false, true, false));
     }
 
-    @Test public void ranksTransportNotificationsAboveGenericOngoingNotifications() {
-        assertEquals(1_400, MusicNotificationListener.notificationCandidateScore(
-                true, false, true, true));
-        assertEquals(400, MusicNotificationListener.notificationCandidateScore(
-                false, false, true, true));
-        assertEquals(0, MusicNotificationListener.notificationCandidateScore(
-                false, false, false, false));
+    @Test public void notificationListenerHealthRequiresAFreshSuccessfulRead() {
+        assertTrue(MusicNotificationListener.isHealthyAt(true, 1_000L, 3_999L, 3_000L));
+        assertFalse(MusicNotificationListener.isHealthyAt(true, 1_000L, 4_000L, 3_000L));
+        assertFalse(MusicNotificationListener.isHealthyAt(false, 1_000L, 2_000L, 3_000L));
+        assertFalse(MusicNotificationListener.isHealthyAt(true, 0L, 2_000L, 3_000L));
+    }
+
+    @Test public void emptySessionsHaveAFiveSecondGracePeriod() {
+        assertFalse(MusicNotificationListener.shouldClearAfterEmpty(10_000L, 14_999L));
+        assertTrue(MusicNotificationListener.shouldClearAfterEmpty(10_000L, 15_000L));
     }
 
     @Test public void metadataOnlyCarSessionRemainsDisplayable() {

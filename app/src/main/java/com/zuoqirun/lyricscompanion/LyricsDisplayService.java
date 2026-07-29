@@ -99,6 +99,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         MusicStateStore.initialize(this);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
+        if (MusicNotificationListener.hasNotificationAccess(this)) {
+            MusicNotificationListener.requestReconnect(this);
+        }
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         if (displayManager != null) displayManager.registerDisplayListener(this, null);
         communityHandler.post(communityHeartbeat);

@@ -14,8 +14,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
-import android.service.notification.NotificationListenerService;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.Display;
@@ -53,6 +53,9 @@ public final class MainActivity extends AppCompatActivity {
     private static final String UPDATE_HISTORY_URL =
             "https://lyrics-companion.zuoqirun.top/versions";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final long LISTENER_HEALTH_MAX_AGE_MS = 3_000L;
+    private static final long LISTENER_RECONNECT_INTERVAL_MS = 1_000L;
+    private static final long LISTENER_RECONNECT_WINDOW_MS = 30_000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView permissionStatus;
     private TextView musicStatus;
@@ -67,6 +70,9 @@ public final class MainActivity extends AppCompatActivity {
     private boolean updateBusy;
     private boolean onlineBusy;
     private boolean feedbackBusy;
+    private boolean activityResumed;
+    private boolean listenerReconnectScheduled;
+    private long listenerReconnectDeadlineElapsedMs;
 
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() {
@@ -82,6 +88,21 @@ public final class MainActivity extends AppCompatActivity {
         }
     };
 
+    private final Runnable listenerReconnect = new Runnable() {
+        @Override public void run() {
+            listenerReconnectScheduled = false;
+            if (!activityResumed || !hasNotificationAccess()
+                    || MusicNotificationListener.isHealthy(LISTENER_HEALTH_MAX_AGE_MS)) {
+                return;
+            }
+            MusicNotificationListener.requestReconnect(MainActivity.this);
+            if (SystemClock.elapsedRealtime() < listenerReconnectDeadlineElapsedMs) {
+                listenerReconnectScheduled = true;
+                handler.postDelayed(this, LISTENER_RECONNECT_INTERVAL_MS);
+            }
+        }
+    };
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(0xFF07111F);
@@ -94,6 +115,7 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        activityResumed = true;
         ensureNotificationListenerConnected();
         bindPreferences();
         refreshDisplayChoices();
@@ -107,6 +129,9 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     @Override protected void onPause() {
+        activityResumed = false;
+        listenerReconnectScheduled = false;
+        handler.removeCallbacks(listenerReconnect);
         handler.removeCallbacks(statusRefresh);
         handler.removeCallbacks(communityRefresh);
         LyricsDisplayService.setSettingsVisible(this, false);
@@ -317,7 +342,7 @@ public final class MainActivity extends AppCompatActivity {
         communityCard.addView(feedback, new LinearLayout.LayoutParams(-1, dp(48)));
 
         LinearLayout stateCard = card();
-        stateCard.addView(sectionLabel("当前媒体状态"));
+        stateCard.addView(sectionLabel("音乐状态与诊断"));
         musicStatus = text("等待播放器…", 14, 0xFFD8E1EE, false);
         musicStatus.setLineSpacing(0f, 1.2f);
         musicStatus.setPadding(0, dp(9), 0, 0);
@@ -467,16 +492,25 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void refreshStatus() {
-        boolean listener = hasNotificationAccess();
+        boolean notificationAccess = hasNotificationAccess();
         boolean overlay = canDrawOverlays();
-        String listenerState = listener
-                ? MusicNotificationListener.isListenerConnected() ? "已授权 · 服务运行"
-                : "已授权 · 正在连接"
-                : "未授权";
-        permissionStatus.setText("音乐读取  " + listenerState
+        String listenerState = listenerState(notificationAccess);
+        permissionStatus.setText("通知读取  " + (notificationAccess ? "已授权" : "未授权")
+                + "     监听器  " + listenerState
                 + "     悬浮窗  " + (overlay ? "已授权" : "未授权"));
-        permissionStatus.setTextColor(listener && overlay ? 0xFF6EE7F2 : 0xFFFFCA66);
-        musicStatus.setText(MusicStateStore.describe(this));
+        permissionStatus.setTextColor(notificationAccess && overlay
+                ? 0xFF6EE7F2 : 0xFFFFCA66);
+        long lastRead = MusicNotificationListener.getLastSuccessfulSessionReadElapsedMs();
+        String error = MusicNotificationListener.getLastSessionError();
+        if (error == null || error.trim().isEmpty()) error = "无";
+        else error = error.replace('\n', ' ').replace('\r', ' ').trim();
+        if (error.length() > 160) error = error.substring(0, 160) + "…";
+        musicStatus.setText(MusicStateStore.describe(this)
+                + "\n通知读取：" + (notificationAccess ? "已授权" : "未授权")
+                + "    监听器：" + listenerState
+                + "\n最近成功读取会话：" + formatSessionReadAge(lastRead)
+                + "    当前会话数量：" + MusicNotificationListener.getLastSessionCount()
+                + "\n最近异常信息：" + error);
     }
 
     private void refreshDisplayChoices() {
@@ -835,10 +869,10 @@ public final class MainActivity extends AppCompatActivity {
         String enabled = Settings.Secure.getString(getContentResolver(),
                 "enabled_notification_listeners");
         if (enabled == null) return false;
+        ComponentName expected = new ComponentName(this, MusicNotificationListener.class);
         String[] entries = enabled.split(":");
         for (String entry : entries) {
-            ComponentName component = ComponentName.unflattenFromString(entry);
-            if (component != null && getPackageName().equals(component.getPackageName())) return true;
+            if (expected.equals(ComponentName.unflattenFromString(entry))) return true;
         }
         return false;
     }
@@ -852,12 +886,30 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void ensureNotificationListenerConnected() {
-        if (!hasNotificationAccess() || MusicNotificationListener.isListenerConnected()
-                || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
-        try {
-            NotificationListenerService.requestRebind(
-                    new ComponentName(this, MusicNotificationListener.class));
-        } catch (Throwable ignored) { }
+        handler.removeCallbacks(listenerReconnect);
+        listenerReconnectScheduled = false;
+        if (!hasNotificationAccess()
+                || MusicNotificationListener.isHealthy(LISTENER_HEALTH_MAX_AGE_MS)) return;
+        listenerReconnectDeadlineElapsedMs = SystemClock.elapsedRealtime()
+                + LISTENER_RECONNECT_WINDOW_MS;
+        listenerReconnectScheduled = true;
+        listenerReconnect.run();
+    }
+
+    private String listenerState(boolean notificationAccess) {
+        if (notificationAccess
+                && MusicNotificationListener.isHealthy(LISTENER_HEALTH_MAX_AGE_MS)) {
+            return "已连接";
+        }
+        if (notificationAccess && listenerReconnectScheduled) return "重连中";
+        return "超时";
+    }
+
+    private static String formatSessionReadAge(long lastReadElapsedMs) {
+        if (lastReadElapsedMs <= 0L) return "从未";
+        long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - lastReadElapsedMs);
+        if (ageMs < 1_000L) return "不到 1 秒前";
+        return ageMs / 1_000L + " 秒前";
     }
 
     private void openOverlayPermission() {

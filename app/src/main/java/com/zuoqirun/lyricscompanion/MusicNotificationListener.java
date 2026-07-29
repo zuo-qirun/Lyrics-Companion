@@ -1,18 +1,19 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.app.Notification;
-import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Bundle;
+import android.os.SystemClock;
+import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -26,13 +27,17 @@ import java.util.Map;
 public final class MusicNotificationListener extends NotificationListenerService {
     private static final String TAG = "LyricsMediaSession";
     private static final long SESSION_POLL_MS = 600L;
+    private static final long EMPTY_SESSION_GRACE_MS = 5_000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<MediaSession.Token, MediaController> observedControllers = new HashMap<>();
-    private final Map<String, NotificationSnapshot> observedNotifications = new HashMap<>();
     private MediaSessionManager sessionManager;
     private MediaController controller;
     private boolean connected;
+    private long lastNonEmptySessionElapsedMs;
     private static volatile boolean listenerConnected;
+    private static volatile long lastSuccessfulSessionReadElapsedMs;
+    private static volatile int lastSessionCount;
+    private static volatile String lastSessionError = "";
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsChanged =
             this::onSessionsChanged;
@@ -53,6 +58,7 @@ public final class MusicNotificationListener extends NotificationListenerService
         super.onCreate();
         MusicStateStore.initialize(this);
         sessionManager = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
+        lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
     }
 
     @Override public void onListenerConnected() {
@@ -66,11 +72,12 @@ public final class MusicNotificationListener extends NotificationListenerService
                         new ComponentName(this, MusicNotificationListener.class), handler);
             }
         } catch (Throwable error) {
+            lastSessionError = "监听会话变化失败：" + safeMessage(error);
             Log.w(TAG, "Unable to subscribe to active sessions", error);
         }
         handler.removeCallbacks(sessionPoll);
-        seedNotifications();
-        handler.post(sessionPoll);
+        refreshSessions();
+        handler.postDelayed(sessionPoll, SESSION_POLL_MS);
         if (AppPreferences.mainEnabled(this) || AppPreferences.secondaryEnabled(this)) {
             LyricsDisplayService.startOrRefresh(this);
         }
@@ -82,12 +89,10 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
-        rememberNotification(sbn);
         refreshSessions();
     }
 
     @Override public void onNotificationRemoved(StatusBarNotification sbn) {
-        if (sbn != null) observedNotifications.remove(sbn.getKey());
         refreshSessions();
     }
 
@@ -97,59 +102,56 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     private void refreshSessions() {
-        List<MediaController> sessions = Collections.emptyList();
         try {
-            if (sessionManager != null) {
-                sessions = sessionManager.getActiveSessions(
-                        new ComponentName(this, MusicNotificationListener.class));
-            }
+            if (sessionManager == null) throw new IllegalStateException("MediaSessionManager 不可用");
+            List<MediaController> sessions = sessionManager.getActiveSessions(
+                    new ComponentName(this, MusicNotificationListener.class));
+            if (sessions == null) sessions = Collections.emptyList();
+            lastSuccessfulSessionReadElapsedMs = SystemClock.elapsedRealtime();
+            lastSessionCount = sessions.size();
+            onSessionsChanged(sessions);
         } catch (Throwable error) {
+            lastSessionError = safeMessage(error);
             Log.w(TAG, "Unable to read active sessions", error);
         }
-        onSessionsChanged(sessions);
     }
 
     private void onSessionsChanged(List<MediaController> sessions) {
         syncObservedSessions(sessions);
         MediaController best = null;
-        MediaMetadata bestMetadata = null;
         int bestScore = Integer.MIN_VALUE;
         if (sessions != null) {
             for (MediaController candidate : sessions) {
                 if (candidate == null || getPackageName().equals(candidate.getPackageName())) {
                     continue;
                 }
-                MediaMetadata nativeMetadata = candidate.getMetadata();
-                MediaMetadata metadata = hasMetadata(nativeMetadata) ? nativeMetadata
-                        : notificationMetadata(candidate.getPackageName());
-                if (!isUsableSession(candidate, metadata)) continue;
+                if (!isUsableSession(candidate)) continue;
+                MediaMetadata metadata = candidate.getMetadata();
                 PlaybackState state = candidate.getPlaybackState();
                 MusicAppRegistry.App app = MusicAppRegistry.resolve(candidate.getPackageName(),
                         applicationLabel(candidate.getPackageName()));
                 int score = MusicAppRegistry.selectionScore(playbackRank(state),
                         hasMetadata(metadata), supportsControls(state), app.known,
                         sameSession(controller, candidate));
-                if (!hasMetadata(nativeMetadata) && hasMetadata(metadata)) {
-                    // A notification fallback is useful for old car players, but must not
-                    // outrank a real playing session that publishes native metadata.
-                    score -= 500;
-                }
                 if (score > bestScore) {
                     best = candidate;
-                    bestMetadata = metadata;
                     bestScore = score;
                 }
             }
         }
         controller = best;
         if (best == null) {
-            MusicStateStore.clear();
+            long now = SystemClock.elapsedRealtime();
+            if (shouldClearAfterEmpty(lastNonEmptySessionElapsedMs, now)) {
+                MusicStateStore.clear();
+            }
             return;
         }
+        lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
         MusicAppRegistry.App app = MusicAppRegistry.resolve(best.getPackageName(),
                 applicationLabel(best.getPackageName()));
         MusicStateStore.update(this, app.sourceId, app.displayName,
-                bestMetadata, best.getPlaybackState());
+                best.getMetadata(), best.getPlaybackState());
     }
 
     private void syncObservedSessions(List<MediaController> sessions) {
@@ -189,13 +191,63 @@ public final class MusicNotificationListener extends NotificationListenerService
             observed.unregisterCallback(sessionCallback);
         }
         observedControllers.clear();
-        observedNotifications.clear();
         controller = null;
-        MusicStateStore.clear();
     }
 
     static boolean isListenerConnected() {
         return listenerConnected;
+    }
+
+    static boolean isHealthy(long maxAgeMs) {
+        return isHealthyAt(listenerConnected, lastSuccessfulSessionReadElapsedMs,
+                SystemClock.elapsedRealtime(), maxAgeMs);
+    }
+
+    static boolean isHealthyAt(boolean connected, long lastReadElapsedMs,
+                               long nowElapsedMs, long maxAgeMs) {
+        long age = nowElapsedMs - lastReadElapsedMs;
+        return connected && lastReadElapsedMs > 0L && age >= 0L
+                && age < Math.max(1L, maxAgeMs);
+    }
+
+    static long getLastSuccessfulSessionReadElapsedMs() {
+        return lastSuccessfulSessionReadElapsedMs;
+    }
+
+    static int getLastSessionCount() {
+        return lastSessionCount;
+    }
+
+    static String getLastSessionError() {
+        return lastSessionError;
+    }
+
+    static boolean hasNotificationAccess(Context context) {
+        if (context == null) return false;
+        String enabled = Settings.Secure.getString(context.getContentResolver(),
+                "enabled_notification_listeners");
+        if (enabled == null) return false;
+        ComponentName expected = new ComponentName(context, MusicNotificationListener.class);
+        for (String entry : enabled.split(":")) {
+            if (expected.equals(ComponentName.unflattenFromString(entry))) return true;
+        }
+        return false;
+    }
+
+    static void requestReconnect(Context context) {
+        if (context == null || !hasNotificationAccess(context)
+                || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        try {
+            NotificationListenerService.requestRebind(
+                    new ComponentName(context, MusicNotificationListener.class));
+        } catch (Throwable error) {
+            lastSessionError = "请求重连失败：" + safeMessage(error);
+            Log.w(TAG, "Unable to request notification-listener rebind", error);
+        }
+    }
+
+    static boolean shouldClearAfterEmpty(long lastNonEmptyElapsedMs, long nowElapsedMs) {
+        return nowElapsedMs - lastNonEmptyElapsedMs >= EMPTY_SESSION_GRACE_MS;
     }
 
     private static boolean sameSession(MediaController left, MediaController right) {
@@ -221,128 +273,12 @@ public final class MusicNotificationListener extends NotificationListenerService
         }
     }
 
-    private static boolean isUsableSession(MediaController candidate, MediaMetadata metadata) {
+    private static boolean isUsableSession(MediaController candidate) {
         PlaybackState state = candidate.getPlaybackState();
         int stateValue = state == null ? PlaybackState.STATE_NONE : state.getState();
-        return playbackRank(state) > 0 || hasMetadata(metadata)
+        return playbackRank(state) > 0 || hasMetadata(candidate.getMetadata())
                 && stateValue != PlaybackState.STATE_STOPPED
                 && stateValue != PlaybackState.STATE_ERROR;
-    }
-
-    private void seedNotifications() {
-        observedNotifications.clear();
-        try {
-            StatusBarNotification[] active = getActiveNotifications();
-            if (active == null) return;
-            for (StatusBarNotification notification : active) rememberNotification(notification);
-        } catch (Throwable error) {
-            Log.d(TAG, "Unable to seed notification metadata", error);
-        }
-    }
-
-    private void rememberNotification(StatusBarNotification sbn) {
-        NotificationSnapshot snapshot = NotificationSnapshot.from(sbn);
-        if (snapshot == null) {
-            if (sbn != null) observedNotifications.remove(sbn.getKey());
-            return;
-        }
-        observedNotifications.put(sbn.getKey(), snapshot);
-    }
-
-    private MediaMetadata notificationMetadata(String packageName) {
-        NotificationSnapshot best = null;
-        for (NotificationSnapshot snapshot : observedNotifications.values()) {
-            if (!snapshot.packageName.equals(packageName) || !snapshot.isLikelyPlayback()) {
-                continue;
-            }
-            if (best == null || snapshot.score() > best.score()
-                    || snapshot.score() == best.score() && snapshot.postTime > best.postTime) {
-                best = snapshot;
-            }
-        }
-        if (best == null) return null;
-        return best.metadata;
-    }
-
-    static int notificationCandidateScore(boolean transport, boolean mediaSession,
-                                          boolean ongoing, boolean hasLargeIcon) {
-        int score = transport ? 1_000 : 0;
-        if (mediaSession) score += 900;
-        if (ongoing) score += 300;
-        if (hasLargeIcon) score += 100;
-        return score;
-    }
-
-    private static final class NotificationSnapshot {
-        final String packageName;
-        final String title;
-        final String artist;
-        final Bitmap largeIcon;
-        final MediaMetadata metadata;
-        final boolean transport;
-        final boolean mediaSession;
-        final boolean ongoing;
-        final long postTime;
-
-        NotificationSnapshot(String packageName, String title, String artist, Bitmap largeIcon,
-                             boolean transport, boolean mediaSession, boolean ongoing,
-                             long postTime) {
-            this.packageName = packageName;
-            this.title = title;
-            this.artist = artist;
-            this.largeIcon = largeIcon;
-            MediaMetadata.Builder builder = new MediaMetadata.Builder()
-                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist);
-            if (largeIcon != null) {
-                builder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, largeIcon);
-            }
-            metadata = builder.build();
-            this.transport = transport;
-            this.mediaSession = mediaSession;
-            this.ongoing = ongoing;
-            this.postTime = postTime;
-        }
-
-        static NotificationSnapshot from(StatusBarNotification sbn) {
-            if (sbn == null || sbn.getNotification() == null) return null;
-            Notification notification = sbn.getNotification();
-            Bundle extras = notification.extras;
-            if (extras == null) return null;
-            String title = text(extras.getCharSequence(Notification.EXTRA_TITLE));
-            if (title.isEmpty()) {
-                title = text(extras.getCharSequence(Notification.EXTRA_TITLE_BIG));
-            }
-            String artist = text(extras.getCharSequence(Notification.EXTRA_TEXT));
-            if (artist.isEmpty()) {
-                artist = text(extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
-            }
-            if (title.isEmpty()) return null;
-            Object iconValue = extras.get(Notification.EXTRA_LARGE_ICON_BIG);
-            if (!(iconValue instanceof Bitmap)) {
-                iconValue = extras.get(Notification.EXTRA_LARGE_ICON);
-            }
-            Bitmap icon = iconValue instanceof Bitmap ? (Bitmap) iconValue
-                    : notification.largeIcon;
-            return new NotificationSnapshot(sbn.getPackageName(), title, artist, icon,
-                    Notification.CATEGORY_TRANSPORT.equals(notification.category),
-                    extras.containsKey("android.mediaSession"),
-                    (notification.flags & Notification.FLAG_ONGOING_EVENT) != 0,
-                    sbn.getPostTime());
-        }
-
-        boolean isLikelyPlayback() {
-            return !title.isEmpty() && (transport || mediaSession || ongoing);
-        }
-
-        int score() {
-            return notificationCandidateScore(transport, mediaSession, ongoing,
-                    largeIcon != null);
-        }
-
-        private static String text(CharSequence value) {
-            return value == null ? "" : value.toString().trim();
-        }
     }
 
     private static boolean hasMetadata(MediaMetadata metadata) {
@@ -371,5 +307,12 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     private static boolean empty(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private static String safeMessage(Throwable error) {
+        if (error == null) return "未知异常";
+        String message = error.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? error.getClass().getSimpleName() : message.trim();
     }
 }
