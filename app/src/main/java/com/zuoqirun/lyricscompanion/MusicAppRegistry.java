@@ -79,6 +79,7 @@ final class MusicAppRegistry {
             case "qqmusic": return "qqmusic";
             case "kugou": return "kugou";
             case "kuwo": return "kuwo";
+            case "soda": return "soda";
             default: return "";
         }
     }

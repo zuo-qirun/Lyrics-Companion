@@ -14,12 +14,14 @@ final class MultiSourceLyricClient {
     private final QQMusicLyricClient qq;
     private final KugouLyricClient kugou;
     private final KuwoLyricClient kuwo;
+    private final SodaLyricClient soda;
 
     MultiSourceLyricClient(Context context) {
         netease = new NetEaseLyricClient(context);
         qq = new QQMusicLyricClient(context);
         kugou = new KugouLyricClient(context);
         kuwo = new KuwoLyricClient(context);
+        soda = new SodaLyricClient(context);
     }
 
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
@@ -59,6 +61,10 @@ final class MultiSourceLyricClient {
                     timeline = kuwo.load(title, artist, durationMs);
                     label = "酷我音乐";
                     break;
+                case "soda":
+                    timeline = soda.load(mediaId, title, artist, durationMs);
+                    label = "汽水音乐";
+                    break;
                 default:
                     return Result.EMPTY;
             }
@@ -75,7 +81,7 @@ final class MultiSourceLyricClient {
     static CatalogPlan catalogPlan(String currentSource, String selectedCatalog,
                                    boolean playerCatalogFallback) {
         List<String> providers = new ArrayList<>(Arrays.asList(
-                "netease", "qqmusic", "kugou", "kuwo"));
+                "netease", "qqmusic", "kugou", "kuwo", "soda"));
         List<String> ordered = new ArrayList<>();
         List<String> priority = new ArrayList<>();
         String selected = MusicAppRegistry.lyricCatalogForSource(selectedCatalog);
@@ -103,8 +109,8 @@ final class MultiSourceLyricClient {
     }
 
     static String directMediaId(String currentSource, String provider, String mediaId) {
-        return "netease".equals(currentSource) && "netease".equals(provider)
-                ? mediaId : "";
+        return currentSource != null && currentSource.equals(provider)
+                && ("netease".equals(provider) || "soda".equals(provider)) ? mediaId : "";
     }
 
     static Result chooseResult(List<String> priority, List<Result> successful) {

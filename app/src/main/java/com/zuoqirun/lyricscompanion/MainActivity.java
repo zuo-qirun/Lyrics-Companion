@@ -411,8 +411,8 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text("优先匹配词库", 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐"};
-        String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo"};
+        String[] labels = {"自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
+        String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,

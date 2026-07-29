@@ -98,7 +98,8 @@ final class AppPreferences {
     static String lyricCatalog(Context context) {
         String value = get(context).getString(KEY_LYRIC_CATALOG, "auto");
         if ("netease".equals(value) || "qqmusic".equals(value)
-                || "kugou".equals(value) || "kuwo".equals(value)) return value;
+                || "kugou".equals(value) || "kuwo".equals(value)
+                || "soda".equals(value)) return value;
         return "auto";
     }
 

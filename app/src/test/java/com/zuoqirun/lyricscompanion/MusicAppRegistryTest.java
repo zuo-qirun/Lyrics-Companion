@@ -45,8 +45,8 @@ public class MusicAppRegistryTest {
         assertCatalog("kugou", "com.kugou.android.auto");
         assertCatalog("kugou", "com.kugou.android.lite");
         assertCatalog("kuwo", "com.shaiban.audioplayer.mplayer");
-        assertCatalog("", "com.luna.music");
-        assertCatalog("", "com.luna.music.car");
+        assertCatalog("soda", "com.luna.music");
+        assertCatalog("soda", "com.luna.music.car");
     }
 
     @Test public void keepsUnknownPlayersCatalogNeutral() {
@@ -55,15 +55,19 @@ public class MusicAppRegistryTest {
         assertFalse(app.known);
     }
 
-    @Test public void onlyTrustsMediaIdFromNetEaseSession() {
+    @Test public void onlyTrustsDirectMediaIdsFromMatchingNativeCatalogs() {
         assertEquals("123456", MultiSourceLyricClient.directMediaId(
                 "netease", "netease", "123456"));
+        assertEquals("7031318019544614913", MultiSourceLyricClient.directMediaId(
+                "soda", "soda", "7031318019544614913"));
         assertEquals("", MultiSourceLyricClient.directMediaId(
                 "qqmusic", "netease", "123456"));
         assertEquals("", MultiSourceLyricClient.directMediaId(
                 "media", "netease", "123456"));
         assertEquals("", MultiSourceLyricClient.directMediaId(
                 "netease", "qqmusic", "123456"));
+        assertEquals("", MultiSourceLyricClient.directMediaId(
+                "qqmusic", "soda", "7031318019544614913"));
     }
 
     @Test public void unknownPlayersDoNotHaveAHardCodedNetEasePreference() {
@@ -81,7 +85,7 @@ public class MusicAppRegistryTest {
         MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
                 "qqmusic", "kugou", true);
         assertEquals(Arrays.asList("kugou", "qqmusic"), plan.priority);
-        assertEquals(Arrays.asList("kugou", "qqmusic", "netease", "kuwo"),
+        assertEquals(Arrays.asList("kugou", "qqmusic", "netease", "kuwo", "soda"),
                 plan.providers);
         assertTrue(plan.providers.contains("qqmusic"));
         assertTrue(plan.manualSelection);
@@ -101,8 +105,17 @@ public class MusicAppRegistryTest {
         assertEquals(Arrays.asList("kuwo"), plan.priority);
         assertFalse(plan.manualSelection);
         assertTrue(plan.providers.containsAll(Arrays.asList(
-                "netease", "qqmusic", "kugou", "kuwo")));
+                "netease", "qqmusic", "kugou", "kuwo", "soda")));
         assertEquals("kuwo", plan.providers.get(0));
+    }
+
+    @Test public void sodaUsesItsOwnCatalogBeforeCrossCatalogFallback() {
+        MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
+                "soda", "auto", true);
+        assertEquals(Arrays.asList("soda"), plan.priority);
+        assertEquals("soda", plan.providers.get(0));
+        assertTrue(plan.providers.containsAll(Arrays.asList(
+                "netease", "qqmusic", "kugou", "kuwo")));
     }
 
     @Test public void catalogRecognitionDoesNotBiasActiveSessionSelection() {
