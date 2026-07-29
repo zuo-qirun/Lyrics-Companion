@@ -116,7 +116,6 @@ public final class MainActivity extends AppCompatActivity {
                 previewHeightPx());
         previewLp.topMargin = dp(10);
         previewCard.addView(previewPanel, previewLp);
-        root.addView(previewCard, cardMargins());
 
         LinearLayout accessCard = card();
         accessCard.addView(sectionLabel("使用权限"));
@@ -134,7 +133,6 @@ public final class MainActivity extends AppCompatActivity {
         secondButton.leftMargin = dp(10);
         permissionButtons.addView(overlayAccess, secondButton);
         accessCard.addView(permissionButtons);
-        root.addView(accessCard, cardMargins());
 
         LinearLayout lyricCard = card();
         lyricCard.addView(sectionLabel("歌词匹配"));
@@ -148,7 +146,6 @@ public final class MainActivity extends AppCompatActivity {
             MusicStateStore.reloadLyrics(this);
         });
         lyricCard.addView(playerCatalogFallback);
-        root.addView(lyricCard, cardMargins());
 
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("显示位置"));
@@ -193,7 +190,6 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams joystickParams = new LinearLayout.LayoutParams(dp(148), dp(148));
         joystickParams.gravity = Gravity.CENTER_HORIZONTAL;
         outputCard.addView(joystick, joystickParams);
-        root.addView(outputCard, cardMargins());
 
         LinearLayout styleCard = card();
         styleCard.addView(sectionLabel("悬浮窗风格与同步"));
@@ -256,7 +252,6 @@ public final class MainActivity extends AppCompatActivity {
                 AppPreferences.get(this).getInt(AppPreferences.KEY_LYRIC_OFFSET, 0), " ms",
                 value -> AppPreferences.get(this).edit()
                         .putInt(AppPreferences.KEY_LYRIC_OFFSET, value).apply());
-        root.addView(styleCard, cardMargins());
 
         LinearLayout stateCard = card();
         stateCard.addView(sectionLabel("当前媒体状态"));
@@ -264,7 +259,34 @@ public final class MainActivity extends AppCompatActivity {
         musicStatus.setLineSpacing(0f, 1.2f);
         musicStatus.setPadding(0, dp(9), 0, 0);
         stateCard.addView(musicStatus);
-        root.addView(stateCard, cardMargins());
+
+        if (useTwoColumnLayout()) {
+            LinearLayout columns = new LinearLayout(this);
+            columns.setOrientation(LinearLayout.HORIZONTAL);
+            columns.setBaselineAligned(false);
+            LinearLayout leftColumn = new LinearLayout(this);
+            leftColumn.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout rightColumn = new LinearLayout(this);
+            rightColumn.setOrientation(LinearLayout.VERTICAL);
+            columns.addView(leftColumn, new LinearLayout.LayoutParams(0, -2, 1f));
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1f);
+            rightParams.leftMargin = dp(14);
+            columns.addView(rightColumn, rightParams);
+            leftColumn.addView(previewCard, cardMargins());
+            leftColumn.addView(styleCard, cardMargins());
+            rightColumn.addView(accessCard, cardMargins());
+            rightColumn.addView(lyricCard, cardMargins());
+            rightColumn.addView(outputCard, cardMargins());
+            rightColumn.addView(stateCard, cardMargins());
+            root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
+        } else {
+            root.addView(previewCard, cardMargins());
+            root.addView(accessCard, cardMargins());
+            root.addView(lyricCard, cardMargins());
+            root.addView(outputCard, cardMargins());
+            root.addView(styleCard, cardMargins());
+            root.addView(stateCard, cardMargins());
+        }
 
         TextView footnote = text("提示：播放器必须发布标准 Android MediaSession。副屏断开后服务会保留设置，重新接入同一 Display 时自动恢复。", 12,
                 0xFF66788F, false);
@@ -499,10 +521,21 @@ public final class MainActivity extends AppCompatActivity {
 
     private int previewHeightPx() {
         float density = getResources().getDisplayMetrics().density;
-        float availableWidthDp = getResources().getDisplayMetrics().widthPixels / density - 72f;
+        float screenWidthDp = getResources().getDisplayMetrics().widthPixels / density;
+        float availableWidthDp = useTwoColumnLayout()
+                ? (screenWidthDp - 40f - 14f) / 2f - 32f
+                : screenWidthDp - 72f;
         float aspectHeightDp = availableWidthDp * AppPreferences.panelHeightDp(this)
                 / (float) AppPreferences.panelWidthDp(this);
         return dp(Math.max(140f, Math.min(420f, aspectHeightDp)));
+    }
+
+    private boolean useTwoColumnLayout() {
+        float widthDp = getResources().getDisplayMetrics().widthPixels
+                / getResources().getDisplayMetrics().density;
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                && widthDp >= 600f;
     }
 
     private LinearLayout card() {

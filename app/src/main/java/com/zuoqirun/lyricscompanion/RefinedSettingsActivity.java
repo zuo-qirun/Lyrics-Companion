@@ -45,9 +45,8 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(70)));
 
         preview = new LyricsPanelView(this, false);
-        root.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
 
-        LinearLayout appearance = card(root, "外观");
+        LinearLayout appearance = card("外观");
         addChoice(appearance, "显示内容", AppPreferences.KEY_REFINED_DISPLAY_MODE,
                 new String[]{"全部", "仅歌词", "仅封面"},
                 new String[]{"all", "lyrics", "cover"}, AppPreferences.refinedDisplayMode(this));
@@ -64,7 +63,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         addToggle(appearance, "进度条贴底", AppPreferences.KEY_REFINED_PROGRESS_BOTTOM,
                 AppPreferences.refinedProgressBottom(this));
 
-        LinearLayout cover = card(root, "封面");
+        LinearLayout cover = card("封面");
         addChoice(cover, "水平对齐", AppPreferences.KEY_REFINED_COVER_HORIZONTAL,
                 new String[]{"居左", "居中"}, new String[]{"left", "center"},
                 AppPreferences.refinedCoverHorizontal(this));
@@ -78,7 +77,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         addSeek(cover, "封面大小", AppPreferences.KEY_STYLE_COVER_SIZE,
                 60, 150, Math.round(AppPreferences.styleCoverScale(this) * 100f), "%");
 
-        LinearLayout background = card(root, "背景");
+        LinearLayout background = card("背景");
         addChoice(background, "类型", AppPreferences.KEY_REFINED_BACKGROUND_TYPE,
                 new String[]{"流体", "模糊", "渐变", "纯色", "无"},
                 new String[]{"fluid", "blur", "gradient", "solid", "none"},
@@ -94,7 +93,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         addSeek(background, "背景不透明度", AppPreferences.KEY_OPACITY,
                 0, 100, AppPreferences.opacity(this), "%");
 
-        LinearLayout lyric = card(root, "歌词");
+        LinearLayout lyric = card("歌词");
         addSeek(lyric, "字体大小", AppPreferences.KEY_REFINED_LYRIC_FONT_SIZE,
                 16, 64, AppPreferences.refinedLyricFontSize(this), " sp");
         addToggle(lyric, "加粗首行", AppPreferences.KEY_REFINED_ORIGINAL_BOLD,
@@ -124,6 +123,33 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
                 12, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         note.setPadding(dp(4), dp(14), dp(4), 0);
+        if (useTwoColumnLayout()) {
+            LinearLayout columns = new LinearLayout(this);
+            columns.setOrientation(LinearLayout.HORIZONTAL);
+            columns.setBaselineAligned(false);
+            LinearLayout leftColumn = new LinearLayout(this);
+            leftColumn.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout rightColumn = new LinearLayout(this);
+            rightColumn.setOrientation(LinearLayout.VERTICAL);
+            columns.addView(leftColumn, new LinearLayout.LayoutParams(0, -2, 1f));
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1f);
+            rightParams.leftMargin = dp(14);
+            columns.addView(rightColumn, rightParams);
+            LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(190));
+            previewParams.topMargin = dp(14);
+            leftColumn.addView(preview, previewParams);
+            addCard(leftColumn, appearance);
+            addCard(leftColumn, cover);
+            addCard(rightColumn, background);
+            addCard(rightColumn, lyric);
+            root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
+        } else {
+            root.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
+            addCard(root, appearance);
+            addCard(root, cover);
+            addCard(root, background);
+            addCard(root, lyric);
+        }
         root.addView(note);
         setContentView(scroll);
     }
@@ -138,7 +164,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    private LinearLayout card(LinearLayout root, String title) {
+    private LinearLayout card(String title) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(15), dp(14), dp(15), dp(15));
@@ -147,10 +173,21 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         surface.setCornerSize(dp(20));
         card.setBackground(surface);
         card.addView(text(title, 13, 0xFF6EE7F2, true));
+        return card;
+    }
+
+    private void addCard(LinearLayout root, LinearLayout card) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = dp(14);
         root.addView(card, params);
-        return card;
+    }
+
+    private boolean useTwoColumnLayout() {
+        float widthDp = getResources().getDisplayMetrics().widthPixels
+                / getResources().getDisplayMetrics().density;
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                && widthDp >= 600f;
     }
 
     private void addChoice(LinearLayout parent, String title, String key,

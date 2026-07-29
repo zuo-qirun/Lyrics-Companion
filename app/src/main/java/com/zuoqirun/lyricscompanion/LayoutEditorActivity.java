@@ -18,7 +18,9 @@ public final class LayoutEditorActivity extends AppCompatActivity {
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle("个性化显示内容");
-        toolbar.setSubtitle("拖入上方显示，拖回下方隐藏");
+        toolbar.setSubtitle(useTwoColumnLayout()
+                ? "拖入左侧显示，拖回右侧隐藏"
+                : "拖入上方显示，拖回下方隐藏");
         toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
         toolbar.setNavigationOnClickListener(v -> finish());
         root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(72)));
@@ -56,5 +58,13 @@ public final class LayoutEditorActivity extends AppCompatActivity {
 
     private int dp(float value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private boolean useTwoColumnLayout() {
+        float widthDp = getResources().getDisplayMetrics().widthPixels
+                / getResources().getDisplayMetrics().density;
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                && widthDp >= 600f;
     }
 }

@@ -39,6 +39,7 @@ final class LyricsLayoutEditorView extends View {
 
     void reset() {
         config = LyricsLayoutConfig.defaults();
+        hitRects.clear();
         config.save(getContext());
         invalidate();
         if (listener != null) listener.onLayoutChanged();
@@ -47,8 +48,18 @@ final class LyricsLayoutEditorView extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float margin = dp(16);
-        preview.set(margin, margin, getWidth() - margin, getHeight() * 0.62f);
-        palette.set(margin, getHeight() * 0.68f, getWidth() - margin, getHeight() - margin);
+        boolean wideLayout = isWideLayout();
+        if (wideLayout) {
+            float contentWidth = getWidth() - margin * 2f;
+            float previewRight = margin + contentWidth * 0.60f - dp(7);
+            preview.set(margin, margin, previewRight, getHeight() - margin);
+            palette.set(previewRight + dp(14), margin, getWidth() - margin,
+                    getHeight() - margin);
+        } else {
+            preview.set(margin, margin, getWidth() - margin, getHeight() * 0.62f);
+            palette.set(margin, getHeight() * 0.68f, getWidth() - margin,
+                    getHeight() - margin);
+        }
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xFF101820);
@@ -58,30 +69,50 @@ final class LyricsLayoutEditorView extends View {
 
         paint.setTextSize(dp(12));
         paint.setColor(0xFF8ED7F8);
-        canvas.drawText("模拟渲染区域 · 拖动调整位置", preview.left + dp(14),
+        canvas.drawText(wideLayout ? "模拟区域 · 拖动定位" : "模拟渲染区域 · 拖动调整位置",
+                preview.left + dp(14),
                 preview.top + dp(22), paint);
-        canvas.drawText("备选区域 · 拖到这里即隐藏", palette.left + dp(14),
+        canvas.drawText(wideLayout ? "备选区 · 拖入隐藏" : "备选区域 · 拖到这里即隐藏",
+                palette.left + dp(14),
                 palette.top + dp(24), paint);
 
-        hitRects.clear();
         MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(getContext()));
+        int hiddenCount = 0;
+        for (LyricsLayoutConfig.Item item : config.items()) {
+            if (!item.enabled) hiddenCount++;
+        }
         int hiddenIndex = 0;
         for (LyricsLayoutConfig.Item item : config.items()) {
-            RectF bounds;
+            RectF bounds = hitRects.get(item);
+            if (bounds == null) {
+                bounds = new RectF();
+                hitRects.put(item, bounds);
+            }
             if (item.enabled) {
                 float x = preview.left + item.x * preview.width();
                 float y = preview.top + item.y * preview.height();
-                bounds = componentBounds(item.id, x, y, preview);
+                componentBounds(item.id, x, y, preview, bounds);
             } else {
-                int column = hiddenIndex % 3;
-                int row = hiddenIndex / 3;
-                float cellWidth = (palette.width() - dp(36)) / 3f;
-                float left = palette.left + dp(12) + column * (cellWidth + dp(6));
-                float top = palette.top + dp(38) + row * dp(52);
-                bounds = new RectF(left, top, left + cellWidth, top + dp(40));
+                if (wideLayout) {
+                    int rows = Math.max(1, (int) ((palette.height() - dp(42)) / dp(46)));
+                    int columns = Math.max(1, (hiddenCount + rows - 1) / rows);
+                    int column = hiddenIndex / rows;
+                    int row = hiddenIndex % rows;
+                    float cellWidth = (palette.width() - dp(24)
+                            - dp(6) * (columns - 1)) / columns;
+                    float left = palette.left + dp(12) + column * (cellWidth + dp(6));
+                    float top = palette.top + dp(38) + row * dp(46);
+                    bounds.set(left, top, left + cellWidth, top + dp(36));
+                } else {
+                    int column = hiddenIndex % 3;
+                    int row = hiddenIndex / 3;
+                    float cellWidth = (palette.width() - dp(36)) / 3f;
+                    float left = palette.left + dp(12) + column * (cellWidth + dp(6));
+                    float top = palette.top + dp(38) + row * dp(52);
+                    bounds.set(left, top, left + cellWidth, top + dp(40));
+                }
                 hiddenIndex++;
             }
-            hitRects.put(item, bounds);
             drawComponent(canvas, item, bounds, snapshot);
         }
     }
@@ -135,7 +166,7 @@ final class LyricsLayoutEditorView extends View {
         return null;
     }
 
-    private RectF componentBounds(String id, float x, float y, RectF container) {
+    private void componentBounds(String id, float x, float y, RectF container, RectF result) {
         float width = LyricsLayoutConfig.COVER.equals(id) ? dp(92)
                 : LyricsLayoutConfig.PROGRESS.equals(id) ? dp(180) : dp(150);
         float height = LyricsLayoutConfig.COVER.equals(id) ? dp(92)
@@ -144,7 +175,7 @@ final class LyricsLayoutEditorView extends View {
                 Math.min(x, container.right - width - dp(4)));
         float top = Math.max(container.top + dp(30),
                 Math.min(y, container.bottom - height - dp(4)));
-        return new RectF(left, top, left + width, top + height);
+        result.set(left, top, left + width, top + height);
     }
 
     private void drawComponent(Canvas canvas, LyricsLayoutConfig.Item item, RectF bounds,
@@ -202,6 +233,13 @@ final class LyricsLayoutEditorView extends View {
         int end = value.length();
         while (end > 0 && paint.measureText(value.substring(0, end) + suffix) > width) end--;
         return value.substring(0, end) + suffix;
+    }
+
+    private boolean isWideLayout() {
+        float widthDp = getWidth() / density;
+        return getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                && widthDp >= 600f;
     }
 
     private float dp(float value) { return value * density; }
