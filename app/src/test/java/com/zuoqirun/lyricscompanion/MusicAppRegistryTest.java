@@ -123,6 +123,15 @@ public class MusicAppRegistryTest {
                 MusicAppRegistry.selectionScore(0, true, false, true, false));
     }
 
+    @Test public void ranksTransportNotificationsAboveGenericOngoingNotifications() {
+        assertEquals(1_400, MusicNotificationListener.notificationCandidateScore(
+                true, false, true, true));
+        assertEquals(400, MusicNotificationListener.notificationCandidateScore(
+                false, false, true, true));
+        assertEquals(0, MusicNotificationListener.notificationCandidateScore(
+                false, false, false, false));
+    }
+
     @Test public void metadataOnlyCarSessionRemainsDisplayable() {
         assertTrue(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_NONE));
         assertTrue(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_PAUSED));
