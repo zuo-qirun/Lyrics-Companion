@@ -172,12 +172,15 @@ public class MusicAppRegistryTest {
     }
 
     @Test public void parsesObservedSodaMetadataIntoStableTrackIdentity() {
+        assertEquals("Die For You", MusicStateStore.sodaTitleFromDynamicArtist(
+                "Die For You — VALORANT​, Grabbitz"));
         assertEquals("VALORANT​, Grabbitz", MusicStateStore.sodaStableArtist(
                 "Die For You", "Die For You — VALORANT​, Grabbitz"));
         assertEquals("蔡徐坤", MusicStateStore.sodaStableArtist(
                 "Deadman", "Deadman-蔡徐坤"));
         assertEquals("Grabbitz", MusicStateStore.sodaStableArtist(
                 "Die For You", "Grabbitz"));
+        assertEquals("", MusicStateStore.sodaTitleFromDynamicArtist("VALORANT​, Grabbitz"));
     }
 
     @Test public void sodaLiveTitleBecomesLyricOnlyAfterCatalogsMiss() {

@@ -68,14 +68,14 @@ final class MusicStateStore {
         String rawArtist = firstNonEmpty(metadata,
                 MediaMetadata.METADATA_KEY_ARTIST, MediaMetadata.METADATA_KEY_ALBUM_ARTIST,
                 MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
-        String albumTitle = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_ALBUM);
-        boolean sodaHasStableAlbumTitle = "soda".equals(normalizedSource)
-                && !TextUtils.isEmpty(albumTitle);
-        String newTitle = sodaHasStableAlbumTitle ? albumTitle : rawTitle;
-        String newArtist = sodaHasStableAlbumTitle
+        String sodaDynamicTitle = "soda".equals(normalizedSource)
+                ? sodaTitleFromDynamicArtist(rawArtist) : "";
+        boolean sodaHasCompositeIdentity = !TextUtils.isEmpty(sodaDynamicTitle)
+                && !sameIdentityText(rawTitle, sodaDynamicTitle);
+        String newTitle = sodaHasCompositeIdentity ? sodaDynamicTitle : rawTitle;
+        String newArtist = sodaHasCompositeIdentity
                 ? sodaStableArtist(newTitle, rawArtist) : rawArtist;
-        String incomingSodaLiveLyric = sodaHasStableAlbumTitle
-                && !sameIdentityText(rawTitle, newTitle) ? rawTitle : "";
+        String incomingSodaLiveLyric = sodaHasCompositeIdentity ? rawTitle : "";
         String newMediaId = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_MEDIA_ID);
         Bitmap newAlbumArt = firstBitmap(metadata,
                 MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_ART,
@@ -98,7 +98,7 @@ final class MusicStateStore {
         long generationForAlbumArt = -1L;
         synchronized (LOCK) {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
-            if (!sodaHasStableAlbumTitle && shouldKeepSodaTrackIdentity(
+            if (!sodaHasCompositeIdentity && shouldKeepSodaTrackIdentity(
                     normalizedSource, sameSource, title, newTitle,
                     artist, newArtist, durationMs, newDuration)) {
                 // Older Soda builds without ALBUM use TITLE as live lyric and ARTIST as
@@ -475,6 +475,14 @@ final class MusicStateStore {
             return suffix.replaceFirst("^[—–\\-·|:：,，]+\\s*", "").trim();
         }
         return artistValue;
+    }
+
+    static String sodaTitleFromDynamicArtist(String rawArtist) {
+        String value = safe(rawArtist).trim();
+        int separator = value.lastIndexOf(" — ");
+        if (separator < 1) separator = value.lastIndexOf(" – ");
+        if (separator < 1) separator = value.lastIndexOf(" - ");
+        return separator < 1 ? "" : value.substring(0, separator).trim();
     }
 
     static boolean isSodaLiveLyricFallbackAvailable(String source, boolean loadFinished,
