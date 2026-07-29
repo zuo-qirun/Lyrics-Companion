@@ -190,6 +190,31 @@ public class MusicAppRegistryTest {
                 201_000L, 240_000L));
     }
 
+    @Test public void recognizesSodaSkipWhenTitleAndArtistChangeBeforeDuration() {
+        assertFalse(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "KAMNH", "Ticking Away", "Моя Мишель",
+                "Grabbitz, bbno$, VALORANT", 182_000L, 182_000L));
+    }
+
+    @Test public void recognizesSodaSkipByStableTrackIdForSameArtist() {
+        assertFalse(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "First Song", "Second Song", "Same Artist", "Same Artist",
+                180_000L, 180_000L, "track:7031318019544614913",
+                "track:7290011223344556677"));
+        assertTrue(MusicStateStore.shouldKeepSodaTrackIdentity(
+                "soda", true, "First Song", "a live lyric line", "Same Artist", "Same Artist",
+                180_000L, 180_000L, "track:7031318019544614913",
+                "track:7031318019544614913"));
+    }
+
+    @Test public void sodaTrackKeyUsesNativeCatalogId() {
+        String first = MusicStateStore.lyricTrackKey("soda", "Same", "Same", 180_000L,
+                "track:7031318019544614913", "auto", true);
+        String second = MusicStateStore.lyricTrackKey("soda", "Same", "Same", 180_000L,
+                "track:7290011223344556677", "auto", true);
+        assertFalse(first.equals(second));
+    }
+
     @Test public void keepsSodaArtistWhenItIsReplacedByDynamicMetadata() {
         assertTrue(MusicStateStore.shouldKeepSodaTrackIdentity(
                 "soda", true, "Deadman", "Deadman", "蔡徐坤", "你早知我沉溺",

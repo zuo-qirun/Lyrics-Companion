@@ -100,9 +100,11 @@ final class MusicStateStore {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
             if (!sodaHasCompositeIdentity && shouldKeepSodaTrackIdentity(
                     normalizedSource, sameSource, title, newTitle,
-                    artist, newArtist, durationMs, newDuration)) {
+                    artist, newArtist, durationMs, newDuration,
+                    mediaId, newMediaId)) {
                 // Older Soda builds without ALBUM use TITLE as live lyric and ARTIST as
-                // title-artist. Duration + raw artist changing together identifies a real skip.
+                // title-artist. Keep one-field lyric mutations, but never suppress a complete
+                // title+artist replacement or a stable Soda track-ID change.
                 Log.i(TAG, "Ignoring Soda dynamic metadata: " + newTitle + " / " + newArtist);
                 if (!sameIdentityText(newTitle, title)) incomingSodaLiveLyric = newTitle;
                 newTitle = title;
@@ -436,9 +438,12 @@ final class MusicStateStore {
         if ("netease".equals(source)) {
             long songId = NetEaseLyricClient.parseSongId(mediaId);
             if (songId > 0L) directMediaId = Long.toString(songId);
+        } else if ("soda".equals(source)) {
+            directMediaId = SodaLyricClient.trackId(mediaId);
         }
-        // Duration and non-NetEase media IDs often arrive late or oscillate on car players.
-        // They refine search ranking but must not turn the same song into a new generation.
+        // Duration and opaque media IDs often arrive late or oscillate on car players. Soda's
+        // numeric track ID is the catalog ID used by its lyric endpoint, so it is stable enough
+        // to distinguish consecutive songs even when title/artist metadata arrives in stages.
         return safe(source) + "\n" + identityText(title) + "\n" + identityText(artist)
                 + "\n" + directMediaId + "\n" + safe(selectedCatalog)
                 + "\n" + playerCatalogFallback;
@@ -448,19 +453,36 @@ final class MusicStateStore {
                                                String currentTitle, String incomingTitle,
                                                String currentArtist, String incomingArtist,
                                                long currentDuration, long incomingDuration) {
+        return shouldKeepSodaTrackIdentity(incomingSource, sameSource,
+                currentTitle, incomingTitle, currentArtist, incomingArtist,
+                currentDuration, incomingDuration, "", "");
+    }
+
+    static boolean shouldKeepSodaTrackIdentity(String incomingSource, boolean sameSource,
+                                               String currentTitle, String incomingTitle,
+                                               String currentArtist, String incomingArtist,
+                                               long currentDuration, long incomingDuration,
+                                               String currentMediaId, String incomingMediaId) {
         if (!sameSource || !"soda".equals(incomingSource)
-                || TextUtils.isEmpty(currentTitle)) return false;
-        boolean titleChanged = !TextUtils.isEmpty(incomingTitle)
+                || safe(currentTitle).trim().isEmpty()) return false;
+        String currentTrackId = SodaLyricClient.trackId(currentMediaId);
+        String incomingTrackId = SodaLyricClient.trackId(incomingMediaId);
+        if (!currentTrackId.isEmpty() && !incomingTrackId.isEmpty()
+                && !currentTrackId.equals(incomingTrackId)) {
+            return false;
+        }
+        boolean titleChanged = !safe(incomingTitle).trim().isEmpty()
                 && !sameIdentityText(currentTitle, incomingTitle);
-        boolean artistChanged = !TextUtils.isEmpty(currentArtist)
-                && !TextUtils.isEmpty(incomingArtist)
+        boolean artistChanged = !safe(currentArtist).trim().isEmpty()
+                && !safe(incomingArtist).trim().isEmpty()
                 && !sameIdentityText(currentArtist, incomingArtist);
         if (!titleChanged && !artistChanged) return false;
         boolean durationChanged = currentDuration > 0L && incomingDuration > 0L
                 && Math.abs(currentDuration - incomingDuration) > 2_000L;
-        // Observed Soda contract: lyric mode changes TITLE and prefixes ARTIST with the song
-        // name, while a real skip changes both total duration and the raw ARTIST value.
-        return !(durationChanged && artistChanged);
+        // Soda lyric mode mutates one identity field at a time (TITLE becomes the lyric, or
+        // ARTIST becomes title-artist/lyric). A simultaneous title+artist replacement is a real
+        // track switch even when DURATION is stale or temporarily absent.
+        return !(titleChanged && artistChanged || durationChanged && titleChanged);
     }
 
     static String sodaStableArtist(String stableTitle, String rawArtist) {
@@ -494,8 +516,8 @@ final class MusicStateStore {
     }
 
     private static boolean sameIdentityText(String left, String right) {
-        return !identityText(left).isEmpty()
-                && TextUtils.equals(identityText(left), identityText(right));
+        String normalizedLeft = identityText(left);
+        return !normalizedLeft.isEmpty() && normalizedLeft.equals(identityText(right));
     }
 
     private static String identityText(String value) {

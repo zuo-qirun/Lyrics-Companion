@@ -155,7 +155,7 @@ final class SodaLyricClient {
         return result.toString();
     }
 
-    private static String trackId(String value) {
+    static String trackId(String value) {
         Matcher matcher = TRACK_ID.matcher(value == null ? "" : value);
         return matcher.find() ? matcher.group(1) : "";
     }
