@@ -6,6 +6,8 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+
 public class MusicAppRegistryTest {
     @Test public void recognizesCarEditionPackageNames() {
         assertSource("qqmusic", "com.tencent.qqmusiccar", "");
@@ -35,6 +37,17 @@ public class MusicAppRegistryTest {
                 "media", "netease", "123456"));
         assertEquals("", MultiSourceLyricClient.directMediaId(
                 "netease", "qqmusic", "123456"));
+    }
+
+    @Test public void unknownPlayersDoNotHaveAHardCodedNetEasePreference() {
+        MultiSourceLyricClient.Result qq = new MultiSourceLyricClient.Result(
+                LrcTimeline.EMPTY, "QQ 音乐", "qqmusic");
+        MultiSourceLyricClient.Result netease = new MultiSourceLyricClient.Result(
+                LrcTimeline.EMPTY, "网易云音乐", "netease");
+        assertEquals("qqmusic", MultiSourceLyricClient.chooseResult(
+                "", Arrays.asList(qq, netease)).providerId);
+        assertEquals("netease", MultiSourceLyricClient.chooseResult(
+                "netease", Arrays.asList(qq, netease)).providerId);
     }
 
     private static void assertSource(String expected, String packageName, String label) {

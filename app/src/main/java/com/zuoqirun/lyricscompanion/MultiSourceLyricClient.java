@@ -35,11 +35,6 @@ final class MultiSourceLyricClient {
         String preferred = providerForSource(currentSource);
         List<String> providers = new ArrayList<>(Arrays.asList(
                 "netease", "qqmusic", "kugou", "kuwo"));
-        List<String> priority = new ArrayList<>();
-        if (!preferred.isEmpty()) priority.add(preferred);
-        for (String provider : providers) {
-            if (!priority.contains(provider)) priority.add(provider);
-        }
         CompletionService<Result> completion = new ExecutorCompletionService<>(fallbackPool);
         List<Future<Result>> futures = new ArrayList<>();
         for (String provider : providers) {
@@ -71,12 +66,7 @@ final class MultiSourceLyricClient {
         } finally {
             for (Future<Result> future : futures) future.cancel(true);
         }
-        for (String provider : priority) {
-            for (Result result : successful) {
-                if (provider.equals(result.providerId)) return result;
-            }
-        }
-        return Result.EMPTY;
+        return chooseResult(preferred, successful);
     }
 
     private Result tryProvider(String provider, String mediaId, String title, String artist,
@@ -123,6 +113,16 @@ final class MultiSourceLyricClient {
     static String directMediaId(String currentSource, String provider, String mediaId) {
         return "netease".equals(currentSource) && "netease".equals(provider)
                 ? mediaId : "";
+    }
+
+    static Result chooseResult(String preferred, List<Result> successful) {
+        if (successful == null || successful.isEmpty()) return Result.EMPTY;
+        if (preferred != null && !preferred.isEmpty()) {
+            for (Result result : successful) {
+                if (preferred.equals(result.providerId)) return result;
+            }
+        }
+        return successful.get(0);
     }
 
     static final class Result {
