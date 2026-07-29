@@ -184,10 +184,27 @@ final class MusicStateStore {
     static MusicSnapshot snapshot(int lyricOffsetMs) {
         synchronized (LOCK) {
             long position = currentPositionLocked();
-            LrcTimeline.At at = timeline.at(Math.max(0L, position + lyricOffsetMs));
-            return new MusicSnapshot(active, playing, sourceName, title, artist, albumArt, durationMs,
-                    position, lyricLoadFinished, !timeline.isEmpty(), lyricSourceName, at);
+            return snapshotLocked(position, Math.max(0L, position + lyricOffsetMs));
         }
+    }
+
+    static MusicSnapshot snapshotForLyricBrowse(int lyricOffsetMs, long lyricPositionMs) {
+        synchronized (LOCK) {
+            long position = Math.max(0L, lyricPositionMs - lyricOffsetMs);
+            return snapshotLocked(position, Math.max(0L, lyricPositionMs));
+        }
+    }
+
+    static long shiftLyricPosition(long lyricPositionMs, int direction) {
+        synchronized (LOCK) {
+            return timeline.shiftedPosition(lyricPositionMs, direction);
+        }
+    }
+
+    private static MusicSnapshot snapshotLocked(long position, long lyricPosition) {
+        LrcTimeline.At at = timeline.at(lyricPosition);
+        return new MusicSnapshot(active, playing, sourceName, title, artist, albumArt, durationMs,
+                position, lyricLoadFinished, !timeline.isEmpty(), lyricSourceName, at);
     }
 
     static void reloadLyrics(Context context) {

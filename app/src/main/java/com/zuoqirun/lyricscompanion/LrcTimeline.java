@@ -29,12 +29,12 @@ final class LrcTimeline {
     }
 
     static LrcTimeline parse(String original, String translated, String wordByWord) {
+        TreeMap<Long, String> originals = parseTimedLines(original);
         TreeMap<Long, String> translations = parseTimedLines(translated);
-        List<Line> enhanced = parseYrcLines(wordByWord, translations);
+        List<Line> enhanced = parseYrcLines(wordByWord, originals, translations);
         if (!enhanced.isEmpty()) {
             return new LrcTimeline(Collections.unmodifiableList(enhanced));
         }
-        TreeMap<Long, String> originals = parseTimedLines(original);
         if (originals.isEmpty()) {
             return EMPTY;
         }
@@ -64,6 +64,12 @@ final class LrcTimeline {
         Line current = currentIndex >= 0 ? lines.get(currentIndex) : null;
         Line previous = currentIndex > 0 ? lines.get(currentIndex - 1) : null;
         Line next = low < lines.size() ? lines.get(low) : null;
+        if (current == null && next != null && next.timeMs >= MIN_INTERLUDE_MS) {
+            long duration = next.timeMs;
+            return new At("", "", "", next.text, true, false, "", "",
+                    0L, duration, -1L, 0L, 0,
+                    buildInterludeNearby(-1, 0L, duration));
+        }
         if (current != null && next != null) {
             long visibleDurationMs = current.durationMs > 0L
                     ? current.durationMs : PLAIN_LINE_HOLD_MS;
@@ -72,7 +78,7 @@ final class LrcTimeline {
             if (gapDurationMs >= MIN_INTERLUDE_MS && positionMs >= currentEndMs) {
                 return new At(current.text, "", "", next.text, true, false, "", "",
                         currentEndMs, gapDurationMs, -1L, 0L, 0,
-                        buildNearby(currentIndex));
+                        buildInterludeNearby(currentIndex, currentEndMs, gapDurationMs));
             }
         }
         long lineStartMs = current == null ? -1L : current.timeMs;
@@ -116,6 +122,21 @@ final class LrcTimeline {
         return lines.isEmpty();
     }
 
+    long shiftedPosition(long positionMs, int direction) {
+        if (lines.isEmpty() || direction == 0) return Math.max(0L, positionMs);
+        int low = 0;
+        int high = lines.size();
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (lines.get(mid).timeMs <= positionMs) low = mid + 1;
+            else high = mid;
+        }
+        int current = low - 1;
+        int target = direction > 0 ? Math.min(lines.size() - 1, current + 1)
+                : Math.max(0, current - 1);
+        return lines.get(target).timeMs;
+    }
+
     static int revealedCodePointCount(String value, int progressPermille) {
         if (value == null || value.isEmpty() || progressPermille <= 0) return 0;
         int codePointCount = value.codePointCount(0, value.length());
@@ -130,7 +151,27 @@ final class LrcTimeline {
         int end = Math.min(lines.size() - 1, currentIndex + 3);
         for (int index = start; index <= end; index++) {
             Line line = lines.get(index);
-            result.add(new NearbyLine(line.text, line.translated, index - currentIndex));
+            result.add(new NearbyLine(line.text, line.translated, index - currentIndex,
+                    line.timeMs, line.durationMs, false));
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    private List<NearbyLine> buildInterludeNearby(int previousIndex, long startMs,
+                                                   long durationMs) {
+        List<NearbyLine> result = new ArrayList<>();
+        int start = Math.max(0, previousIndex - 2);
+        for (int index = start; index <= previousIndex; index++) {
+            Line line = lines.get(index);
+            result.add(new NearbyLine(line.text, line.translated,
+                    index - previousIndex - 1, line.timeMs, line.durationMs, false));
+        }
+        result.add(new NearbyLine("", "", 0, startMs, durationMs, true));
+        int end = Math.min(lines.size() - 1, previousIndex + 3);
+        for (int index = previousIndex + 1; index <= end; index++) {
+            Line line = lines.get(index);
+            result.add(new NearbyLine(line.text, line.translated,
+                    index - previousIndex, line.timeMs, line.durationMs, false));
         }
         return Collections.unmodifiableList(result);
     }
@@ -154,7 +195,8 @@ final class LrcTimeline {
         return result;
     }
 
-    private static List<Line> parseYrcLines(String value, TreeMap<Long, String> translations) {
+    private static List<Line> parseYrcLines(String value, TreeMap<Long, String> originalLines,
+                                            TreeMap<Long, String> translations) {
         List<Line> result = new ArrayList<>();
         if (value == null || value.isEmpty()) return result;
         for (String rawLine : value.split("\\r?\\n")) {
@@ -184,7 +226,7 @@ final class LrcTimeline {
             String lineText = text.toString().trim();
             if (!lineText.isEmpty()) {
                 result.add(new Line(lineStart, Long.parseLong(lineMatcher.group(2)), lineText,
-                        closestTranslation(translations, lineStart),
+                        enhancedTranslation(originalLines, translations, lineStart, lineText),
                         Collections.unmodifiableList(words)));
             }
         }
@@ -202,6 +244,38 @@ final class LrcTimeline {
     }
 
     private static String closestTranslation(TreeMap<Long, String> translations, long timestamp) {
+        return closestTranslation(translations, timestamp, 500L);
+    }
+
+    private static String enhancedTranslation(TreeMap<Long, String> originalLines,
+                                              TreeMap<Long, String> translations,
+                                              long lineStart, String lineText) {
+        String normalized = normalizeLyricText(lineText);
+        Map.Entry<Long, String> matchingOriginal = null;
+        long matchingDistance = Long.MAX_VALUE;
+        if (!normalized.isEmpty()) {
+            for (Map.Entry<Long, String> original : originalLines.entrySet()) {
+                if (!normalized.equals(normalizeLyricText(original.getValue()))) continue;
+                long distance = Math.abs(original.getKey() - lineStart);
+                if (distance < matchingDistance) {
+                    matchingOriginal = original;
+                    matchingDistance = distance;
+                }
+            }
+        }
+        if (matchingOriginal != null && matchingDistance <= 5_000L) {
+            return closestTranslation(translations, matchingOriginal.getKey(), 500L);
+        }
+        return closestTranslation(translations, lineStart, 2_500L);
+    }
+
+    private static String normalizeLyricText(String value) {
+        return value == null ? "" : value.toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[\\p{P}\\s]+", "");
+    }
+
+    private static String closestTranslation(TreeMap<Long, String> translations, long timestamp,
+                                             long maxDistanceMs) {
         if (translations.isEmpty()) return "";
         Map.Entry<Long, String> floor = translations.floorEntry(timestamp);
         Map.Entry<Long, String> ceil = translations.ceilingEntry(timestamp);
@@ -210,7 +284,7 @@ final class LrcTimeline {
                 && Math.abs(ceil.getKey() - timestamp) < Math.abs(best.getKey() - timestamp)) {
             best = ceil;
         }
-        return best != null && Math.abs(best.getKey() - timestamp) <= 500L
+        return best != null && Math.abs(best.getKey() - timestamp) <= maxDistanceMs
                 ? best.getValue() : "";
     }
 
@@ -286,11 +360,18 @@ final class LrcTimeline {
         final String text;
         final String translated;
         final int offset;
+        final long timeMs;
+        final long durationMs;
+        final boolean interlude;
 
-        NearbyLine(String text, String translated, int offset) {
+        NearbyLine(String text, String translated, int offset, long timeMs,
+                   long durationMs, boolean interlude) {
             this.text = text == null ? "" : text;
             this.translated = translated == null ? "" : translated;
             this.offset = offset;
+            this.timeMs = timeMs;
+            this.durationMs = durationMs;
+            this.interlude = interlude;
         }
     }
 }

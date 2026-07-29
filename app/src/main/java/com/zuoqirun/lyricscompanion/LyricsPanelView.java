@@ -1,5 +1,6 @@
 package com.zuoqirun.lyricscompanion;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -15,17 +16,35 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.os.SystemClock;
+import android.os.Build;
+import android.util.LruCache;
+import android.view.MotionEvent;
 import android.view.View;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 
 /** Canvas renderer shared by the preview, the phone overlay and the secondary display. */
 final class LyricsPanelView extends View {
+    private static final Typeface SANS_NORMAL = Typeface.create("sans", Typeface.NORMAL);
+    private static final Typeface SANS_BOLD = Typeface.create("sans", Typeface.BOLD);
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG
             | Paint.FILTER_BITMAP_FLAG);
     private final Rect sourceRect = new Rect();
     private final RectF panelRect = new RectF();
     private final RectF workRect = new RectF();
     private final RectF progressRect = new RectF();
+    private final RectF coverRect = new RectF();
+    private final RectF shadowRect = new RectF();
     private final Path clipPath = new Path();
+    private final LruCache<TextLayoutKey, List<WrappedChunk>> wrappedTextCache =
+            new LruCache<>(96);
+    private final LruCache<TextLayoutKey, String> ellipsizedTextCache =
+            new LruCache<>(96);
+    private float[] refinedLineHeights = new float[8];
+    private float[] refinedLineTops = new float[8];
     private float textScale = 1f;
     private float coverScale = 1f;
     private int opacity = 88;
@@ -64,13 +83,27 @@ final class LyricsPanelView extends View {
     private int[] palette = new int[]{0xFF62798A, 0xFF33495C, 0xFF8A6D72,
             0xFF1C2933, 0xFF9BAEB8, 0xFF536A77};
     private boolean secondary;
+    private boolean browsingLyrics;
+    private boolean browseMoved;
+    private float browseLastY;
+    private float browseTravelPx;
+    private float browseVisualOffsetPx;
+    private float browseVelocityPxPerSecond;
+    private long browseLastEventTimeMs;
+    private boolean browseSettling;
+    private long browseSettleLastFrameMs;
+    private float lastRefinedBrowseStepPx;
+    private long browsePositionMs;
+    private long browseUntilElapsedMs;
+    private long lastRenderedLineStartMs = Long.MIN_VALUE;
+    private long lyricScrollAnimationStartedMs;
+    private int lyricScrollDirection;
 
     LyricsPanelView(Context context) { this(context, false); }
 
     LyricsPanelView(Context context, boolean secondary) {
         super(context);
         this.secondary = secondary;
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
         reloadStyle();
     }
 
@@ -106,12 +139,15 @@ final class LyricsPanelView extends View {
         refinedCurrentAlign = AppPreferences.refinedCurrentAlign(getContext());
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext());
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext());
+        setLayerType("refined".equals(overlayStyle) && refinedLyricBlur
+                ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext());
         if (blurPreview != null && blurPreview != blurSource && !blurPreview.isRecycled()) {
             blurPreview.recycle();
         }
         blurPreview = null;
         blurSource = null;
+        clearTextCaches();
         invalidate();
     }
 
@@ -122,7 +158,17 @@ final class LyricsPanelView extends View {
         float height = getHeight();
         if (width <= 2f || height <= 2f) return;
         panelRect.set(1f, 1f, width - 1f, height - 1f);
-        MusicSnapshot snapshot = MusicStateStore.snapshot(lyricOffsetMs);
+        long now = SystemClock.elapsedRealtime();
+        updateBrowseSpring(now);
+        if (!browsingLyrics && browseUntilElapsedMs > 0L && now >= browseUntilElapsedMs) {
+            browseUntilElapsedMs = 0L;
+            browseSettling = false;
+            browseVisualOffsetPx = 0f;
+            browseVelocityPxPerSecond = 0f;
+        }
+        MusicSnapshot snapshot = browsingLyrics || browseUntilElapsedMs > now
+                ? MusicStateStore.snapshotForLyricBrowse(lyricOffsetMs, browsePositionMs)
+                : MusicStateStore.snapshot(lyricOffsetMs);
 
         if ("refined".equals(overlayStyle)) {
             drawRefined(canvas, snapshot, density);
@@ -133,7 +179,191 @@ final class LyricsPanelView extends View {
         } else {
             drawDefault(canvas, snapshot, density);
         }
-        postInvalidateDelayed(snapshot.playing ? 42L : 250L);
+        if (browsingLyrics || browseUntilElapsedMs > now) {
+            drawBrowseIndicator(canvas, snapshot, density);
+        }
+        postInvalidateDelayed(nextFrameDelay(snapshot, now));
+    }
+
+    private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
+        if (browsingLyrics || browseSettling) return 16L;
+        if (lyricScrollAnimationStartedMs > 0L
+                && nowElapsedMs - lyricScrollAnimationStartedMs < 500L) return 16L;
+        if (browseUntilElapsedMs > nowElapsedMs) {
+            return Math.max(16L, Math.min(250L, browseUntilElapsedMs - nowElapsedMs));
+        }
+        if (!snapshot.active) return 750L;
+        if (!snapshot.playing) return 400L;
+        if (snapshot.lyrics.interlude) return 33L;
+        if (snapshot.lyrics.wordTimed && snapshot.lyrics.wordDurationMs > 0L
+                && !snapshot.lyrics.currentWord.isEmpty()) {
+            int codePoints = snapshot.lyrics.currentWord.codePointCount(
+                    0, snapshot.lyrics.currentWord.length());
+            int revealed = LrcTimeline.revealedCodePointCount(
+                    snapshot.lyrics.currentWord, snapshot.lyrics.wordProgressPermille);
+            if (codePoints > 0 && revealed < codePoints) {
+                long nextOffset = (snapshot.lyrics.wordDurationMs * (revealed + 1L)
+                        + codePoints - 1L) / codePoints;
+                long lyricPosition = snapshot.positionMs + lyricOffsetMs;
+                long untilNextCharacter = snapshot.lyrics.wordStartMs
+                        + nextOffset - lyricPosition;
+                return Math.max(16L, Math.min(100L, untilNextCharacter));
+            }
+        }
+        return 100L;
+    }
+
+    boolean isLyricGestureRegion(float x, float y) {
+        if (getWidth() <= 0 || getHeight() <= 0) return false;
+        MusicSnapshot snapshot = MusicStateStore.snapshot(lyricOffsetMs);
+        if (!snapshot.lyricAvailable) return false;
+        if ("refined".equals(overlayStyle)) {
+            return !"cover".equals(refinedDisplayMode)
+                    && ("lyrics".equals(refinedDisplayMode) || x >= getWidth() * 0.46f);
+        }
+        if ("pip".equals(overlayStyle)) return y >= getHeight() * 0.34f;
+        if ("custom".equals(overlayStyle)) return y >= getHeight() * 0.28f;
+        return y >= getHeight() * 0.24f && y <= getHeight() * 0.86f;
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                MusicSnapshot live = MusicStateStore.snapshot(lyricOffsetMs);
+                if (!live.lyricAvailable) return false;
+                long now = SystemClock.elapsedRealtime();
+                updateBrowseSpring(now);
+                browseSettling = false;
+                browsePositionMs = LyricsBrowseState.startingPosition(now,
+                        browseUntilElapsedMs, browsePositionMs,
+                        live.positionMs + lyricOffsetMs);
+                browsingLyrics = true;
+                browseMoved = false;
+                browseTravelPx = 0f;
+                browseLastY = event.getY();
+                browseLastEventTimeMs = event.getEventTime();
+                browseVelocityPxPerSecond = 0f;
+                browseUntilElapsedMs = 0L;
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                invalidate();
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (!browsingLyrics) return false;
+                float delta = event.getY() - browseLastY;
+                long eventTime = event.getEventTime();
+                long elapsed = Math.max(1L, eventTime - browseLastEventTimeMs);
+                float instantVelocity = delta * 1_000f / elapsed;
+                browseVelocityPxPerSecond = browseVelocityPxPerSecond * 0.28f
+                        + instantVelocity * 0.72f;
+                browseLastY = event.getY();
+                browseLastEventTimeMs = eventTime;
+                browseTravelPx += Math.abs(delta);
+                browseMoved = browseTravelPx >= 6f
+                        * getResources().getDisplayMetrics().density;
+                browseVisualOffsetPx += delta;
+                consumeBrowseSteps(browseStepPx());
+                invalidate();
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (!browsingLyrics) return false;
+                browsingLyrics = false;
+                long releaseTime = SystemClock.elapsedRealtime();
+                if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    projectBrowseRelease(browseStepPx());
+                } else {
+                    browseVelocityPxPerSecond = 0f;
+                }
+                browseUntilElapsedMs = releaseTime + 2_500L;
+                if (animationsEnabled() && (Math.abs(browseVisualOffsetPx) > 0.35f
+                        || Math.abs(browseVelocityPxPerSecond) > 4f)) {
+                    browseSettling = true;
+                    browseSettleLastFrameMs = releaseTime;
+                } else {
+                    browseSettling = false;
+                    browseVisualOffsetPx = 0f;
+                    browseVelocityPxPerSecond = 0f;
+                }
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+                invalidate();
+                if (!browseMoved && event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    performClick();
+                }
+                return true;
+            default:
+                return super.onTouchEvent(event);
+        }
+    }
+
+    private void consumeBrowseSteps(float stepPx) {
+        if (stepPx <= 0f) return;
+        while (browseVisualOffsetPx <= -stepPx) {
+            long shifted = MusicStateStore.shiftLyricPosition(browsePositionMs, 1);
+            if (shifted == browsePositionMs) {
+                float overshoot = -(browseVisualOffsetPx + stepPx);
+                browseVisualOffsetPx = -stepPx
+                        - LyricPreviewMotion.rubberBand(overshoot, stepPx * 2f);
+                return;
+            }
+            browsePositionMs = shifted;
+            browseVisualOffsetPx += stepPx;
+        }
+        while (browseVisualOffsetPx >= stepPx) {
+            long shifted = MusicStateStore.shiftLyricPosition(browsePositionMs, -1);
+            if (shifted == browsePositionMs) {
+                float overshoot = browseVisualOffsetPx - stepPx;
+                browseVisualOffsetPx = stepPx
+                        + LyricPreviewMotion.rubberBand(overshoot, stepPx * 2f);
+                return;
+            }
+            browsePositionMs = shifted;
+            browseVisualOffsetPx -= stepPx;
+        }
+    }
+
+    private void projectBrowseRelease(float stepPx) {
+        int lineDelta = LyricPreviewMotion.projectedLineDelta(browseVisualOffsetPx,
+                browseVelocityPxPerSecond, stepPx);
+        int direction = Integer.compare(lineDelta, 0);
+        for (int i = 0; i < Math.abs(lineDelta); i++) {
+            long shifted = MusicStateStore.shiftLyricPosition(browsePositionMs, direction);
+            if (shifted == browsePositionMs) break;
+            browsePositionMs = shifted;
+            browseVisualOffsetPx += direction > 0 ? stepPx : -stepPx;
+        }
+    }
+
+    private void updateBrowseSpring(long nowElapsedMs) {
+        if (!browseSettling) return;
+        float deltaSeconds = (nowElapsedMs - browseSettleLastFrameMs) / 1_000f;
+        browseSettleLastFrameMs = nowElapsedMs;
+        LyricPreviewMotion.SpringState state = LyricPreviewMotion.stepCritical(
+                browseVisualOffsetPx, browseVelocityPxPerSecond, deltaSeconds, 0.38f);
+        browseVisualOffsetPx = state.position;
+        browseVelocityPxPerSecond = state.velocity;
+        browseSettling = !state.settled;
+    }
+
+    private float browseStepPx() {
+        if ("refined".equals(overlayStyle) && lastRefinedBrowseStepPx > 1f) {
+            return lastRefinedBrowseStepPx;
+        }
+        return 34f * getResources().getDisplayMetrics().density;
+    }
+
+    private boolean manualPreviewActive() {
+        return browsingLyrics || browseSettling
+                || browseUntilElapsedMs > SystemClock.elapsedRealtime();
+    }
+
+    private static boolean animationsEnabled() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+                || ValueAnimator.areAnimatorsEnabled();
+    }
+
+    @Override public boolean performClick() {
+        super.performClick();
+        return true;
     }
 
     private void drawDefault(Canvas canvas, MusicSnapshot snapshot, float density) {
@@ -147,6 +377,7 @@ final class LyricsPanelView extends View {
         canvas.drawRoundRect(workRect, 2f * density, 2f * density, paint);
 
         float usableWidth = Math.max(1f, width - pad * 2f);
+        float previewShift = browseVisualOffsetPx;
         float y = 33f * density;
         float unit = secondary ? 1.12f : 1f;
         String lyricSource = snapshot.lyricSourceName.isEmpty()
@@ -161,18 +392,27 @@ final class LyricsPanelView extends View {
         drawCentered(canvas, snapshot.active ? snapshot.title : "打开音乐播放器并开始播放", y,
                 15f * density * textScale * unit, 0xFFF6F9FF, usableWidth, Typeface.BOLD);
         y += 27f * density * unit;
-        drawCentered(canvas, snapshot.lyrics.previousLyric, y,
+        drawCentered(canvas, snapshot.lyrics.previousLyric, y + previewShift,
                 12f * density * textScale * unit, 0xFF68778C, usableWidth, Typeface.NORMAL);
         y += 32f * density * unit;
-        drawKaraoke(canvas, snapshot, currentText(snapshot), width / 2f, y,
-                22f * density * textScale * unit, usableWidth, Paint.Align.CENTER,
-                0xFFB1BCCB, 0xFFFFCA66);
+        if (snapshot.lyrics.interlude) {
+            float dotRadius = 22f * density * textScale * unit * 0.35f;
+            float dotWidth = interludeDotsWidth(dotRadius);
+            drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
+                    y + previewShift - dotRadius, dotRadius, 0xFFFFCA66);
+        } else {
+            drawKaraoke(canvas, snapshot, currentText(snapshot), width / 2f,
+                    y + previewShift,
+                    22f * density * textScale * unit, usableWidth, Paint.Align.CENTER,
+                    0xFFB1BCCB, 0xFFFFCA66);
+        }
         if (!snapshot.lyrics.translatedLyric.isEmpty()) {
             y += 24f * density * unit;
-            drawCentered(canvas, snapshot.lyrics.translatedLyric, y,
+            drawCentered(canvas, snapshot.lyrics.translatedLyric, y + previewShift,
                     12f * density * textScale * unit, 0xFFB8C5D8, usableWidth, Typeface.NORMAL);
         }
-        drawCentered(canvas, snapshot.lyrics.nextLyric, height - 37f * density,
+        drawCentered(canvas, snapshot.lyrics.nextLyric,
+                height - 37f * density + previewShift,
                 12f * density * textScale * unit, 0xFF68778C, usableWidth, Typeface.NORMAL);
         drawProgress(canvas, pad, height - 17f * density, width - pad, 3f * density,
                 snapshot, 0x354B5F78, 0xFFFFCA66);
@@ -233,15 +473,17 @@ final class LyricsPanelView extends View {
                 : Math.max(pad, height - pad - 8f * density - groupHeight);
         float left = "center".equals(refinedCoverHorizontal)
                 ? Math.max(pad, (columnWidth - coverSize) / 2f) : pad;
-        RectF cover = new RectF(left, top, left + coverSize, top + coverSize);
+        coverRect.set(left, top, left + coverSize, top + coverSize);
+        RectF cover = coverRect;
         float radius = refinedRectangleCover ? 16f * density : coverSize / 2f;
 
         if (refinedCoverShadow && snapshot.albumArt != null
                 && !snapshot.albumArt.isRecycled()) {
-            RectF shadow = new RectF(cover.left - coverSize * 0.06f,
+            shadowRect.set(cover.left - coverSize * 0.06f,
                     cover.top + coverSize * 0.02f,
                     cover.right + coverSize * 0.06f,
                     cover.bottom + coverSize * 0.11f);
+            RectF shadow = shadowRect;
             int save = canvas.save();
             clipPath.reset();
             clipPath.addRoundRect(shadow, radius, radius, Path.Direction.CW);
@@ -273,55 +515,122 @@ final class LyricsPanelView extends View {
                                    int secondaryText) {
         float fontSize = refinedLyricFontSize * density * textScale
                 * (secondary ? 1.03f : 1f);
-        float currentY = getHeight() * (refinedCurrentAlign / 100f) + fontSize * 0.32f;
+        float currentY = getHeight() * (refinedCurrentAlign / 100f);
         if (snapshot.lyrics.nearbyLines.isEmpty()) {
-            drawRefinedText(canvas, currentText(snapshot), left, currentY, fontSize,
-                    primaryText, width, Paint.Align.LEFT,
-                    refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL, 255);
+            drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), left,
+                    currentY - fontSize + browseVisualOffsetPx,
+                    fontSize, width, primaryText, 3);
             return;
         }
-        float spacing = fontSize * (refinedShowTranslation ? 2.05f : 1.62f);
-        for (LrcTimeline.NearbyLine line : snapshot.lyrics.nearbyLines) {
+        List<LrcTimeline.NearbyLine> lines = snapshot.lyrics.nearbyLines;
+        int current = 0;
+        ensureRefinedLineCapacity(lines.size());
+        float[] heights = refinedLineHeights;
+        float translationSize = fontSize * 0.62f;
+        for (int i = 0; i < lines.size(); i++) {
+            LrcTimeline.NearbyLine line = lines.get(i);
+            if (line.offset == 0) current = i;
+            if (line.interlude) {
+                heights[i] = fontSize * 1.75f;
+            } else {
+                heights[i] = wrappedTextHeight(line.text, fontSize, width, 3);
+                if (refinedShowTranslation && !line.translated.isEmpty()) {
+                    heights[i] += fontSize * 0.18f
+                            + wrappedTextHeight(line.translated, translationSize, width, 2);
+                }
+            }
+        }
+        float gap = fontSize * 0.52f;
+        lastRefinedBrowseStepPx = Math.max(1f, heights[current] + gap);
+        float[] tops = refinedLineTops;
+        tops[current] = currentY - Math.min(fontSize, heights[current] * 0.45f);
+        for (int i = current + 1; i < lines.size(); i++) {
+            tops[i] = tops[i - 1] + heights[i - 1] + gap;
+        }
+        for (int i = current - 1; i >= 0; i--) {
+            tops[i] = tops[i + 1] - heights[i] - gap;
+        }
+        float scrollShift = animatedLyricScrollShift(snapshot.lyrics.lineStartMs,
+                heights[current] + gap) + browseVisualOffsetPx;
+        for (int i = 0; i < lines.size(); i++) {
+            LrcTimeline.NearbyLine line = lines.get(i);
             int offset = line.offset;
             if (Math.abs(offset) > 3) continue;
-            float y = currentY + offset * spacing;
+            float top = tops[i] + scrollShift;
+            float centerY = top + heights[i] / 2f;
             float scale = refinedLyricZoom ? refinedScaleForOffset(offset) : 1f;
             float opacity = offset == 0 ? 1f : 0.40f;
             if (refinedLyricFade && Math.abs(offset) > 1) {
                 opacity *= Math.max(0f, 1f - 0.4f * (Math.abs(offset) - 1));
             }
-            float edge = Math.min(y / Math.max(1f, getHeight()),
-                    (getHeight() - y) / Math.max(1f, getHeight()));
+            float edge = Math.min(centerY / Math.max(1f, getHeight()),
+                    (getHeight() - centerY) / Math.max(1f, getHeight()));
             opacity *= clamp(edge * 8f);
             if (opacity <= 0.01f) continue;
             int save = canvas.save();
             if (refinedLyricRotate && offset != 0) {
                 float angle = offset * refinedRotateCurvature * 0.10f;
-                canvas.rotate(angle, left, y);
+                canvas.rotate(angle, left, centerY);
             }
-            canvas.scale(scale, scale, left, y);
+            canvas.scale(scale, scale, left, centerY);
             if (refinedLyricBlur && offset != 0) {
                 paint.setMaskFilter(new BlurMaskFilter(
                         Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density),
                         BlurMaskFilter.Blur.NORMAL));
             }
-            if (offset == 0) {
-                drawKaraoke(canvas, snapshot, currentText(snapshot), left, y, fontSize,
-                        width, Paint.Align.LEFT, withAlpha(primaryText, 104), primaryText);
+            if (line.interlude) {
+                drawInterludeDots(canvas, snapshot, left, top + fontSize * 0.30f,
+                        fontSize * 0.35f,
+                        withAlpha(primaryText, Math.round(225f * opacity)));
+            } else if (offset == 0) {
+                drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), left, top,
+                        fontSize, width, primaryText, 3);
             } else {
-                drawRefinedText(canvas, line.text, left, y, fontSize,
-                        secondaryText, width, Paint.Align.LEFT,
-                        refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL,
-                        Math.round(opacity * 255f));
+                drawWrappedText(canvas, line.text, left, top, fontSize,
+                        withAlpha(secondaryText, Math.round(opacity * 255f)), width,
+                        refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL, 3);
             }
-            if (refinedShowTranslation && !line.translated.isEmpty()) {
-                drawRefinedText(canvas, line.translated, left, y + fontSize * 0.82f,
-                        fontSize * 0.62f, secondaryText, width, Paint.Align.LEFT,
-                        Typeface.NORMAL, Math.round(opacity * (offset == 0 ? 205f : 180f)));
+            if (!line.interlude && refinedShowTranslation && !line.translated.isEmpty()) {
+                float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
+                drawWrappedText(canvas, line.translated, left,
+                        top + originalHeight + fontSize * 0.18f, translationSize,
+                        withAlpha(secondaryText, Math.round(opacity
+                                * (offset == 0 ? 205f : 180f))), width,
+                        Typeface.NORMAL, 2);
             }
             paint.setMaskFilter(null);
             canvas.restoreToCount(save);
         }
+    }
+
+    private void ensureRefinedLineCapacity(int count) {
+        if (refinedLineHeights.length >= count) return;
+        int capacity = Math.max(count, refinedLineHeights.length * 2);
+        refinedLineHeights = new float[capacity];
+        refinedLineTops = new float[capacity];
+    }
+
+    private float animatedLyricScrollShift(long lineStartMs, float stepHeight) {
+        if (lineStartMs < 0L) return 0f;
+        if (manualPreviewActive()) {
+            lastRenderedLineStartMs = lineStartMs;
+            lyricScrollAnimationStartedMs = 0L;
+            lyricScrollDirection = 0;
+            return 0f;
+        }
+        if (lastRenderedLineStartMs == Long.MIN_VALUE) {
+            lastRenderedLineStartMs = lineStartMs;
+            return 0f;
+        }
+        if (lineStartMs != lastRenderedLineStartMs) {
+            lyricScrollDirection = lineStartMs > lastRenderedLineStartMs ? 1 : -1;
+            lastRenderedLineStartMs = lineStartMs;
+            lyricScrollAnimationStartedMs = SystemClock.elapsedRealtime();
+        }
+        float progress = clamp((SystemClock.elapsedRealtime()
+                - lyricScrollAnimationStartedMs) / 500f);
+        float eased = 1f - (float) Math.pow(1f - progress, 3d);
+        return lyricScrollDirection * stepHeight * (1f - eased);
     }
 
     private float refinedScaleForOffset(int offset) {
@@ -504,7 +813,8 @@ final class LyricsPanelView extends View {
         float pad = Math.max(13f * density, width * 0.035f);
         float coverSize = Math.min(height * 0.32f, width * 0.18f) * coverScale;
         coverSize = Math.max(46f * density, Math.min(coverSize, height * 0.42f));
-        RectF cover = new RectF(pad, pad, pad + coverSize, pad + coverSize);
+        coverRect.set(pad, pad, pad + coverSize, pad + coverSize);
+        RectF cover = coverRect;
         drawCover(canvas, snapshot.albumArt, cover, 9f * density, 0xFFD2C4B2);
 
         float metaLeft = cover.right + 13f * density;
@@ -521,23 +831,32 @@ final class LyricsPanelView extends View {
         drawProgress(canvas, pad, progressY, width - pad, 2f * density,
                 snapshot, 0x405A5148, 0xFF4D453E);
 
-        float lyricY = progressY + 34f * density;
+        float lyricY = progressY + 34f * density + browseVisualOffsetPx;
         float lyricWidth = width - pad * 2f;
         if (lyricLineCount >= 3) {
             drawLeft(canvas, snapshot.lyrics.previousLyric, pad, lyricY,
                     12f * density * textScale, 0x705A5148, lyricWidth, Typeface.BOLD);
             lyricY += 25f * density;
         }
-        drawKaraoke(canvas, snapshot, currentText(snapshot), pad, lyricY,
-                20f * density * textScale * (secondary ? 1.06f : 1f), lyricWidth,
-                Paint.Align.LEFT, 0xA83D3732, 0xFF181513);
+        float pipLyricSize = 20f * density * textScale * (secondary ? 1.06f : 1f);
+        float currentHeight;
+        if (snapshot.lyrics.interlude) {
+            drawInterludeDots(canvas, snapshot, pad, lyricY - pipLyricSize * 0.55f,
+                    pipLyricSize * 0.35f, 0xFF181513);
+            currentHeight = pipLyricSize * 1.22f;
+        } else {
+            currentHeight = drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), pad,
+                    lyricY - pipLyricSize, pipLyricSize, lyricWidth, 0xFF181513, 2);
+        }
         if (!snapshot.lyrics.translatedLyric.isEmpty()) {
-            drawLeft(canvas, snapshot.lyrics.translatedLyric, pad, lyricY + 22f * density,
+            drawLeft(canvas, snapshot.lyrics.translatedLyric, pad,
+                    lyricY - pipLyricSize + currentHeight + 14f * density,
                     11f * density * textScale, 0xA85A5148, lyricWidth, Typeface.NORMAL);
             lyricY += 18f * density;
         }
         if (lyricLineCount >= 2) {
-            drawLeft(canvas, snapshot.lyrics.nextLyric, pad, lyricY + 35f * density,
+            drawLeft(canvas, snapshot.lyrics.nextLyric, pad,
+                    lyricY - pipLyricSize + currentHeight + 36f * density,
                     14f * density * textScale, 0x985A5148, lyricWidth, Typeface.BOLD);
         }
     }
@@ -551,12 +870,13 @@ final class LyricsPanelView extends View {
             if (!item.enabled) continue;
             float x = clamp(item.x) * width;
             float y = clamp(item.y) * height;
+            if (isCustomLyricItem(item.id)) y += browseVisualOffsetPx;
             float maxWidth = Math.max(40f * density, width - x - pad);
             switch (item.id) {
                 case LyricsLayoutConfig.COVER:
                     float size = Math.min(width * 0.30f, height * 0.42f) * coverScale;
-                    drawCover(canvas, snapshot.albumArt, new RectF(x, y, x + size, y + size),
-                            12f * density, 0xFF293442);
+                    coverRect.set(x, y, x + size, y + size);
+                    drawCover(canvas, snapshot.albumArt, coverRect, 12f * density, 0xFF293442);
                     break;
                 case LyricsLayoutConfig.SOURCE:
                     drawLeft(canvas, snapshot.sourceName + sourceSuffix(snapshot), x, y,
@@ -595,6 +915,13 @@ final class LyricsPanelView extends View {
                     break;
             }
         }
+    }
+
+    private static boolean isCustomLyricItem(String itemId) {
+        return LyricsLayoutConfig.PREVIOUS.equals(itemId)
+                || LyricsLayoutConfig.CURRENT.equals(itemId)
+                || LyricsLayoutConfig.TRANSLATION.equals(itemId)
+                || LyricsLayoutConfig.NEXT.equals(itemId);
     }
 
     private void drawPanelShadow(Canvas canvas, float radius, int color) {
@@ -656,7 +983,13 @@ final class LyricsPanelView extends View {
         blurPreview = null;
         blurSource = null;
         paletteSource = null;
+        clearTextCaches();
         super.onDetachedFromWindow();
+    }
+
+    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+        if (width != oldWidth || height != oldHeight) clearTextCaches();
+        super.onSizeChanged(width, height, oldWidth, oldHeight);
     }
 
     private void drawCover(Canvas canvas, Bitmap bitmap, RectF destination, float radius,
@@ -736,6 +1069,161 @@ final class LyricsPanelView extends View {
         return snapshot.lyricSourceName.isEmpty() ? "" : "  ·  " + snapshot.lyricSourceName;
     }
 
+    private void drawBrowseIndicator(Canvas canvas, MusicSnapshot snapshot, float density) {
+        long seconds = Math.max(0L, browsePositionMs) / 1_000L;
+        String label = String.format(Locale.ROOT, "浏览歌词  %d:%02d  ·  松手后返回",
+                seconds / 60L, seconds % 60L);
+        setTextPaint(10.5f * density, Typeface.BOLD);
+        float horizontal = 9f * density;
+        float height = 25f * density;
+        float width = paint.measureText(label) + horizontal * 2f;
+        float right = getWidth() - 10f * density;
+        workRect.set(right - width, 9f * density, right, 9f * density + height);
+        paint.setColor(0xA8141B24);
+        canvas.drawRoundRect(workRect, height / 2f, height / 2f, paint);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setColor(0xE8FFFFFF);
+        canvas.drawText(label, workRect.centerX(), workRect.centerY()
+                - (paint.ascent() + paint.descent()) / 2f, paint);
+    }
+
+    private void drawInterludeDots(Canvas canvas, MusicSnapshot snapshot, float x, float top,
+                                   float radius, int color) {
+        LrcTimeline.At at = snapshot.lyrics;
+        long elapsed = Math.max(0L, snapshot.positionMs + lyricOffsetMs - at.lineStartMs);
+        paint.setStyle(Paint.Style.FILL);
+        float gap = radius * (24f / 7f);
+        int save = canvas.save();
+        float breath = RefinedInterludeAnimation.breathScale(elapsed);
+        canvas.scale(breath, breath, x, top + radius);
+        for (int i = 0; i < 3; i++) {
+            RefinedInterludeAnimation.DotState state =
+                    RefinedInterludeAnimation.dotState(elapsed, at.lineDurationMs, i);
+            paint.setColor(withAlpha(color,
+                    Math.round(Color.alpha(color) * state.opacity)));
+            float dotRadius = radius * state.scale;
+            canvas.drawCircle(x + radius + i * gap, top + radius, dotRadius, paint);
+        }
+        canvas.restoreToCount(save);
+    }
+
+    private static float interludeDotsWidth(float radius) {
+        return radius * 2f + radius * (24f / 7f) * 2f;
+    }
+
+    private float drawWrappedKaraoke(Canvas canvas, MusicSnapshot snapshot, String value,
+                                      float x, float top, float size, float maxWidth,
+                                      int activeColor, int maxLines) {
+        if (value == null || value.isEmpty()) return 0f;
+        setTextPaint(size, Typeface.BOLD);
+        List<WrappedChunk> chunks = wrapText(value.replace('\n', ' '), maxWidth, maxLines);
+        float lineHeight = size * 1.22f;
+        int highlightEnd;
+        LrcTimeline.At at = snapshot.lyrics;
+        if (!snapshot.lyricAvailable || at.lyric.isEmpty()) {
+            highlightEnd = 0;
+        } else if (!at.wordTimed) {
+            highlightEnd = value.length();
+        } else {
+            int revealed = LrcTimeline.revealedCodePointCount(
+                    at.currentWord, at.wordProgressPermille);
+            int currentEnd = at.currentWord.offsetByCodePoints(0, revealed);
+            highlightEnd = Math.min(value.length(),
+                    at.completedLyric.length() + currentEnd);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+        for (int i = 0; i < chunks.size(); i++) {
+            WrappedChunk chunk = chunks.get(i);
+            float baseline = top + size + i * lineHeight;
+            paint.setColor(withAlpha(activeColor, 105));
+            canvas.drawText(chunk.text, x, baseline, paint);
+            int activeChars = Math.max(0, Math.min(chunk.end, highlightEnd) - chunk.start);
+            if (activeChars <= 0) continue;
+            int safeChars = Math.min(activeChars, chunk.text.length());
+            float activeWidth = safeChars >= chunk.text.length()
+                    ? paint.measureText(chunk.text)
+                    : paint.measureText(chunk.text.substring(0, safeChars));
+            int save = canvas.save();
+            canvas.clipRect(x, baseline - size * 1.18f,
+                    x + activeWidth, baseline + size * 0.30f);
+            paint.setColor(activeColor);
+            if (!"refined".equals(overlayStyle) || refinedLyricGlow) {
+                paint.setShadowLayer(Math.max(3f, size * 0.24f), 0f, 0f,
+                        withAlpha(activeColor, 90));
+            }
+            canvas.drawText(chunk.text, x, baseline, paint);
+            paint.clearShadowLayer();
+            canvas.restoreToCount(save);
+        }
+        return chunks.size() * lineHeight;
+    }
+
+    private float drawWrappedText(Canvas canvas, String value, float x, float top, float size,
+                                  int color, float maxWidth, int style, int maxLines) {
+        if (value == null || value.isEmpty()) return 0f;
+        setTextPaint(size, style);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setColor(color);
+        List<WrappedChunk> chunks = wrapText(value.replace('\n', ' '), maxWidth, maxLines);
+        float lineHeight = size * 1.22f;
+        for (int i = 0; i < chunks.size(); i++) {
+            canvas.drawText(chunks.get(i).text, x, top + size + i * lineHeight, paint);
+        }
+        return chunks.size() * lineHeight;
+    }
+
+    private float wrappedTextHeight(String value, float size, float maxWidth, int maxLines) {
+        if (value == null || value.isEmpty()) return 0f;
+        setTextPaint(size, Typeface.BOLD);
+        return wrapText(value.replace('\n', ' '), maxWidth, maxLines).size() * size * 1.22f;
+    }
+
+    private List<WrappedChunk> wrapText(String value, float maxWidth, int maxLines) {
+        if (value == null || value.isEmpty() || maxWidth <= 0f || maxLines <= 0) {
+            return Collections.emptyList();
+        }
+        TextLayoutKey key = TextLayoutKey.fromPaint(value, paint, maxWidth, maxLines);
+        List<WrappedChunk> cached = wrappedTextCache.get(key);
+        if (cached != null) return cached;
+        List<WrappedChunk> result = new ArrayList<>();
+        int start = 0;
+        while (start < value.length() && result.size() < maxLines) {
+            while (start < value.length() && value.charAt(start) == ' ') start++;
+            if (start >= value.length()) break;
+            int count = paint.breakText(value, start, value.length(), true, maxWidth, null);
+            if (count <= 0) count = Character.charCount(value.codePointAt(start));
+            int end = Math.min(value.length(), start + count);
+            if (end < value.length() && end > start
+                    && Character.isHighSurrogate(value.charAt(end - 1))) end--;
+            if (end < value.length()) {
+                int space = value.lastIndexOf(' ', end - 1);
+                if (space > start + Math.max(1, (end - start) / 2)) end = space;
+            }
+            if (end <= start) end = Math.min(value.length(),
+                    start + Character.charCount(value.codePointAt(start)));
+            String text = value.substring(start, end).trim();
+            int mappedEnd = end;
+            boolean truncated = result.size() == maxLines - 1 && end < value.length();
+            if (truncated) text = ellipsize(text + "…", maxWidth);
+            result.add(new WrappedChunk(text, start, mappedEnd));
+            start = end;
+        }
+        wrappedTextCache.put(key, result);
+        return result;
+    }
+
+    private static final class WrappedChunk {
+        final String text;
+        final int start;
+        final int end;
+
+        WrappedChunk(String text, int start, int end) {
+            this.text = text;
+            this.start = start;
+            this.end = end;
+        }
+    }
+
     /** Word timing is intentionally quantized to whole Unicode characters. */
     private void drawKaraoke(Canvas canvas, MusicSnapshot snapshot, String value, float anchorX,
                               float y, float requestedSize, float maxWidth, Paint.Align align,
@@ -813,6 +1301,9 @@ final class LyricsPanelView extends View {
 
     private String ellipsize(String value, float maxWidth) {
         if (paint.measureText(value) <= maxWidth) return value;
+        TextLayoutKey key = TextLayoutKey.fromPaint(value, paint, maxWidth, -1);
+        String cached = ellipsizedTextCache.get(key);
+        if (cached != null) return cached;
         String suffix = "…";
         int low = 0;
         int high = value.length();
@@ -821,7 +1312,10 @@ final class LyricsPanelView extends View {
             if (paint.measureText(value.substring(0, mid) + suffix) <= maxWidth) low = mid;
             else high = mid - 1;
         }
-        return value.substring(0, low) + suffix;
+        if (low > 0 && Character.isHighSurrogate(value.charAt(low - 1))) low--;
+        String result = value.substring(0, low) + suffix;
+        ellipsizedTextCache.put(key, result);
+        return result;
     }
 
     private void setTextPaint(float size, int style) {
@@ -831,7 +1325,54 @@ final class LyricsPanelView extends View {
         paint.setMaskFilter(null);
         paint.clearShadowLayer();
         paint.setTextSize(size);
-        paint.setTypeface(Typeface.create("sans", style));
+        paint.setTypeface(style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL);
+    }
+
+    private void clearTextCaches() {
+        wrappedTextCache.evictAll();
+        ellipsizedTextCache.evictAll();
+    }
+
+    private static final class TextLayoutKey {
+        final String value;
+        final int textSizeBits;
+        final int widthBits;
+        final int maxLines;
+        final int typefaceStyle;
+
+        private TextLayoutKey(String value, int textSizeBits, int widthBits,
+                              int maxLines, int typefaceStyle) {
+            this.value = value;
+            this.textSizeBits = textSizeBits;
+            this.widthBits = widthBits;
+            this.maxLines = maxLines;
+            this.typefaceStyle = typefaceStyle;
+        }
+
+        static TextLayoutKey fromPaint(String value, Paint paint, float maxWidth,
+                                       int maxLines) {
+            Typeface typeface = paint.getTypeface();
+            return new TextLayoutKey(value, Float.floatToIntBits(paint.getTextSize()),
+                    Float.floatToIntBits(maxWidth), maxLines,
+                    typeface == null ? Typeface.NORMAL : typeface.getStyle());
+        }
+
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof TextLayoutKey)) return false;
+            TextLayoutKey key = (TextLayoutKey) other;
+            return textSizeBits == key.textSizeBits && widthBits == key.widthBits
+                    && maxLines == key.maxLines && typefaceStyle == key.typefaceStyle
+                    && value.equals(key.value);
+        }
+
+        @Override public int hashCode() {
+            int result = value.hashCode();
+            result = 31 * result + textSizeBits;
+            result = 31 * result + widthBits;
+            result = 31 * result + maxLines;
+            return 31 * result + typefaceStyle;
+        }
     }
 
     private static int lighten(int color, int amount) {

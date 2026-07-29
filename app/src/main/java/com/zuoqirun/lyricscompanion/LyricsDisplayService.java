@@ -244,8 +244,20 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             int downX;
             int downY;
             boolean moved;
+            boolean lyricGesture;
 
             @Override public boolean onTouch(View v, MotionEvent event) {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    lyricGesture = v instanceof LyricsPanelView
+                            && ((LyricsPanelView) v).isLyricGestureRegion(
+                            event.getX(), event.getY());
+                }
+                if (lyricGesture) {
+                    boolean finished = event.getActionMasked() == MotionEvent.ACTION_UP
+                            || event.getActionMasked() == MotionEvent.ACTION_CANCEL;
+                    if (finished) lyricGesture = false;
+                    return false;
+                }
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         downRawX = event.getRawX();
@@ -291,7 +303,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
         return params;

@@ -27,3 +27,9 @@ PiPWindow is licensed under GPL-3.0. Project names and screenshots remain the pr
 ## NetEase Cloud Music service
 
 Track search and lyric responses are obtained from public NetEase Cloud Music web endpoints. NetEase names, services, content and trademarks remain the property of their respective owners. Availability is not guaranteed.
+
+## LyricProvider QRC/KRC codecs
+
+The QQ Music QRC and KuGou KRC decoding/parsing implementations are adapted from `tomakino/LyricProvider` (`qrckit` and `krckit`).
+
+Copyright (c) 2026 Proify, Tomakino. Licensed under the Apache License, Version 2.0.

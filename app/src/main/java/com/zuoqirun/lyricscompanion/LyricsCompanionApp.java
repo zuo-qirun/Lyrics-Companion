@@ -9,4 +9,16 @@ public final class LyricsCompanionApp extends Application {
         super.onCreate();
         DynamicColors.applyToActivitiesIfAvailable(this);
     }
+
+    @Override public void onLowMemory() {
+        AlbumArtLoader.clearMemoryCache();
+        super.onLowMemory();
+    }
+
+    @Override public void onTrimMemory(int level) {
+        if (level >= TRIM_MEMORY_BACKGROUND && level != TRIM_MEMORY_UI_HIDDEN) {
+            AlbumArtLoader.clearMemoryCache();
+        }
+        super.onTrimMemory(level);
+    }
 }

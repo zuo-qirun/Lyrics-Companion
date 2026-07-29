@@ -4,19 +4,21 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.util.LruCache;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 final class AlbumArtLoader {
-    private static final int MAX_CACHE_ITEMS = 12;
-    private static final Map<String, Bitmap> MEMORY_CACHE =
-            new LinkedHashMap<String, Bitmap>(MAX_CACHE_ITEMS, 0.75f, true) {
-                @Override protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) {
-                    return size() > MAX_CACHE_ITEMS;
+    private static final int MAX_ART_SIDE = 700;
+    private static final int MAX_INPUT_BYTES = 8 * 1024 * 1024;
+    private static final int MAX_CACHE_KIB = 8 * 1024;
+    private static final LruCache<String, Bitmap> MEMORY_CACHE =
+            new LruCache<String, Bitmap>(MAX_CACHE_KIB) {
+                @Override protected int sizeOf(String key, Bitmap bitmap) {
+                    return Math.max(1, bitmap.getAllocationByteCount() / 1024);
                 }
             };
 
@@ -24,10 +26,8 @@ final class AlbumArtLoader {
 
     static Bitmap load(Context context, String address) {
         if (address == null || address.trim().isEmpty()) return null;
-        synchronized (MEMORY_CACHE) {
-            Bitmap cached = MEMORY_CACHE.get(address);
-            if (cached != null && !cached.isRecycled()) return cached;
-        }
+        Bitmap cached = MEMORY_CACHE.get(address);
+        if (cached != null && !cached.isRecycled()) return cached;
         Bitmap bitmap = null;
         InputStream input = null;
         HttpURLConnection connection = null;
@@ -43,18 +43,67 @@ final class AlbumArtLoader {
             } else {
                 input = context.getContentResolver().openInputStream(uri);
             }
-            bitmap = BitmapFactory.decodeStream(input);
-            if (bitmap != null) bitmap = constrain(bitmap, 700);
+            EncodedBuffer encoded = readEncoded(input);
+            bitmap = decodeSampled(encoded, MAX_ART_SIDE);
         } catch (Throwable ignored) {
             bitmap = null;
         } finally {
             try { if (input != null) input.close(); } catch (Exception ignored) { }
             if (connection != null) connection.disconnect();
         }
-        if (bitmap != null) {
-            synchronized (MEMORY_CACHE) { MEMORY_CACHE.put(address, bitmap); }
-        }
+        if (bitmap != null) MEMORY_CACHE.put(address, bitmap);
         return bitmap;
+    }
+
+    static void clearMemoryCache() {
+        MEMORY_CACHE.evictAll();
+    }
+
+    private static EncodedBuffer readEncoded(InputStream input) throws Exception {
+        EncodedBuffer output = new EncodedBuffer(64 * 1024);
+        byte[] buffer = new byte[16 * 1024];
+        int total = 0;
+        int count;
+        while ((count = input.read(buffer)) >= 0) {
+            if (count == 0) continue;
+            total += count;
+            if (total > MAX_INPUT_BYTES) return null;
+            output.write(buffer, 0, count);
+        }
+        return output;
+    }
+
+    private static Bitmap decodeSampled(EncodedBuffer encoded, int maxSide) {
+        if (encoded == null || encoded.length() == 0) return null;
+        byte[] data = encoded.data();
+        int length = encoded.length();
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+        int sample = 1;
+        int largest = Math.max(bounds.outWidth, bounds.outHeight);
+        while (largest / (sample * 2) > maxSide) sample *= 2;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        Bitmap decoded = BitmapFactory.decodeByteArray(data, 0, length, options);
+        return decoded == null ? null : constrain(decoded, maxSide);
+    }
+
+    private static final class EncodedBuffer extends ByteArrayOutputStream {
+        EncodedBuffer(int initialSize) {
+            super(initialSize);
+        }
+
+        byte[] data() {
+            return buf;
+        }
+
+        int length() {
+            return count;
+        }
     }
 
     private static Bitmap constrain(Bitmap source, int maxSide) {
