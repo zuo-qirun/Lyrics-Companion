@@ -557,6 +557,12 @@ final class LyricsPanelView extends View {
             int offset = line.offset;
             if (Math.abs(offset) > 3) continue;
             float top = tops[i] + scrollShift;
+            RefinedLyricCurve.Transform curve = refinedLyricRotate
+                    ? RefinedLyricCurve.calculate(tops[current] - top, heights[i],
+                    getHeight(), density, refinedRotateCurvature)
+                    : RefinedLyricCurve.Transform.IDENTITY;
+            float lineLeft = left + curve.translationX;
+            top += curve.translationY;
             float centerY = top + heights[i] / 2f;
             float scale = refinedLyricZoom ? refinedScaleForOffset(offset) : 1f;
             float opacity = offset == 0 ? 1f : 0.40f;
@@ -565,34 +571,33 @@ final class LyricsPanelView extends View {
             }
             float edge = Math.min(centerY / Math.max(1f, getHeight()),
                     (getHeight() - centerY) / Math.max(1f, getHeight()));
-            opacity *= clamp(edge * 8f);
+            opacity *= clamp(edge * 8f) * curve.opacity;
             if (opacity <= 0.01f) continue;
             int save = canvas.save();
-            if (refinedLyricRotate && offset != 0) {
-                float angle = offset * refinedRotateCurvature * 0.10f;
-                canvas.rotate(angle, left, centerY);
+            if (refinedLyricRotate && Math.abs(curve.rotationDegrees) > 0.001f) {
+                canvas.rotate(curve.rotationDegrees, lineLeft, centerY);
             }
-            canvas.scale(scale, scale, left, centerY);
+            canvas.scale(scale, scale, lineLeft, centerY);
             if (refinedLyricBlur && offset != 0) {
                 paint.setMaskFilter(new BlurMaskFilter(
                         Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density),
                         BlurMaskFilter.Blur.NORMAL));
             }
             if (line.interlude) {
-                drawInterludeDots(canvas, snapshot, left, top + fontSize * 0.30f,
+                drawInterludeDots(canvas, snapshot, lineLeft, top + fontSize * 0.30f,
                         fontSize * 0.35f,
                         withAlpha(primaryText, Math.round(225f * opacity)));
             } else if (offset == 0) {
-                drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), left, top,
+                drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), lineLeft, top,
                         fontSize, width, primaryText, 3);
             } else {
-                drawWrappedText(canvas, line.text, left, top, fontSize,
+                drawWrappedText(canvas, line.text, lineLeft, top, fontSize,
                         withAlpha(secondaryText, Math.round(opacity * 255f)), width,
                         refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL, 3);
             }
             if (!line.interlude && refinedShowTranslation && !line.translated.isEmpty()) {
                 float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
-                drawWrappedText(canvas, line.translated, left,
+                drawWrappedText(canvas, line.translated, lineLeft,
                         top + originalHeight + fontSize * 0.18f, translationSize,
                         withAlpha(secondaryText, Math.round(opacity
                                 * (offset == 0 ? 205f : 180f))), width,

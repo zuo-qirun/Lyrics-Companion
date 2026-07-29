@@ -108,7 +108,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
                 AppPreferences.refinedLyricBlur(this));
         addToggle(lyric, "歌词旋转", AppPreferences.KEY_REFINED_LYRIC_ROTATE,
                 AppPreferences.refinedLyricRotate(this));
-        addSeek(lyric, "旋转曲率", AppPreferences.KEY_REFINED_ROTATE_CURVATURE,
+        addSeek(lyric, "旋转曲率（弧形换句）", AppPreferences.KEY_REFINED_ROTATE_CURVATURE,
                 10, 80, AppPreferences.refinedRotateCurvature(this), "°");
         addChoice(lyric, "逐字动画", AppPreferences.KEY_REFINED_KARAOKE_ANIMATION,
                 new String[]{"上浮（整字符）", "阶梯点亮"},
