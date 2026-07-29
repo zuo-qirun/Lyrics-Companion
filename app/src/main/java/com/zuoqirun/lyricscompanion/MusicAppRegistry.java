@@ -5,16 +5,21 @@ import java.util.Locale;
 final class MusicAppRegistry {
     private static final App[] KNOWN_APPS = {
             new App("netease", "网易云音乐", "com.netease.cloudmusic"),
+            new App("netease", "网易云音乐", "com.netease.cloudmusic.iot"),
             new App("qqmusic", "QQ 音乐", "com.tencent.qqmusic"),
             new App("qqmusic", "QQ 音乐", "com.tencent.qqmusiccar"),
             new App("kugou", "酷狗音乐", "com.kugou.android"),
+            new App("kugou", "酷狗音乐", "com.kugou.android.auto"),
+            new App("kugou", "酷狗概念版", "com.kugou.android.lite"),
             new App("kugou", "酷狗音乐", "com.kugou.auto"),
             new App("kuwo", "酷我音乐", "cn.kuwo.player"),
             new App("kuwo", "酷我音乐", "cn.kuwo.kwmusiccar"),
             new App("kuwo", "酷我音乐", "cn.kuwo.kwmusic"),
             new App("kuwo", "酷我音乐", "cn.kuwo.car"),
+            new App("kuwo", "酷我音乐", "com.shaiban.audioplayer.mplayer"),
             new App("spotify", "Spotify", "com.spotify.music"),
             new App("soda", "汽水音乐", "com.luna.music"),
+            new App("soda", "汽水音乐", "com.luna.music.car"),
             new App("migu", "咪咕音乐", "cmccwm.mobilemusic"),
             new App("xiaomi", "小米音乐", "com.miui.player"),
             new App("huawei", "华为音乐", "com.android.mediacenter"),
@@ -60,7 +65,20 @@ final class MusicAppRegistry {
         if (containsAny(label, "酷我", "kuwo", "kwmusic")) {
             return new App("kuwo", "酷我音乐", packageName);
         }
+        if (containsAny(label, "汽水", "luna", "soda")) {
+            return new App("soda", "汽水音乐", packageName);
+        }
         return null;
+    }
+
+    static String lyricCatalogForSource(String sourceId) {
+        switch (safe(sourceId)) {
+            case "netease": return "netease";
+            case "qqmusic": return "qqmusic";
+            case "kugou": return "kugou";
+            case "kuwo": return "kuwo";
+            default: return "";
+        }
     }
 
     private static boolean containsAny(String value, String... features) {

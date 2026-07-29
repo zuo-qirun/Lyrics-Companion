@@ -15,6 +15,11 @@ public class MusicAppRegistryTest {
         assertSource("qqmusic", "com.tencent.qqmusiccar", "");
         assertSource("kuwo", "cn.kuwo.kwmusiccar", "");
         assertSource("kugou", "com.kugou.auto", "");
+        assertSource("kugou", "com.kugou.android.auto", "");
+        assertSource("kugou", "com.kugou.android.lite", "");
+        assertSource("kuwo", "com.shaiban.audioplayer.mplayer", "");
+        assertSource("soda", "com.luna.music.car", "");
+        assertSource("netease", "com.netease.cloudmusic.iot", "");
     }
 
     @Test public void recognizesVendorWrappedPlayersByApplicationLabel() {
@@ -23,6 +28,17 @@ public class MusicAppRegistryTest {
         assertSource("kugou", "vendor.player.three", "酷狗概念版");
         assertSource("kuwo", "vendor.player.four", "KWMusic Auto");
         assertSource("qqmusic", "vendor.player.five", "腾讯音乐车载版");
+        assertSource("soda", "vendor.player.six", "汽水音乐车机版");
+    }
+
+    @Test public void mapsRecognizedPlayersToTheirOwnLyricCatalog() {
+        assertCatalog("netease", "com.netease.cloudmusic.iot");
+        assertCatalog("qqmusic", "com.tencent.qqmusiccar");
+        assertCatalog("kugou", "com.kugou.android.auto");
+        assertCatalog("kugou", "com.kugou.android.lite");
+        assertCatalog("kuwo", "com.shaiban.audioplayer.mplayer");
+        assertCatalog("", "com.luna.music");
+        assertCatalog("", "com.luna.music.car");
     }
 
     @Test public void keepsUnknownPlayersCatalogNeutral() {
@@ -111,9 +127,37 @@ public class MusicAppRegistryTest {
         assertTrue(MusicStateStore.hasMeaningfulPositionChange(12_000L, 4_000L));
     }
 
+    @Test public void lateCarMetadataDoesNotCreateANewLyricGeneration() {
+        String first = MusicStateStore.lyricTrackKey("soda", "Nothin' on Me",
+                "Leah Marie Perez", -1L, "temporary", "auto", true);
+        String refined = MusicStateStore.lyricTrackKey("soda", "Nothin’ on Me",
+                "Leah Marie Perez", 217_000L, "final-media-id", "auto", true);
+        assertEquals(first, refined);
+    }
+
+    @Test public void recognizesSodaMetadataTitleAsAnExistingLyricLine() {
+        LrcTimeline timeline = LrcTimeline.parse(
+                "[00:01.00]Keep it moving\n[00:04.00]I can see it in your eyes", "");
+        assertTrue(timeline.containsLyricText("I can see it in your eyes"));
+        assertFalse(timeline.containsLyricText("Nothin' on Me"));
+    }
+
+    @Test public void netEaseDirectSongIdStillRefreshesIdentity() {
+        String first = MusicStateStore.lyricTrackKey("netease", "夜曲", "周杰伦",
+                -1L, "", "auto", true);
+        String direct = MusicStateStore.lyricTrackKey("netease", "夜曲", "周杰伦",
+                226_000L, "song:123456", "auto", true);
+        assertFalse(first.equals(direct));
+    }
+
     private static void assertSource(String expected, String packageName, String label) {
         MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, label);
         assertEquals(expected, app.sourceId);
         assertTrue(app.known);
+    }
+
+    private static void assertCatalog(String expected, String packageName) {
+        MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, "");
+        assertEquals(expected, MusicAppRegistry.lyricCatalogForSource(app.sourceId));
     }
 }

@@ -122,6 +122,16 @@ final class LrcTimeline {
         return lines.isEmpty();
     }
 
+    boolean containsLyricText(String value) {
+        String normalized = normalizeLyricText(value);
+        if (normalized.isEmpty()) return false;
+        for (Line line : lines) {
+            if (normalized.equals(normalizeLyricText(line.text))
+                    || normalized.equals(normalizeLyricText(line.translated))) return true;
+        }
+        return false;
+    }
+
     long shiftedPosition(long positionMs, int direction) {
         if (lines.isEmpty() || direction == 0) return Math.max(0L, positionMs);
         int low = 0;

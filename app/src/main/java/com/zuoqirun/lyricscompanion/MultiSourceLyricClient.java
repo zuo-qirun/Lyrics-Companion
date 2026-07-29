@@ -72,20 +72,14 @@ final class MultiSourceLyricClient {
         return Result.EMPTY;
     }
 
-    private static String providerForSource(String source) {
-        if ("netease".equals(source) || "qqmusic".equals(source)
-                || "kugou".equals(source) || "kuwo".equals(source)) return source;
-        return "";
-    }
-
     static CatalogPlan catalogPlan(String currentSource, String selectedCatalog,
                                    boolean playerCatalogFallback) {
         List<String> providers = new ArrayList<>(Arrays.asList(
                 "netease", "qqmusic", "kugou", "kuwo"));
         List<String> ordered = new ArrayList<>();
         List<String> priority = new ArrayList<>();
-        String selected = providerForSource(selectedCatalog);
-        String player = providerForSource(currentSource);
+        String selected = MusicAppRegistry.lyricCatalogForSource(selectedCatalog);
+        String player = MusicAppRegistry.lyricCatalogForSource(currentSource);
         if (selected.isEmpty()) {
             if (!player.isEmpty()) {
                 priority.add(player);

@@ -8,6 +8,7 @@ import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -75,7 +76,6 @@ final class MusicStateStore {
         long newDuration = metadata == null ? -1L
                 : metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
         int stateValue = state == null ? PlaybackState.STATE_NONE : state.getState();
-        boolean newActive = isDisplayableSession(newTitle, stateValue);
         boolean statePresent = state != null;
         long newPosition = !statePresent || state.getPosition() < 0L ? 0L : state.getPosition();
         long reportedPositionTime = !statePresent ? 0L : state.getLastPositionUpdateTime();
@@ -85,12 +85,36 @@ final class MusicStateStore {
                 ? "音乐播放器" : newSourceName;
         String selectedCatalog = AppPreferences.lyricCatalog(context);
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
-        String newTrackKey = normalizedSource + "\n" + newTitle + "\n" + newArtist
-                + "\n" + newDuration + "\n" + newMediaId + "\n" + selectedCatalog
-                + "\n" + playerCatalogFallback;
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
         synchronized (LOCK) {
+            boolean sameSource = TextUtils.equals(source, normalizedSource);
+            if (sameSource && "soda".equals(normalizedSource)
+                    && !sameIdentityText(newTitle, title)
+                    && timeline.containsLyricText(newTitle)) {
+                // Soda Music exposes the currently playing lyric line through TITLE on some
+                // phone/car builds. It is display metadata, not a track change.
+                Log.i(TAG, "Ignoring Soda lyric line published as title: " + newTitle);
+                newTitle = title;
+            }
+            if (sameSource && TextUtils.isEmpty(newTitle) && !TextUtils.isEmpty(title)) {
+                // Several automotive players publish a playback-state-only update after the
+                // complete metadata. Treat it as a partial update instead of erasing the track.
+                newTitle = title;
+                newArtist = artist;
+                newMediaId = mediaId;
+                newDuration = durationMs;
+                newAlbumArtUri = albumArtUri;
+                if (newAlbumArt == null) newAlbumArt = albumArt;
+            } else if (sameSource && sameIdentityText(newTitle, title)) {
+                if (TextUtils.isEmpty(newArtist)) newArtist = artist;
+                if (TextUtils.isEmpty(newMediaId)) newMediaId = mediaId;
+                if (newDuration <= 0L) newDuration = durationMs;
+                if (TextUtils.isEmpty(newAlbumArtUri)) newAlbumArtUri = albumArtUri;
+            }
+            boolean newActive = isDisplayableSession(newTitle, stateValue);
+            String newTrackKey = lyricTrackKey(normalizedSource, newTitle, newArtist,
+                    newDuration, newMediaId, selectedCatalog, playerCatalogFallback);
             boolean changed = !TextUtils.equals(trackKey, newTrackKey);
             long now = SystemClock.elapsedRealtime();
             long estimatedPosition = currentPositionLocked();
@@ -228,9 +252,9 @@ final class MusicStateStore {
             requestedTitle = title;
             requestedArtist = artist;
             requestedDuration = durationMs;
-            trackKey = requestedSource + "\n" + requestedTitle + "\n" + requestedArtist
-                    + "\n" + requestedDuration + "\n" + requestedMediaId + "\n"
-                    + selectedCatalog + "\n" + playerCatalogFallback;
+            trackKey = lyricTrackKey(requestedSource, requestedTitle, requestedArtist,
+                    requestedDuration, requestedMediaId, selectedCatalog,
+                    playerCatalogFallback);
             timeline = LrcTimeline.EMPTY;
             lyricLoadFinished = false;
             lyricSourceName = "";
@@ -372,5 +396,29 @@ final class MusicStateStore {
 
     static boolean hasMeaningfulPositionChange(long previousPosition, long newPosition) {
         return previousPosition >= 0L && Math.abs(newPosition - previousPosition) > 100L;
+    }
+
+    static String lyricTrackKey(String source, String title, String artist, long durationMs,
+                                String mediaId, String selectedCatalog,
+                                boolean playerCatalogFallback) {
+        String directMediaId = "";
+        if ("netease".equals(source)) {
+            long songId = NetEaseLyricClient.parseSongId(mediaId);
+            if (songId > 0L) directMediaId = Long.toString(songId);
+        }
+        // Duration and non-NetEase media IDs often arrive late or oscillate on car players.
+        // They refine search ranking but must not turn the same song into a new generation.
+        return safe(source) + "\n" + identityText(title) + "\n" + identityText(artist)
+                + "\n" + directMediaId + "\n" + safe(selectedCatalog)
+                + "\n" + playerCatalogFallback;
+    }
+
+    private static boolean sameIdentityText(String left, String right) {
+        return !identityText(left).isEmpty()
+                && TextUtils.equals(identityText(left), identityText(right));
+    }
+
+    private static String identityText(String value) {
+        return safe(value).toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\s]+", "");
     }
 }
