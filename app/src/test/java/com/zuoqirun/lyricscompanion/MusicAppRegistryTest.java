@@ -101,6 +101,13 @@ public class MusicAppRegistryTest {
                 "晴天", false, PlaybackState.STATE_NONE, false));
     }
 
+    @Test public void rawPositionSamplesDistinguishPollingFromSeeking() {
+        assertFalse(MusicStateStore.hasMeaningfulPositionChange(-1L, 12_000L));
+        assertFalse(MusicStateStore.hasMeaningfulPositionChange(12_000L, 12_050L));
+        assertTrue(MusicStateStore.hasMeaningfulPositionChange(12_000L, 12_600L));
+        assertTrue(MusicStateStore.hasMeaningfulPositionChange(12_000L, 4_000L));
+    }
+
     private static void assertSource(String expected, String packageName, String label) {
         MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, label);
         assertEquals(expected, app.sourceId);

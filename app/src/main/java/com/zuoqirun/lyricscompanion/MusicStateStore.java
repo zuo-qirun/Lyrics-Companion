@@ -31,6 +31,7 @@ final class MusicStateStore {
     private static String loadingAlbumArtUri = "";
     private static long durationMs = -1L;
     private static long basePositionMs;
+    private static long lastReportedPositionMs = -1L;
     private static long positionUpdatedAtElapsedMs;
     private static float playbackSpeed;
     private static long trackGeneration;
@@ -91,7 +92,10 @@ final class MusicStateStore {
             boolean changed = !TextUtils.equals(trackKey, newTrackKey);
             long now = SystemClock.elapsedRealtime();
             long estimatedPosition = currentPositionLocked();
-            boolean sampledProgress = !changed && newPosition > basePositionMs + 100L;
+            boolean reportedPositionChanged = !changed
+                    && hasMeaningfulPositionChange(lastReportedPositionMs, newPosition);
+            boolean sampledProgress = reportedPositionChanged
+                    && newPosition > lastReportedPositionMs;
             boolean newPlaying = isPositionAdvancing(newTitle, statePresent, stateValue,
                     sampledProgress);
             float effectiveSpeed = newPlaying ? (newSpeed > 0f ? newSpeed : 1f) : 0f;
@@ -99,7 +103,7 @@ final class MusicStateStore {
             long positionTimeToStore = reportedPositionTime > 0L
                     ? reportedPositionTime : now;
             if (!changed && newPlaying && reportedPositionTime <= 0L
-                    && newPosition <= basePositionMs + 100L) {
+                    && !reportedPositionChanged) {
                 // Metadata-only automotive sessions commonly keep returning the same raw
                 // position. Preserve our monotonic estimate instead of resetting it every poll.
                 positionToStore = Math.max(newPosition, estimatedPosition);
@@ -117,6 +121,7 @@ final class MusicStateStore {
             albumArtUri = safe(newAlbumArtUri);
             durationMs = newDuration > 0L ? newDuration : -1L;
             basePositionMs = positionToStore;
+            lastReportedPositionMs = newPosition;
             positionUpdatedAtElapsedMs = positionTimeToStore;
             playbackSpeed = effectiveSpeed;
             if (changed) {
@@ -165,6 +170,7 @@ final class MusicStateStore {
             loadingAlbumArtUri = "";
             durationMs = -1L;
             basePositionMs = 0L;
+            lastReportedPositionMs = -1L;
             positionUpdatedAtElapsedMs = SystemClock.elapsedRealtime();
             playbackSpeed = 0f;
             trackKey = "";
@@ -330,5 +336,9 @@ final class MusicStateStore {
         // PLAYING. A missing PlaybackState is not enough evidence to start a clock at zero.
         return sampledProgress || statePresent && stateValue == PlaybackState.STATE_NONE
                 && sessionTitle != null && !sessionTitle.trim().isEmpty();
+    }
+
+    static boolean hasMeaningfulPositionChange(long previousPosition, long newPosition) {
+        return previousPosition >= 0L && Math.abs(newPosition - previousPosition) > 100L;
     }
 }
