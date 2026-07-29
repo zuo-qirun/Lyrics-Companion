@@ -78,4 +78,4 @@ FEEDBACK_INTERVAL_MS=60000
 - 下载大小与 `sha256` 必须匹配；
 - APK 内部包名必须与当前应用一致。
 
-校验通过后，App 使用 Android `PackageInstaller` 提交安装会话，车机拦截时回退到系统 APK 安装器。
+校验通过后，App 只启动一个安装流程：检测到 Shizuku 与 InstallerX 时优先使用 InstallerX，否则使用 Android `PackageInstaller`；仅在安装会话明确失败后，才依次回退到 InstallerX 和系统默认 APK 安装器，避免车机安装器互相冲突。

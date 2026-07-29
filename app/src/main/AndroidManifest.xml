@@ -19,6 +19,10 @@
         <package android:name="com.apple.android.music" />
         <package android:name="com.google.android.apps.youtube.music" />
         <package android:name="com.amazon.mp3" />
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.rosan.installer.x.revived" />
+        <package android:name="com.rosan.installer.x" />
+        <package android:name="com.rosan.installer" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="application/vnd.android.package-archive" />

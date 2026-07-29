@@ -6,9 +6,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.IntentSender;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.text.TextUtils;
@@ -30,6 +32,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.Locale;
 
 /** Update client compatible with the release manifest used by AMap Companion. */
@@ -40,6 +43,12 @@ final class AppUpdater {
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final String APK_MIME = "application/vnd.android.package-archive";
     private static final String UPDATE_APK_NAME = "lyrics_companion_update.apk";
+    private static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";
+    private static final String[] INSTALLERX_PACKAGES = {
+            "com.rosan.installer.x.revived",
+            "com.rosan.installer.x",
+            "com.rosan.installer"
+    };
 
     private AppUpdater() {}
 
@@ -77,8 +86,18 @@ final class AppUpdater {
             File apk = new File(context.getCacheDir(), UPDATE_APK_NAME);
             download(info.apkUrl, apk, listener);
             verify(context, apk, info);
-            notify(listener, "下载与 SHA-256 校验完成，正在打开安装器…");
-            installViaPackageInstaller(context.getApplicationContext(), apk, listener);
+            notify(listener, "下载和 SHA-256 校验完成，正在选择单一安装器");
+            Context appContext = context.getApplicationContext();
+            if (isPackageInstalled(appContext, SHIZUKU_PACKAGE)
+                    && tryPreferredInstallerX(appContext, apk, listener)) {
+                return;
+            }
+            try {
+                installViaPackageInstaller(appContext, apk, listener);
+            } catch (Throwable error) {
+                notify(listener, "PackageInstaller 启动失败: " + safeMessage(error));
+                tryFallbackInstallers(appContext, apk, listener, "正在尝试备用安装器");
+            }
         } catch (Throwable error) {
             notify(listener, "更新失败: " + safeMessage(error));
         }
@@ -132,6 +151,12 @@ final class AppUpdater {
 
     private static void installViaPackageInstaller(Context context, File apk, Listener listener)
             throws Exception {
+        if (Build.VERSION.SDK_INT >= 26
+                && !context.getPackageManager().canRequestPackageInstalls()) {
+            notify(listener, "未授予“安装未知应用”权限，跳过 PackageInstaller");
+            tryFallbackInstallers(context, apk, listener, "正在尝试备用安装器");
+            return;
+        }
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -151,7 +176,9 @@ final class AppUpdater {
                         receiverContext.startActivity(confirm);
                         AppUpdater.notify(listener, "请在系统安装窗口中确认更新");
                     } else {
-                        openSystemInstaller(receiverContext, apk, listener);
+                        safeUnregister(receiverContext, this);
+                        tryFallbackInstallers(receiverContext.getApplicationContext(), apk,
+                                listener, "系统未提供安装确认窗口，正在尝试备用安装器");
                     }
                     return;
                 }
@@ -162,7 +189,8 @@ final class AppUpdater {
                     String detail = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
                     AppUpdater.notify(listener, "系统安装会话失败"
                             + (TextUtils.isEmpty(detail) ? "" : ": " + detail));
-                    openSystemInstaller(receiverContext, apk, listener);
+                    tryFallbackInstallers(receiverContext.getApplicationContext(), apk,
+                            listener, "正在尝试备用安装器");
                 }
             }
         };
@@ -191,21 +219,88 @@ final class AppUpdater {
         } catch (Throwable error) {
             safeUnregister(context, receiver);
             installer.abandonSession(sessionId);
-            openSystemInstaller(context, apk, listener);
+            tryFallbackInstallers(context, apk, listener, "正在尝试备用安装器");
         }
     }
 
-    private static void openSystemInstaller(Context context, File apk, Listener listener) {
+    private static void tryFallbackInstallers(Context context, File apk,
+                                              Listener listener, String prefix) {
+        notify(listener, prefix);
+        if (isPackageInstalled(context, SHIZUKU_PACKAGE)) {
+            notify(listener, "检测到 Shizuku，将优先交给支持 Shizuku 的 InstallerX");
+        }
+        for (String packageName : INSTALLERX_PACKAGES) {
+            if (startExternalInstaller(context, apk, packageName, "InstallerX", listener)) {
+                return;
+            }
+        }
+        if (startExternalInstaller(context, apk, null, "系统默认安装器", listener)) {
+            return;
+        }
+        notify(listener, "未找到可用安装器；可安装 InstallerX 并启用 Shizuku 后重试");
+    }
+
+    private static boolean tryPreferredInstallerX(Context context, File apk,
+                                                  Listener listener) {
+        for (String packageName : INSTALLERX_PACKAGES) {
+            if (!isPackageInstalled(context, packageName)) continue;
+            notify(listener, "检测到 Shizuku 与 InstallerX，直接交给 InstallerX，"
+                    + "避免和系统安装器冲突");
+            if (startExternalInstaller(context, apk, packageName,
+                    "InstallerX", listener)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean startExternalInstaller(Context context, File apk,
+                                                  String packageName, String label,
+                                                  Listener listener) {
         try {
             Uri uri = FileProvider.getUriForFile(context,
                     context.getPackageName() + ".updatefiles", apk);
             Intent intent = new Intent(Intent.ACTION_VIEW)
                     .setDataAndType(uri, APK_MIME)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
+            intent.putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, context.getPackageName());
+            if (!TextUtils.isEmpty(packageName)) intent.setPackage(packageName);
+            if (!canHandleIntent(context, intent)) return false;
+            grantReadPermission(context, uri, intent);
             context.startActivity(intent);
-            notify(listener, "已切换到系统默认安装器");
+            notify(listener, "已通过 " + label + " 打开安装器");
+            return true;
         } catch (Throwable error) {
-            notify(listener, "无法打开安装器: " + safeMessage(error));
+            notify(listener, label + " 启动失败: " + safeMessage(error));
+            return false;
+        }
+    }
+
+    private static boolean canHandleIntent(Context context, Intent intent) {
+        List<ResolveInfo> activities = context.getPackageManager()
+                .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+        return activities != null && !activities.isEmpty();
+    }
+
+    private static void grantReadPermission(Context context, Uri uri, Intent intent) {
+        List<ResolveInfo> activities = context.getPackageManager()
+                .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+        if (activities == null) return;
+        for (ResolveInfo info : activities) {
+            ActivityInfo activity = info.activityInfo;
+            if (activity == null || TextUtils.isEmpty(activity.packageName)) continue;
+            context.grantUriPermission(activity.packageName, uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        }
+    }
+
+    private static boolean isPackageInstalled(Context context, String packageName) {
+        try {
+            context.getPackageManager().getPackageInfo(packageName, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
         }
     }
 

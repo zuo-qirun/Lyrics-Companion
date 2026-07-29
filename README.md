@@ -67,7 +67,7 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 ## 自动构建与更新
 
-仓库包含 GitHub Actions 自动测试、Lint、签名 Release 构建，以及与 AMap Companion 同协议的更新服务器。App 会从 `https://lyrics-companion.zuoqirun.top/update.json` 检查更新，校验 APK 包名、大小与 SHA-256 后调用 Android 安装器。服务端部署、签名 Secrets 和历史版本配置见 [update_server/README.md](update_server/README.md)。
+仓库包含 GitHub Actions 自动测试、Lint、签名 Release 构建，以及与 AMap Companion 同协议的更新服务器。App 会从 `https://lyrics-companion.zuoqirun.top/update.json` 检查更新，校验 APK 包名、大小与 SHA-256 后选择单一安装器：检测到 Shizuku 与 InstallerX 时优先交给 InstallerX，否则使用 `PackageInstaller`，仅在明确失败后回退到 InstallerX 或系统默认安装器，避免车机同时打开多个安装流程。服务端部署、签名 Secrets 和历史版本配置见 [update_server/README.md](update_server/README.md)。
 
 同一服务还提供 `/api/online`、`/api/online/heartbeat` 和 `/api/feedback`。
 客户端只使用随机安装 ID 做短时在线去重，不读取硬件标识；服务器未部署时相关入口会显示不可用，
