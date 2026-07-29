@@ -7,11 +7,12 @@ const path = require("path");
 const {spawn} = require("child_process");
 const {loadEnv} = require("./release-sync-config");
 const {FeedbackStore, OnlineTracker, normalizeClientId} = require("./community");
+const {publicBaseUrl} = require("./server-address");
 
 loadEnv(path.join(__dirname, ".env"));
 
 const host = process.env.HOST || "0.0.0.0";
-const port = Number(process.env.PORT || 8788);
+const port = Number(process.env.PORT || 8790);
 const publicDir = path.resolve(__dirname, "public");
 const templatePath = path.join(__dirname, "update.template.json");
 const manifestPath = path.join(publicDir, "update.json");
@@ -31,9 +32,7 @@ let syncing = false;
 let lastSync = null;
 
 function baseUrl(req) {
-  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
-  const protocol = String(req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
-  return `${protocol}://${req.headers.host}`;
+  return publicBaseUrl(req.headers, process.env.PUBLIC_BASE_URL);
 }
 
 function sha256(filePath) {

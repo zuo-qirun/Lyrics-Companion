@@ -15,7 +15,7 @@
 
 ## 服务端部署
 
-要求 Node.js 18+。以下示例使用独立目录、8788 端口和 `lyrics-companion.zuoqirun.top`：
+要求 Node.js 18+。以下示例使用独立目录、8790 端口和 `lyrics-companion.zuoqirun.top`：
 
 ```bash
 sudo mkdir -p /opt/lyrics-companion
@@ -31,9 +31,9 @@ npm start
 检查端点：
 
 ```bash
-curl http://127.0.0.1:8788/health
-curl http://127.0.0.1:8788/update.json
-curl http://127.0.0.1:8788/versions.json
+curl http://127.0.0.1:8790/health
+curl http://127.0.0.1:8790/update.json
+curl http://127.0.0.1:8790/versions.json
 ```
 
 网页入口：`/` 为最新版，`/versions` 为历史版本。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。
@@ -50,7 +50,7 @@ sudo systemctl enable --now lyrics-companion-update.service
 sudo systemctl enable --now lyrics-companion-sync.timer
 ```
 
-反向代理需把 `https://lyrics-companion.zuoqirun.top` 转发到 `127.0.0.1:8788`，并保留 `Host` 与 `X-Forwarded-Proto`。若使用其他域名，修改 `.env` 的 `PUBLIC_BASE_URL`，同时更新 App 中的默认更新地址。
+反向代理需把 `https://lyrics-companion.zuoqirun.top` 转发到 `127.0.0.1:8790`，并保留 `Host`、`X-Forwarded-Host` 与 `X-Forwarded-Proto`。`PUBLIC_BASE_URL` 应直接填写已配置 HTTPS 的域名，不要附加 `:80`；服务端也会在 HTTPS 代理头中自动移除错误的 `:80` 和默认 `:443`。若使用其他域名，同时更新 App 中的默认更新地址。
 
 ## 在线人数与反馈
 
