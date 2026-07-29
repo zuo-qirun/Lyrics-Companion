@@ -1,0 +1,177 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "CHANGELOG.md"
+      - "update_server/**"
+      - ".github/workflows/build-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lyrics-companion-release
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-36" "platform-tools"
+
+      - name: Prepare version
+        id: version
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          version_code="$(date -u +%s)"
+          version_name="$(date -u +%Y%m%d)-${short_sha}"
+          echo "APP_VERSION_CODE=${version_code}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_NAME=${version_name}" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${short_sha}" >> "$GITHUB_ENV"
+          echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure release signing
+        id: signing
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$SIGNING_KEY_BASE64" && -n "$SIGNING_STORE_PASSWORD" && -n "$SIGNING_KEY_ALIAS" && -n "$SIGNING_KEY_PASSWORD" ]]; then
+            printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/release-signing.jks"
+            echo "APP_SIGNING_STORE_FILE=$GITHUB_WORKSPACE/release-signing.jks" >> "$GITHUB_ENV"
+            echo "APP_SIGNING_STORE_PASSWORD=$SIGNING_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "APP_SIGNING_KEY_ALIAS=$SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "APP_SIGNING_KEY_PASSWORD=$SIGNING_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Signing secrets are missing; CI will verify a debug APK but will not publish a Release."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run tests and lint
+        run: ./gradlew testDebugUnitTest lintDebug --no-daemon
+
+      - name: Validate update server
+        run: |
+          node --check update_server/server.js
+          node --check update_server/sync-release.js
+          npm test --prefix update_server
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.ready == 'true'
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Build debug verification APK
+        if: steps.signing.outputs.ready != 'true'
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Generate release files
+        id: metadata
+        shell: bash
+        env:
+          RELEASE_READY: ${{ steps.signing.outputs.ready }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, shutil, subprocess
+
+          ready = os.environ["RELEASE_READY"] == "true"
+          source = pathlib.Path("app/build/outputs/apk/release/app-release.apk" if ready
+                                else "app/build/outputs/apk/debug/app-debug.apk")
+          asset_name = f"lyrics-companion-{os.environ['SHORT_SHA']}.apk"
+          release_dir = pathlib.Path("release")
+          release_dir.mkdir(exist_ok=True)
+          target = release_dir / asset_name
+          shutil.copy2(source, target)
+          digest = hashlib.sha256(target.read_bytes()).hexdigest()
+
+          changelog_source = pathlib.Path("CHANGELOG.md")
+          text = changelog_source.read_text(encoding="utf-8") if changelog_source.exists() else ""
+          match = re.search(r"(?ms)^##\s+(.+?)\s*$\n(.*?)(?=^##\s+|\Z)", text)
+          body = match.group(2).strip() if match else ""
+          subject = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], text=True).strip()
+          items = [line.strip()[2:].strip() for line in body.splitlines()
+                   if line.strip().startswith("- ")]
+          if subject and subject not in items:
+              items.append(subject)
+          if not items:
+              items = ["优化应用体验"]
+          changelog = "# Lyrics Companion 更新日志\n\n## " + os.environ["APP_VERSION_NAME"] + "\n\n" \
+              + "\n".join(f"- {item}" for item in items) + "\n"
+          (release_dir / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+          manifest = {
+              "schemaVersion": 1,
+              "packageName": "com.zuoqirun.lyricscompanion",
+              "versionCode": int(os.environ["APP_VERSION_CODE"]),
+              "versionName": os.environ["APP_VERSION_NAME"],
+              "force": False,
+              "changelog": items,
+              "changelogText": changelog,
+              "commit": os.environ["GITHUB_SHA"],
+              "builtAt": subprocess.check_output(
+                  ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], text=True).strip(),
+              "assetName": asset_name,
+              "sha256": digest,
+              "size": target.stat().st_size,
+          }
+          (release_dir / "release-update.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(f"APK: {target} sha256={digest}")
+          PY
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrics-companion-${{ steps.version.outputs.version_name }}
+          path: |
+            release/*.apk
+            release/release-update.json
+            release/CHANGELOG.md
+
+      - name: Publish GitHub Release
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="apk-${APP_VERSION_CODE}-${SHORT_SHA}"
+          gh release create "$tag" release/*.apk release/release-update.json release/CHANGELOG.md \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Lyrics Companion ${APP_VERSION_NAME}" \
+            --notes-file release/CHANGELOG.md

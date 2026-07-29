@@ -30,23 +30,33 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @SuppressLint("SetTextI18n")
 public final class MainActivity extends AppCompatActivity {
+    private static final String UPDATE_MANIFEST_URL =
+            "https://lyrics-companion.zuoqirun.top/update.json";
+    private static final String UPDATE_HISTORY_URL =
+            "https://lyrics-companion.zuoqirun.top/versions";
+    private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView permissionStatus;
     private TextView musicStatus;
     private TextView displayStatus;
+    private TextView updateStatus;
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private boolean bindingUi;
+    private boolean updateBusy;
 
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() {
@@ -62,6 +72,7 @@ public final class MainActivity extends AppCompatActivity {
         setContentView(buildContent());
         MusicStateStore.initialize(this);
         requestNotificationPermissionIfNeeded();
+        handler.postDelayed(() -> checkForUpdates(false), 2_000L);
     }
 
     @Override protected void onResume() {
@@ -253,6 +264,24 @@ public final class MainActivity extends AppCompatActivity {
                 value -> AppPreferences.get(this).edit()
                         .putInt(AppPreferences.KEY_LYRIC_OFFSET, value).apply());
 
+        LinearLayout updateCard = card();
+        updateCard.addView(sectionLabel("应用更新"));
+        updateStatus = text(localVersionText(), 13, 0xFFD8E1EE, false);
+        updateStatus.setLineSpacing(0f, 1.18f);
+        updateStatus.setPadding(0, dp(9), 0, dp(8));
+        updateCard.addView(updateStatus);
+        LinearLayout updateButtons = new LinearLayout(this);
+        updateButtons.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton checkUpdate = button("检查更新", true);
+        checkUpdate.setOnClickListener(v -> checkForUpdates(true));
+        updateButtons.addView(checkUpdate, weightedButton());
+        MaterialButton versionHistory = button("历史版本", false);
+        versionHistory.setOnClickListener(v -> openUrl(UPDATE_HISTORY_URL));
+        LinearLayout.LayoutParams historyParams = weightedButton();
+        historyParams.leftMargin = dp(10);
+        updateButtons.addView(versionHistory, historyParams);
+        updateCard.addView(updateButtons);
+
         LinearLayout stateCard = card();
         stateCard.addView(sectionLabel("当前媒体状态"));
         musicStatus = text("等待播放器…", 14, 0xFFD8E1EE, false);
@@ -276,6 +305,7 @@ public final class MainActivity extends AppCompatActivity {
             leftColumn.addView(styleCard, cardMargins());
             rightColumn.addView(accessCard, cardMargins());
             rightColumn.addView(lyricCard, cardMargins());
+            rightColumn.addView(updateCard, cardMargins());
             rightColumn.addView(outputCard, cardMargins());
             rightColumn.addView(stateCard, cardMargins());
             root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
@@ -283,6 +313,7 @@ public final class MainActivity extends AppCompatActivity {
             root.addView(previewCard, cardMargins());
             root.addView(accessCard, cardMargins());
             root.addView(lyricCard, cardMargins());
+            root.addView(updateCard, cardMargins());
             root.addView(outputCard, cardMargins());
             root.addView(styleCard, cardMargins());
             root.addView(stateCard, cardMargins());
@@ -595,6 +626,77 @@ public final class MainActivity extends AppCompatActivity {
         view.setTextSize(14f);
         view.setPadding(dp(12), dp(8), dp(12), dp(8));
         view.setBackgroundColor(0xFF132238);
+    }
+
+    private void checkForUpdates(boolean manual) {
+        if (updateBusy || updateStatus == null) return;
+        updateBusy = true;
+        if (manual) updateStatus.setText("正在检查更新…");
+        UPDATE_EXECUTOR.execute(() -> {
+            try {
+                AppUpdater.UpdateInfo info = AppUpdater.check(this, UPDATE_MANIFEST_URL);
+                runOnUiThread(() -> {
+                    updateBusy = false;
+                    if (isFinishing() || isDestroyed()) return;
+                    if (info.hasUpdate()) {
+                        updateStatus.setText("发现新版本 " + info.remoteVersionName);
+                        new MaterialAlertDialogBuilder(this)
+                                .setTitle("发现 Lyrics Companion 更新")
+                                .setMessage(info.detailText())
+                                .setNegativeButton("稍后", null)
+                                .setPositiveButton("下载并安装",
+                                        (dialog, which) -> installUpdate(info))
+                                .show();
+                    } else if (manual) {
+                        updateStatus.setText("已是最新版本\n" + localVersionText());
+                    }
+                });
+            } catch (Throwable error) {
+                runOnUiThread(() -> {
+                    updateBusy = false;
+                    if (manual && updateStatus != null) {
+                        updateStatus.setText("检查更新失败：" + safeMessage(error)
+                                + "\n" + localVersionText());
+                    }
+                });
+            }
+        });
+    }
+
+    private void installUpdate(AppUpdater.UpdateInfo info) {
+        if (updateBusy) return;
+        updateBusy = true;
+        UPDATE_EXECUTOR.execute(() -> {
+            AppUpdater.downloadAndInstall(this, info,
+                    message -> runOnUiThread(() -> {
+                        if (updateStatus != null) updateStatus.setText(message);
+                    }));
+            runOnUiThread(() -> updateBusy = false);
+        });
+    }
+
+    private String localVersionText() {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager()
+                    .getPackageInfo(getPackageName(), 0);
+            long code = Build.VERSION.SDK_INT >= 28
+                    ? info.getLongVersionCode() : info.versionCode;
+            return "当前版本 " + info.versionName + " (" + code + ")";
+        } catch (Throwable ignored) {
+            return "当前版本未知";
+        }
+    }
+
+    private void openUrl(String address) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(address))); }
+        catch (Throwable error) {
+            if (updateStatus != null) updateStatus.setText("无法打开链接：" + address);
+        }
+    }
+
+    private static String safeMessage(Throwable error) {
+        return error.getMessage() == null || error.getMessage().trim().isEmpty()
+                ? error.getClass().getSimpleName() : error.getMessage();
     }
 
     private boolean hasNotificationAccess() {

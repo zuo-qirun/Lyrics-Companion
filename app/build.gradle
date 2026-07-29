@@ -2,6 +2,13 @@ plugins {
     id "com.android.application"
 }
 
+def releaseStoreFile = System.getenv("APP_SIGNING_STORE_FILE")
+def releaseStorePassword = System.getenv("APP_SIGNING_STORE_PASSWORD")
+def releaseKeyAlias = System.getenv("APP_SIGNING_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("APP_SIGNING_KEY_PASSWORD")
+def releaseSigningReady = releaseStoreFile && releaseStorePassword
+        && releaseKeyAlias && releaseKeyPassword
+
 android {
     namespace "com.zuoqirun.lyricscompanion"
     compileSdk 36
@@ -10,8 +17,26 @@ android {
         applicationId "com.zuoqirun.lyricscompanion"
         minSdk 23
         targetSdk 36
-        versionCode 1
-        versionName "0.1.0"
+        versionCode Integer.parseInt(System.getenv("APP_VERSION_CODE") ?: "1")
+        versionName System.getenv("APP_VERSION_NAME") ?: "0.1.0"
+    }
+
+    signingConfigs {
+        if (releaseSigningReady) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (releaseSigningReady) signingConfig signingConfigs.release
+        }
     }
 
     compileOptions {

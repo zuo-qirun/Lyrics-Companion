@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lyrics Companion 更新</title><style>
+body{margin:0;background:#07111f;color:#eef5fc;font:15px system-ui,sans-serif}main{max-width:760px;margin:auto;padding:32px 20px}.card{background:#101e31;border-radius:22px;padding:22px;margin-top:16px}h1{margin:0 0 8px}a{color:#6ee7f2}.muted{color:#9aabc0;white-space:pre-wrap}.button{display:inline-block;background:#6ee7f2;color:#07111f;text-decoration:none;padding:12px 18px;border-radius:14px;font-weight:700;margin:10px 8px 0 0}</style></head>
+<body><main><h1>Lyrics Companion</h1><div class="muted">悬浮窗与 Android 副屏歌词伴侣</div><section class="card"><h2 id="version">正在读取版本…</h2><div id="notes" class="muted"></div><a id="download" class="button" hidden>下载最新版 APK</a><a class="button" href="/versions">历史版本</a></section></main>
+<script>fetch('/update.json').then(r=>r.json()).then(x=>{version.textContent=`${x.versionName} (${x.versionCode})`;notes.textContent=x.changelogText||(x.changelog||[]).join('\n');if(x.apkUrl){download.href=x.apkUrl;download.hidden=false}}).catch(e=>version.textContent='暂无可用版本');</script></body></html>

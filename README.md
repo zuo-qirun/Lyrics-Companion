@@ -64,6 +64,10 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 也可以用 Android Studio 直接打开项目根目录。
 
+## 自动构建与更新
+
+仓库包含 GitHub Actions 自动测试、Lint、签名 Release 构建，以及与 AMap Companion 同协议的更新服务器。App 会从 `https://lyrics-companion.zuoqirun.top/update.json` 检查更新，校验 APK 包名、大小与 SHA-256 后调用 Android 安装器。服务端部署、签名 Secrets 和历史版本配置见 [update_server/README.md](update_server/README.md)。
+
 ## 首次使用
 
 1. 打开“歌词伴侣”。

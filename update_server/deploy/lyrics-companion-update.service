@@ -1,0 +1,16 @@
+[Unit]
+Description=Lyrics Companion update server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lyrics-companion/update_server
+EnvironmentFile=-/opt/lyrics-companion/update_server/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+User=pi
+
+[Install]
+WantedBy=multi-user.target

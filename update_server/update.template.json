@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "packageName": "com.zuoqirun.lyricscompanion",
+  "versionCode": 1,
+  "versionName": "0.1.0",
+  "apkPath": "apk/lyrics_companion.apk",
+  "force": false,
+  "changelog": ["等待首次签名 Release"]
+}

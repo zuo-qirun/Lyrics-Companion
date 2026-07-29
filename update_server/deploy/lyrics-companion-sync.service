@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync Lyrics Companion GitHub Releases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/lyrics-companion/update_server
+EnvironmentFile=-/opt/lyrics-companion/update_server/.env
+ExecStart=/usr/bin/node sync-release.js
+User=pi

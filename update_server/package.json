@@ -1,0 +1,15 @@
+{
+  "name": "lyrics-companion-update-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Release mirror and update manifest server for Lyrics Companion",
+  "scripts": {
+    "start": "node server.js",
+    "sync": "node sync-release.js",
+    "sync:force": "node sync-release.js --force",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

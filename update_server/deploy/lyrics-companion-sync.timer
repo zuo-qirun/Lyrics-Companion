@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically sync Lyrics Companion releases
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=lyrics-companion-sync.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

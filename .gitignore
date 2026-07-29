@@ -5,3 +5,10 @@ build/
 app/build/
 *.iml
 *.apk
+update_server/.env
+update_server/state/
+update_server/public/update.json
+update_server/public/versions.json
+update_server/public/CHANGELOG.md
+update_server/public/apk/*
+!update_server/public/apk/.gitkeep

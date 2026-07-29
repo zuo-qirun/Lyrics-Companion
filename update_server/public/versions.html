@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lyrics Companion 历史版本</title><style>
+body{margin:0;background:#07111f;color:#eef5fc;font:15px system-ui,sans-serif}main{max-width:760px;margin:auto;padding:32px 20px}.item{background:#101e31;border-radius:18px;padding:18px;margin-top:14px}a{color:#6ee7f2}.notes{color:#9aabc0;white-space:pre-wrap}</style></head>
+<body><main><h1>历史版本</h1><p><a href="/">返回最新版</a></p><div id="list">正在读取…</div></main>
+<script>fetch('/versions.json').then(r=>r.json()).then(x=>{list.innerHTML='';for(const v of x.versions||[]){const e=document.createElement('section');e.className='item';const notes=Array.isArray(v.changelog)?v.changelog.join('\n'):v.changelog||'';e.innerHTML=`<h2>${v.versionName} (${v.versionCode})</h2><div class="notes"></div><p><a href="${v.apkUrl||v.releaseUrl}">下载 APK</a></p>`;e.querySelector('.notes').textContent=notes;list.appendChild(e)}if(!list.children.length)list.textContent='暂无历史版本'}).catch(e=>list.textContent='读取失败');</script></body></html>
