@@ -4,8 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import android.media.session.PlaybackState;
-
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -136,21 +134,25 @@ public class MusicAppRegistryTest {
     }
 
     @Test public void metadataOnlyCarSessionRemainsDisplayable() {
-        assertTrue(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_NONE));
-        assertTrue(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_PAUSED));
-        assertFalse(MusicStateStore.isDisplayableSession("晴天", PlaybackState.STATE_STOPPED));
-        assertFalse(MusicStateStore.isDisplayableSession("", PlaybackState.STATE_PLAYING));
+        assertTrue(MusicStateStore.isDisplayableSession(
+                "晴天", MusicPlaybackData.STATE_NONE));
+        assertTrue(MusicStateStore.isDisplayableSession(
+                "晴天", MusicPlaybackData.STATE_PAUSED));
+        assertFalse(MusicStateStore.isDisplayableSession(
+                "晴天", MusicPlaybackData.STATE_STOPPED));
+        assertFalse(MusicStateStore.isDisplayableSession(
+                "", MusicPlaybackData.STATE_PLAYING));
     }
 
     @Test public void metadataOnlyCarSessionAdvancesItsPlaybackClock() {
         assertTrue(MusicStateStore.isPositionAdvancing(
-                "晴天", true, PlaybackState.STATE_NONE, false));
+                "晴天", true, MusicPlaybackData.STATE_NONE, false));
         assertTrue(MusicStateStore.isPositionAdvancing(
-                "晴天", true, PlaybackState.STATE_PAUSED, true));
+                "晴天", true, MusicPlaybackData.STATE_PAUSED, true));
         assertFalse(MusicStateStore.isPositionAdvancing(
-                "晴天", true, PlaybackState.STATE_PAUSED, false));
+                "晴天", true, MusicPlaybackData.STATE_PAUSED, false));
         assertFalse(MusicStateStore.isPositionAdvancing(
-                "晴天", false, PlaybackState.STATE_NONE, false));
+                "晴天", false, MusicPlaybackData.STATE_NONE, false));
     }
 
     @Test public void rawPositionSamplesDistinguishPollingFromSeeking() {

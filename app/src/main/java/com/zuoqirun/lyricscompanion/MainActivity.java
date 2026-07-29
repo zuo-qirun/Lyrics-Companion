@@ -105,8 +105,10 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(0xFF07111F);
-        getWindow().setNavigationBarColor(0xFF07111F);
+        if (Build.VERSION.SDK_INT >= 21) {
+            getWindow().setStatusBarColor(0xFF07111F);
+            getWindow().setNavigationBarColor(0xFF07111F);
+        }
         setContentView(buildContent());
         MusicStateStore.initialize(this);
         requestNotificationPermissionIfNeeded();
@@ -160,7 +162,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView title = text("让歌词自然地出现在每块屏幕上", 28, Color.WHITE, true);
         title.setPadding(0, dp(6), 0, dp(5));
         root.addView(title);
-        TextView intro = text("读取标准 MediaSession 封面与播放状态，并从网易云、QQ 音乐、酷狗、酷我等来源匹配逐字或逐行歌词。", 14,
+        TextView intro = text("读取系统媒体控制中的封面与播放状态，并从网易云、QQ 音乐、酷狗、酷我等来源匹配逐字或逐行歌词。", 14,
                 0xFFA9B6C8, false);
         intro.setLineSpacing(0f, 1.18f);
         root.addView(intro);
@@ -380,7 +382,7 @@ public final class MainActivity extends AppCompatActivity {
             root.addView(stateCard, cardMargins());
         }
 
-        TextView footnote = text("提示：播放器必须发布标准 Android MediaSession。副屏断开后服务会保留设置，重新接入同一 Display 时自动恢复。", 12,
+        TextView footnote = text("提示：Android 5.0 以上读取 MediaSession；Android 4.4 播放器需发布 RemoteControlClient。副屏重接后会自动恢复。", 12,
                 0xFF66788F, false);
         footnote.setLineSpacing(0f, 1.25f);
         root.addView(footnote);
@@ -508,6 +510,7 @@ public final class MainActivity extends AppCompatActivity {
         musicStatus.setText(MusicStateStore.describe(this)
                 + "\n通知读取：" + (notificationAccess ? "已授权" : "未授权")
                 + "    监听器：" + listenerState
+                + "    读取方式：" + backendDescription()
                 + "\n最近成功读取会话：" + formatSessionReadAge(lastRead)
                 + "    当前会话数量：" + MusicNotificationListener.getLastSessionCount()
                 + "\n最近异常信息：" + error);
@@ -585,8 +588,10 @@ public final class MainActivity extends AppCompatActivity {
         SeekBar seek = new SeekBar(this);
         seek.setMax(max - min);
         seek.setProgress(clamp(initial, min, max) - min);
-        seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-        seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        if (Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 int value = min + progress;
@@ -878,11 +883,15 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private boolean canDrawOverlays() {
-        return Settings.canDrawOverlays(this);
+        return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this);
     }
 
     private void openNotificationAccess() {
-        startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+        try {
+            startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+        } catch (Throwable ignored) {
+            startActivity(new Intent(Settings.ACTION_SECURITY_SETTINGS));
+        }
     }
 
     private void ensureNotificationListenerConnected() {
@@ -905,6 +914,12 @@ public final class MainActivity extends AppCompatActivity {
         return "超时";
     }
 
+    private static String backendDescription() {
+        String active = MusicNotificationListener.getBackendName();
+        if (active != null && !active.trim().isEmpty()) return active;
+        return Build.VERSION.SDK_INT >= 21 ? "MediaSession" : "RemoteController";
+    }
+
     private static String formatSessionReadAge(long lastReadElapsedMs) {
         if (lastReadElapsedMs <= 0L) return "从未";
         long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - lastReadElapsedMs);
@@ -913,10 +928,17 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void openOverlayPermission() {
-        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        if (Build.VERSION.SDK_INT < 23) {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        Intent intent = new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION",
                 Uri.parse("package:" + getPackageName()));
         try { startActivity(intent); }
-        catch (Throwable ignored) { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)); }
+        catch (Throwable ignored) {
+            startActivity(new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION"));
+        }
     }
 
     private void requestNotificationPermissionIfNeeded() {

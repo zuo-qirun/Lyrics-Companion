@@ -7,6 +7,9 @@
         <item name="colorSurfaceContainer">@color/md_theme_surfaceContainer</item>
         <item name="colorOnSurface">@color/md_theme_onSurface</item>
         <item name="colorOutline">@color/md_theme_outline</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/app_background</item>
+        <item name="android:navigationBarColor">@color/app_background</item>
         <item name="colorSecondary">@color/app_primary</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>

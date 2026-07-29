@@ -1,6 +1,6 @@
 # Lyrics Companion（歌词伴侣）
 
-一个采用 Material Design 3 的独立 Android 歌词显示应用。它读取系统中的标准 `MediaSession`，按歌名、歌手和时长跨乐库匹配歌词，并同时支持：
+一个采用 Material Design 3 的独立 Android 歌词显示应用。Android 5.0 以上读取系统标准 `MediaSession`，Android 4.4 使用系统 `RemoteController` 读取播放器发布的 `RemoteControlClient` 元数据；随后按歌名、歌手和时长跨乐库匹配歌词，并同时支持：
 
 - 主屏可拖动悬浮窗；轻触可返回设置页。
 - 非默认 `Display` 上的副屏歌词悬浮层；可在有触摸能力的副屏上直接拖动。
@@ -9,7 +9,7 @@
 - 网易云、QQ 音乐、酷狗、酷我、汽水音乐歌词结果本地缓存 30 天。
 - 可自动识别播放器词库，也可手动指定网易云、QQ、酷狗、酷我或汽水；手动词库无结果时可选择是否回退到播放器同源词库。
 - 切换播放器或曲目时每 600ms 重新选择活跃会话，降低旧会话、旧歌词残留概率。
-- 通知监听服务会记录 MediaSession 读取健康状态，并在主界面或悬浮窗服务启动时自动请求重连；短暂空会话保留当前歌词 5 秒，避免系统控制中心刷新时闪空。
+- 通知监听服务会记录系统媒体读取健康状态，并在主界面或悬浮窗服务启动时自动请求重连；短暂空会话保留当前歌词 5 秒，避免系统控制中心刷新时闪空。
 - 默认、Refined Now Playing、PiPWindow 和自定义布局四种悬浮窗风格。
 - 可视化布局编辑器：在模拟渲染区拖动内容块，拖入备选区即可隐藏。
 - 横屏宽度达到 600dp 时，主设置页与 Refined 设置自动切换为双列；布局编辑器同步切换为左右拖拽区域。
@@ -33,7 +33,8 @@
 
 ```text
 NotificationListenerService
-  -> MediaSessionManager.getActiveSessions()
+  -> API 21+: MediaSessionManager.getActiveSessions()
+  -> API 19-20: RemoteController / RemoteControlClient
   -> 选择正在播放且有元数据的会话
   -> 当前播放器同源乐库优先匹配
   -> 网易云 / QQ 音乐 / 酷狗 / 酷我 / 汽水按优先级依次兜底
@@ -42,7 +43,7 @@ NotificationListenerService
   -> 主屏悬浮窗 + 副屏 WindowManager 同步绘制
 ```
 
-支持网易云音乐、QQ 音乐、酷狗、酷我、Spotify、汽水音乐、咪咕音乐、小米音乐、华为音乐、Apple Music、YouTube Music、Amazon Music，以及其他正确发布标准 `MediaSession` 的播放器。网易云、QQ 音乐、酷狗、酷我和汽水会优先使用各自乐库；汽水可直接使用 MediaSession 曲目 ID 获取原生逐字歌词与中文翻译，ID 不可用时按歌名、歌手和时长搜索，随后再依次查询其余乐库。
+支持网易云音乐、QQ 音乐、酷狗、酷我、Spotify、汽水音乐、咪咕音乐、小米音乐、华为音乐、Apple Music、YouTube Music、Amazon Music，以及其他正确发布系统媒体元数据的播放器。网易云、QQ 音乐、酷狗、酷我和汽水会优先使用各自乐库；汽水可直接使用 MediaSession 曲目 ID 获取原生逐字歌词与中文翻译，ID 不可用时按歌名、歌手和时长搜索，随后再依次查询其余乐库。Android 4.4 上能否识别取决于播放器是否兼容旧式 `RemoteControlClient`。
 
 ## 构建
 
@@ -92,7 +93,7 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 ## 平台边界
 
-- 播放器若不发布标准 Android `MediaSession`，普通应用无法可靠获得曲目和进度。
+- Android 5.0 以上的播放器需发布标准 `MediaSession`；Android 4.4 的播放器需发布旧式 `RemoteControlClient`，否则普通应用无法可靠获得曲目和进度。
 - 网易云、QQ 音乐、酷狗、酷我和汽水的搜索/歌词接口是在线服务且并非本项目控制；单一接口失败时会自动尝试其他乐库，全部失败时歌曲信息仍可显示。汽水接口无需读取用户账号 Cookie，但其可用性仍可能随服务端调整而变化。
 - 少数深度定制车机 ROM 会限制普通应用在外接 Display 上创建 overlay；此时请先确认系统已授予悬浮窗权限，再结合 `adb logcat -s LyricsDisplay LyricsMediaSession LyricsMusicState` 排查。
 - 本应用不会录制屏幕、读取通知正文或上传用户通知内容；通知监听仅用于取得系统允许访问的活跃媒体会话。

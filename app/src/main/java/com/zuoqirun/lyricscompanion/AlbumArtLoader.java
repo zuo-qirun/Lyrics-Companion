@@ -9,7 +9,6 @@ import android.util.LruCache;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
 
 final class AlbumArtLoader {
     private static final int MAX_ART_SIDE = 700;
@@ -35,7 +34,7 @@ final class AlbumArtLoader {
             Uri uri = Uri.parse(address);
             String scheme = uri.getScheme();
             if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                connection = (HttpURLConnection) new URL(address).openConnection();
+                connection = HttpCompat.open(address);
                 connection.setConnectTimeout(7_000);
                 connection.setReadTimeout(10_000);
                 connection.setRequestProperty("User-Agent", "Lyrics-Companion/1.0");

@@ -10,7 +10,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -90,7 +89,7 @@ final class CommunityClient {
         HttpURLConnection connection = null;
         try {
             byte[] encoded = body.toString().getBytes(StandardCharsets.UTF_8);
-            connection = (HttpURLConnection) new URL(API_BASE + path).openConnection();
+            connection = HttpCompat.open(API_BASE + path);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(5_000);
             connection.setReadTimeout(7_000);

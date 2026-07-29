@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -19,7 +18,7 @@ final class LyricHttp {
     static String request(String method, String address, String referer, String body)
             throws Exception {
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        HttpURLConnection connection = HttpCompat.open(address);
         try {
             connection.setRequestMethod(method);
             connection.setConnectTimeout(7_000);

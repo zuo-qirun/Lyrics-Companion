@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name=".LegacyRemoteControlFixtureService"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <receiver
+            android:name=".LegacyRemoteControlFixtureReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

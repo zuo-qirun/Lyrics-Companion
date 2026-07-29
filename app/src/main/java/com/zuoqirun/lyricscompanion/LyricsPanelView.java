@@ -672,7 +672,7 @@ final class LyricsPanelView extends View {
                                        int accent, boolean playing) {
         String type = refinedBackgroundType == null ? "blur" : refinedBackgroundType;
         if ("none".equals(type)) return;
-        int layer = canvas.saveLayerAlpha(panelRect,
+        int layer = saveLayerAlphaCompat(canvas, panelRect,
                 Math.round(clamp(opacity / 100f) * 255f));
         int save = canvas.save();
         float radius = Math.min(getWidth(), getHeight()) * 0.075f;
@@ -943,7 +943,7 @@ final class LyricsPanelView extends View {
         paint.setStyle(Paint.Style.FILL);
         paint.setAlpha(255);
         float radius = Math.min(getWidth(), getHeight()) * 0.075f;
-        int alphaLayer = canvas.saveLayerAlpha(panelRect,
+        int alphaLayer = saveLayerAlphaCompat(canvas, panelRect,
                 Math.round(clamp(opacity / 100f) * 255f));
         int save = canvas.save();
         clipPath.reset();
@@ -1397,6 +1397,13 @@ final class LyricsPanelView extends View {
     private static int withAlpha(int color, int alpha) {
         return Color.argb(Math.max(0, Math.min(255, alpha)), Color.red(color),
                 Color.green(color), Color.blue(color));
+    }
+
+    @SuppressWarnings("deprecation")
+    private static int saveLayerAlphaCompat(Canvas canvas, RectF bounds, int alpha) {
+        if (Build.VERSION.SDK_INT >= 21) return canvas.saveLayerAlpha(bounds, alpha);
+        return canvas.saveLayerAlpha(bounds.left, bounds.top, bounds.right, bounds.bottom,
+                alpha, Canvas.ALL_SAVE_FLAG);
     }
 
     private static float clamp(float value) { return Math.max(0f, Math.min(1f, value)); }

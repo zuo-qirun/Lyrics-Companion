@@ -1,5 +1,6 @@
 package com.zuoqirun.lyricscompanion;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -94,6 +95,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
     }
 
+    // The merged manifest declares foregroundServiceType="specialUse". Lint 8.7 does not
+    // associate that type with this call when the same service also supports pre-29 devices.
+    @SuppressLint("ForegroundServiceType")
     @Override public void onCreate() {
         super.onCreate();
         MusicStateStore.initialize(this);
@@ -365,7 +369,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private boolean canDrawOverlays() {
-        return Settings.canDrawOverlays(this);
+        return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this);
     }
 
     private void openMainActivity() {
@@ -385,17 +389,20 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private Notification createNotification() {
         Intent open = new Intent(this, MainActivity.class);
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
         PendingIntent contentIntent = PendingIntent.getActivity(this, 0, open,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                pendingFlags);
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-        return builder.setSmallIcon(R.drawable.ic_launcher)
+        builder.setSmallIcon(Build.VERSION.SDK_INT >= 21
+                        ? R.drawable.ic_launcher : android.R.drawable.ic_media_play)
                 .setContentTitle(getString(R.string.service_notification_title))
                 .setContentText("正在同步播放器与歌词时间轴")
                 .setContentIntent(contentIntent)
-                .setOngoing(true)
-                .setCategory(Notification.CATEGORY_SERVICE)
-                .build();
+                .setOngoing(true);
+        if (Build.VERSION.SDK_INT >= 21) builder.setCategory(Notification.CATEGORY_SERVICE);
+        return builder.build();
     }
 
     private static Point displaySize(Display display) {

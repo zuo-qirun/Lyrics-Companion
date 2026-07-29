@@ -2,8 +2,6 @@ package com.zuoqirun.lyricscompanion;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.media.MediaMetadata;
-import android.media.session.PlaybackState;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
@@ -56,18 +54,15 @@ final class MusicStateStore {
     }
 
     static void update(Context context, String newSource, String newSourceName,
-                       MediaMetadata metadata, PlaybackState state) {
+                       MusicPlaybackData data) {
         initialize(context);
-        if (metadata == null && state == null) {
+        if (data == null) {
             clear();
             return;
         }
         String normalizedSource = TextUtils.isEmpty(newSource) ? "media" : newSource;
-        String rawTitle = firstNonEmpty(metadata,
-                MediaMetadata.METADATA_KEY_TITLE, MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
-        String rawArtist = firstNonEmpty(metadata,
-                MediaMetadata.METADATA_KEY_ARTIST, MediaMetadata.METADATA_KEY_ALBUM_ARTIST,
-                MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+        String rawTitle = data.title;
+        String rawArtist = data.artist;
         String sodaDynamicTitle = "soda".equals(normalizedSource)
                 ? sodaTitleFromDynamicArtist(rawArtist) : "";
         boolean sodaHasCompositeIdentity = !TextUtils.isEmpty(sodaDynamicTitle)
@@ -76,20 +71,15 @@ final class MusicStateStore {
         String newArtist = sodaHasCompositeIdentity
                 ? sodaStableArtist(newTitle, rawArtist) : rawArtist;
         String incomingSodaLiveLyric = sodaHasCompositeIdentity ? rawTitle : "";
-        String newMediaId = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_MEDIA_ID);
-        Bitmap newAlbumArt = firstBitmap(metadata,
-                MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_ART,
-                MediaMetadata.METADATA_KEY_DISPLAY_ICON);
-        String newAlbumArtUri = firstNonEmpty(metadata,
-                MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_ART_URI,
-                MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
-        long newDuration = metadata == null ? -1L
-                : metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
-        int stateValue = state == null ? PlaybackState.STATE_NONE : state.getState();
-        boolean statePresent = state != null;
-        long newPosition = !statePresent || state.getPosition() < 0L ? 0L : state.getPosition();
-        long reportedPositionTime = !statePresent ? 0L : state.getLastPositionUpdateTime();
-        float newSpeed = state == null ? 0f : state.getPlaybackSpeed();
+        String newMediaId = data.mediaId;
+        Bitmap newAlbumArt = data.albumArt;
+        String newAlbumArtUri = data.albumArtUri;
+        long newDuration = data.durationMs;
+        int stateValue = data.state;
+        boolean statePresent = data.statePresent;
+        long newPosition = !statePresent || data.positionMs < 0L ? 0L : data.positionMs;
+        long reportedPositionTime = !statePresent ? 0L : data.positionUpdatedAtElapsedMs;
+        float newSpeed = data.speed;
         String normalizedSourceName = TextUtils.isEmpty(newSourceName)
                 ? "音乐播放器" : newSourceName;
         String selectedCatalog = AppPreferences.lyricCatalog(context);
@@ -385,24 +375,6 @@ final class MusicStateStore {
         return Math.max(0L, position);
     }
 
-    private static String firstNonEmpty(MediaMetadata metadata, String... keys) {
-        if (metadata == null) return "";
-        for (String key : keys) {
-            String value = metadata.getString(key);
-            if (!TextUtils.isEmpty(value)) return value.trim();
-        }
-        return "";
-    }
-
-    private static Bitmap firstBitmap(MediaMetadata metadata, String... keys) {
-        if (metadata == null) return null;
-        for (String key : keys) {
-            Bitmap bitmap = metadata.getBitmap(key);
-            if (bitmap != null) return bitmap;
-        }
-        return null;
-    }
-
     private static String safe(String value) { return value == null ? "" : value; }
 
     /**
@@ -412,18 +384,18 @@ final class MusicStateStore {
      */
     static boolean isDisplayableSession(String sessionTitle, int stateValue) {
         return sessionTitle != null && !sessionTitle.trim().isEmpty()
-                && stateValue != PlaybackState.STATE_STOPPED
-                && stateValue != PlaybackState.STATE_ERROR;
+                && stateValue != MusicPlaybackData.STATE_STOPPED
+                && stateValue != MusicPlaybackData.STATE_ERROR;
     }
 
     static boolean isPositionAdvancing(String sessionTitle, boolean statePresent,
                                        int stateValue, boolean sampledProgress) {
-        if (stateValue == PlaybackState.STATE_PLAYING
-                || stateValue == PlaybackState.STATE_FAST_FORWARDING
-                || stateValue == PlaybackState.STATE_REWINDING) return true;
+        if (stateValue == MusicPlaybackData.STATE_PLAYING
+                || stateValue == MusicPlaybackData.STATE_FAST_FORWARDING
+                || stateValue == MusicPlaybackData.STATE_REWINDING) return true;
         // A real PlaybackState object with STATE_NONE is a common car-player substitute for
         // PLAYING. A missing PlaybackState is not enough evidence to start a clock at zero.
-        return sampledProgress || statePresent && stateValue == PlaybackState.STATE_NONE
+        return sampledProgress || statePresent && stateValue == MusicPlaybackData.STATE_NONE
                 && sessionTitle != null && !sessionTitle.trim().isEmpty();
     }
 

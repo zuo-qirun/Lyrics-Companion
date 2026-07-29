@@ -15,7 +15,7 @@ android {
 
     defaultConfig {
         applicationId "com.zuoqirun.lyricscompanion"
-        minSdk 23
+        minSdk 19
         targetSdk 36
         versionCode Integer.parseInt(System.getenv("APP_VERSION_CODE") ?: "1")
         versionName System.getenv("APP_VERSION_NAME") ?: "0.1.0"
@@ -50,8 +50,9 @@ android {
 }
 
 dependencies {
-    implementation "androidx.appcompat:appcompat:1.7.1"
-    implementation "com.google.android.material:material:1.13.0"
+    // Last releases in these lines that still support Android 4.4 (API 19).
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "com.google.android.material:material:1.12.0"
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.json:json:20240303"
 }
