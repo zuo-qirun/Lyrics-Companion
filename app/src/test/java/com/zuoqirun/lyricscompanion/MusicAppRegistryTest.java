@@ -90,6 +90,17 @@ public class MusicAppRegistryTest {
         assertFalse(MusicStateStore.isDisplayableSession("", PlaybackState.STATE_PLAYING));
     }
 
+    @Test public void metadataOnlyCarSessionAdvancesItsPlaybackClock() {
+        assertTrue(MusicStateStore.isPositionAdvancing(
+                "晴天", true, PlaybackState.STATE_NONE, false));
+        assertTrue(MusicStateStore.isPositionAdvancing(
+                "晴天", true, PlaybackState.STATE_PAUSED, true));
+        assertFalse(MusicStateStore.isPositionAdvancing(
+                "晴天", true, PlaybackState.STATE_PAUSED, false));
+        assertFalse(MusicStateStore.isPositionAdvancing(
+                "晴天", false, PlaybackState.STATE_NONE, false));
+    }
+
     private static void assertSource(String expected, String packageName, String label) {
         MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, label);
         assertEquals(expected, app.sourceId);

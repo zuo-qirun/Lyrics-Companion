@@ -72,13 +72,10 @@ final class MusicStateStore {
         long newDuration = metadata == null ? -1L
                 : metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
         int stateValue = state == null ? PlaybackState.STATE_NONE : state.getState();
-        boolean newPlaying = stateValue == PlaybackState.STATE_PLAYING
-                || stateValue == PlaybackState.STATE_FAST_FORWARDING
-                || stateValue == PlaybackState.STATE_REWINDING;
         boolean newActive = isDisplayableSession(newTitle, stateValue);
-        long newPosition = state == null || state.getPosition() < 0L ? 0L : state.getPosition();
-        long newPositionTime = state == null || state.getLastPositionUpdateTime() <= 0L
-                ? SystemClock.elapsedRealtime() : state.getLastPositionUpdateTime();
+        boolean statePresent = state != null;
+        long newPosition = !statePresent || state.getPosition() < 0L ? 0L : state.getPosition();
+        long reportedPositionTime = !statePresent ? 0L : state.getLastPositionUpdateTime();
         float newSpeed = state == null ? 0f : state.getPlaybackSpeed();
         String normalizedSource = TextUtils.isEmpty(newSource) ? "media" : newSource;
         String normalizedSourceName = TextUtils.isEmpty(newSourceName)
@@ -92,6 +89,23 @@ final class MusicStateStore {
         long generationForAlbumArt = -1L;
         synchronized (LOCK) {
             boolean changed = !TextUtils.equals(trackKey, newTrackKey);
+            long now = SystemClock.elapsedRealtime();
+            long estimatedPosition = currentPositionLocked();
+            boolean sampledProgress = !changed && newPosition > basePositionMs + 100L;
+            boolean newPlaying = isPositionAdvancing(newTitle, statePresent, stateValue,
+                    sampledProgress);
+            float effectiveSpeed = newPlaying ? (newSpeed > 0f ? newSpeed : 1f) : 0f;
+            long positionToStore = newPosition;
+            long positionTimeToStore = reportedPositionTime > 0L
+                    ? reportedPositionTime : now;
+            if (!changed && newPlaying && reportedPositionTime <= 0L
+                    && newPosition <= basePositionMs + 100L) {
+                // Metadata-only automotive sessions commonly keep returning the same raw
+                // position. Preserve our monotonic estimate instead of resetting it every poll.
+                positionToStore = Math.max(newPosition, estimatedPosition);
+                positionTimeToStore = now;
+            }
+            boolean playbackModeChanged = playing != newPlaying;
             active = newActive;
             playing = newPlaying;
             source = normalizedSource;
@@ -102,9 +116,9 @@ final class MusicStateStore {
             if (newAlbumArt != null) albumArt = newAlbumArt;
             albumArtUri = safe(newAlbumArtUri);
             durationMs = newDuration > 0L ? newDuration : -1L;
-            basePositionMs = newPosition;
-            positionUpdatedAtElapsedMs = newPositionTime;
-            playbackSpeed = newSpeed;
+            basePositionMs = positionToStore;
+            positionUpdatedAtElapsedMs = positionTimeToStore;
+            playbackSpeed = effectiveSpeed;
             if (changed) {
                 trackKey = newTrackKey;
                 timeline = LrcTimeline.EMPTY;
@@ -113,6 +127,11 @@ final class MusicStateStore {
                 if (newAlbumArt == null) albumArt = null;
                 loadingAlbumArtUri = "";
                 generationToLoad = ++trackGeneration;
+            }
+            if (changed || playbackModeChanged) {
+                Log.i(TAG, "Position sync state=" + stateValue + " advancing=" + newPlaying
+                        + " speed=" + effectiveSpeed + " position=" + positionToStore
+                        + " reportedTime=" + reportedPositionTime);
             }
             if (albumArt == null && !TextUtils.isEmpty(albumArtUri)
                     && !TextUtils.equals(albumArtUri, loadingAlbumArtUri)) {
@@ -300,5 +319,16 @@ final class MusicStateStore {
         return sessionTitle != null && !sessionTitle.trim().isEmpty()
                 && stateValue != PlaybackState.STATE_STOPPED
                 && stateValue != PlaybackState.STATE_ERROR;
+    }
+
+    static boolean isPositionAdvancing(String sessionTitle, boolean statePresent,
+                                       int stateValue, boolean sampledProgress) {
+        if (stateValue == PlaybackState.STATE_PLAYING
+                || stateValue == PlaybackState.STATE_FAST_FORWARDING
+                || stateValue == PlaybackState.STATE_REWINDING) return true;
+        // A real PlaybackState object with STATE_NONE is a common car-player substitute for
+        // PLAYING. A missing PlaybackState is not enough evidence to start a clock at zero.
+        return sampledProgress || statePresent && stateValue == PlaybackState.STATE_NONE
+                && sessionTitle != null && !sessionTitle.trim().isEmpty();
     }
 }
