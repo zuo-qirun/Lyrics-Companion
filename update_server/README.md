@@ -52,6 +52,23 @@ sudo systemctl enable --now lyrics-companion-sync.timer
 
 反向代理需把 `https://lyrics-companion.zuoqirun.top` 转发到 `127.0.0.1:8788`，并保留 `Host` 与 `X-Forwarded-Proto`。若使用其他域名，修改 `.env` 的 `PUBLIC_BASE_URL`，同时更新 App 中的默认更新地址。
 
+## 在线人数与反馈
+
+App 使用随机生成并保存在本机的安装 ID，每 60 秒向
+`POST /api/online/heartbeat` 发送一次匿名心跳。服务端只在内存中保留最近两分钟的安装 ID，
+不读取或保存 Android 硬件标识；`GET /api/online` 返回当前去重后的在线数量。
+
+意见反馈通过 `POST /api/feedback` 提交，正文最多 2000 字、可选联系方式最多 200 字，
+同一客户端和来源默认每 60 秒只能提交一次。反馈按 JSON Lines 写入
+`update_server/state/feedback.jsonl`，该目录已被 Git 忽略，不会随发布内容公开。
+
+可在 `.env` 中调整：
+
+```dotenv
+ONLINE_TTL_MS=120000
+FEEDBACK_INTERVAL_MS=60000
+```
+
 ## 更新协议
 
 客户端请求 `/update.json`，校验：

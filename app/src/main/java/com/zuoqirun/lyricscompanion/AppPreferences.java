@@ -49,6 +49,7 @@ final class AppPreferences {
     static final String KEY_REFINED_CURRENT_ALIGN = "refined_current_align";
     static final String KEY_REFINED_SHOW_TRANSLATION = "refined_show_translation";
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
+    static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
 
     private AppPreferences() {}
 

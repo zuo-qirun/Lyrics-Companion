@@ -16,6 +16,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
+import android.text.InputFilter;
+import android.text.InputType;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
@@ -26,7 +28,9 @@ import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.button.MaterialButton;
@@ -34,6 +38,8 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,17 +58,27 @@ public final class MainActivity extends AppCompatActivity {
     private TextView musicStatus;
     private TextView displayStatus;
     private TextView updateStatus;
+    private TextView onlineStatus;
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private boolean bindingUi;
     private boolean updateBusy;
+    private boolean onlineBusy;
+    private boolean feedbackBusy;
 
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() {
             refreshStatus();
             handler.postDelayed(this, 700L);
+        }
+    };
+
+    private final Runnable communityRefresh = new Runnable() {
+        @Override public void run() {
+            refreshOnlineStatus();
+            handler.postDelayed(this, 30_000L);
         }
     };
 
@@ -86,10 +102,13 @@ public final class MainActivity extends AppCompatActivity {
         LyricsDisplayService.setSettingsVisible(this, true);
         handler.removeCallbacks(statusRefresh);
         handler.post(statusRefresh);
+        handler.removeCallbacks(communityRefresh);
+        handler.post(communityRefresh);
     }
 
     @Override protected void onPause() {
         handler.removeCallbacks(statusRefresh);
+        handler.removeCallbacks(communityRefresh);
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
     }
@@ -284,6 +303,19 @@ public final class MainActivity extends AppCompatActivity {
         updateButtons.addView(versionHistory, historyParams);
         updateCard.addView(updateButtons);
 
+        LinearLayout communityCard = card();
+        communityCard.addView(sectionLabel("社区与反馈"));
+        onlineStatus = text("当前在线：正在连接…", 14, 0xFFD8E1EE, true);
+        onlineStatus.setPadding(0, dp(9), 0, dp(3));
+        communityCard.addView(onlineStatus);
+        TextView onlinePrivacy = text("匿名安装 ID 仅用于两分钟内去重，不读取设备硬件标识。", 12,
+                0xFF8392A8, false);
+        onlinePrivacy.setPadding(0, 0, 0, dp(10));
+        communityCard.addView(onlinePrivacy);
+        MaterialButton feedback = button("意见反馈", false);
+        feedback.setOnClickListener(v -> showFeedbackDialog());
+        communityCard.addView(feedback, new LinearLayout.LayoutParams(-1, dp(48)));
+
         LinearLayout stateCard = card();
         stateCard.addView(sectionLabel("当前媒体状态"));
         musicStatus = text("等待播放器…", 14, 0xFFD8E1EE, false);
@@ -307,6 +339,7 @@ public final class MainActivity extends AppCompatActivity {
             leftColumn.addView(styleCard, cardMargins());
             rightColumn.addView(accessCard, cardMargins());
             rightColumn.addView(lyricCard, cardMargins());
+            rightColumn.addView(communityCard, cardMargins());
             rightColumn.addView(updateCard, cardMargins());
             rightColumn.addView(outputCard, cardMargins());
             rightColumn.addView(stateCard, cardMargins());
@@ -315,6 +348,7 @@ public final class MainActivity extends AppCompatActivity {
             root.addView(previewCard, cardMargins());
             root.addView(accessCard, cardMargins());
             root.addView(lyricCard, cardMargins());
+            root.addView(communityCard, cardMargins());
             root.addView(updateCard, cardMargins());
             root.addView(outputCard, cardMargins());
             root.addView(styleCard, cardMargins());
@@ -632,6 +666,98 @@ public final class MainActivity extends AppCompatActivity {
         view.setTextSize(14f);
         view.setPadding(dp(12), dp(8), dp(12), dp(8));
         view.setBackgroundColor(0xFF132238);
+    }
+
+    private void refreshOnlineStatus() {
+        if (onlineBusy || onlineStatus == null) return;
+        onlineBusy = true;
+        CommunityClient.heartbeatAsync(this, result -> runOnUiThread(() -> {
+            onlineBusy = false;
+            if (isFinishing() || isDestroyed() || onlineStatus == null) return;
+            onlineStatus.setText(result.available()
+                    ? "当前在线：" + result.online + " 人"
+                    : "当前在线：暂时无法获取");
+            onlineStatus.setTextColor(result.available() ? 0xFF6EE7F2 : 0xFF8392A8);
+        }));
+    }
+
+    private void showFeedbackDialog() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(4), dp(4), dp(4), 0);
+
+        TextInputLayout messageLayout = new TextInputLayout(this);
+        messageLayout.setHint("反馈内容");
+        messageLayout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_FILLED);
+        messageLayout.setBoxBackgroundColor(0xFF132238);
+        TextInputEditText message = new TextInputEditText(messageLayout.getContext());
+        message.setTextColor(Color.WHITE);
+        message.setTextSize(14f);
+        message.setGravity(Gravity.TOP | Gravity.START);
+        message.setMinLines(4);
+        message.setMaxLines(8);
+        message.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        message.setFilters(new InputFilter[]{new InputFilter.LengthFilter(2000)});
+        messageLayout.addView(message, new LinearLayout.LayoutParams(-1, -2));
+        content.addView(messageLayout, new LinearLayout.LayoutParams(-1, -2));
+
+        TextInputLayout contactLayout = new TextInputLayout(this);
+        contactLayout.setHint("联系方式（可选）");
+        contactLayout.setHelperText("可填写邮箱、QQ 或 GitHub 用户名");
+        contactLayout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_FILLED);
+        contactLayout.setBoxBackgroundColor(0xFF132238);
+        TextInputEditText contact = new TextInputEditText(contactLayout.getContext());
+        contact.setTextColor(Color.WHITE);
+        contact.setSingleLine(true);
+        contact.setInputType(InputType.TYPE_CLASS_TEXT);
+        contact.setFilters(new InputFilter[]{new InputFilter.LengthFilter(200)});
+        contactLayout.addView(contact, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams contactParams = new LinearLayout.LayoutParams(-1, -2);
+        contactParams.topMargin = dp(10);
+        content.addView(contactLayout, contactParams);
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("意见反馈")
+                .setMessage("反馈会发送到 Lyrics Companion 服务器；联系方式仅用于回复。")
+                .setView(content)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("提交", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    if (feedbackBusy) return;
+                    String feedbackText = valueOf(message);
+                    if (feedbackText.length() < 5) {
+                        messageLayout.setError("请至少输入 5 个字符");
+                        return;
+                    }
+                    messageLayout.setError(null);
+                    feedbackBusy = true;
+                    dialog.setCanceledOnTouchOutside(false);
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("提交中…");
+                    CommunityClient.submitFeedbackAsync(this, feedbackText, valueOf(contact),
+                            result -> runOnUiThread(() -> {
+                                feedbackBusy = false;
+                                if (isFinishing() || isDestroyed()) return;
+                                if (result.success) {
+                                    if (dialog.isShowing()) dialog.dismiss();
+                                    Toast.makeText(this, "反馈已收到，谢谢！", Toast.LENGTH_LONG).show();
+                                } else if (dialog.isShowing()) {
+                                    messageLayout.setError("提交失败：" + result.error);
+                                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setText("提交");
+                                    dialog.setCanceledOnTouchOutside(true);
+                                }
+                            }));
+                }));
+        dialog.show();
+    }
+
+    private static String valueOf(TextInputEditText input) {
+        return input.getText() == null ? "" : input.getText().toString().trim();
     }
 
     private void checkForUpdates(boolean manual) {

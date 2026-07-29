@@ -13,6 +13,7 @@
 - 可视化布局编辑器：在模拟渲染区拖动内容块，拖入备选区即可隐藏。
 - 横屏宽度达到 600dp 时，主设置页与 Refined 设置自动切换为双列；布局编辑器同步切换为左右拖拽区域。
 - AMap Companion 同款手感的副屏位置摇杆，以及窗口整体大小、字号、封面、背景和同步参数。
+- 匿名实时在线人数与 App 内意见反馈；服务器未上线时自动降级，不影响歌词显示。
 
 ## 副屏原理
 
@@ -67,6 +68,10 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 ## 自动构建与更新
 
 仓库包含 GitHub Actions 自动测试、Lint、签名 Release 构建，以及与 AMap Companion 同协议的更新服务器。App 会从 `https://lyrics-companion.zuoqirun.top/update.json` 检查更新，校验 APK 包名、大小与 SHA-256 后调用 Android 安装器。服务端部署、签名 Secrets 和历史版本配置见 [update_server/README.md](update_server/README.md)。
+
+同一服务还提供 `/api/online`、`/api/online/heartbeat` 和 `/api/feedback`。
+客户端只使用随机安装 ID 做短时在线去重，不读取硬件标识；服务器未部署时相关入口会显示不可用，
+不会影响 MediaSession、悬浮窗或副屏歌词链路。
 
 ## 首次使用
 

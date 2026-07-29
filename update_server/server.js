@@ -6,6 +6,7 @@ const http = require("http");
 const path = require("path");
 const {spawn} = require("child_process");
 const {loadEnv} = require("./release-sync-config");
+const {FeedbackStore, OnlineTracker, normalizeClientId} = require("./community");
 
 loadEnv(path.join(__dirname, ".env"));
 
@@ -16,8 +17,16 @@ const templatePath = path.join(__dirname, "update.template.json");
 const manifestPath = path.join(publicDir, "update.json");
 const versionsPath = path.join(publicDir, "versions.json");
 const syncScript = path.join(__dirname, "sync-release.js");
+const stateDir = process.env.STATE_DIR
+  ? path.resolve(process.env.STATE_DIR) : path.resolve(__dirname, "state");
+const feedbackPath = path.join(stateDir, "feedback.jsonl");
 const autoSync = process.env.AUTO_SYNC !== "0";
 const syncIntervalMs = Math.max(60_000, Number(process.env.SYNC_INTERVAL_MS || 300_000));
+const onlineTtlMs = Math.max(30_000, Number(process.env.ONLINE_TTL_MS || 120_000));
+const feedbackIntervalMs = Math.max(10_000,
+  Number(process.env.FEEDBACK_INTERVAL_MS || 60_000));
+const onlineTracker = new OnlineTracker(onlineTtlMs);
+const feedbackStore = new FeedbackStore(feedbackPath, feedbackIntervalMs);
 let syncing = false;
 let lastSync = null;
 
@@ -52,6 +61,37 @@ function sendFile(res, filePath, contentType) {
   res.writeHead(200, {"content-type": contentType,
     "content-length": fs.statSync(filePath).size, "cache-control": "no-store"});
   fs.createReadStream(filePath).pipe(res);
+}
+
+function readJson(req, maximumBytes = 16 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let length = 0;
+    let tooLarge = false;
+    req.on("data", (chunk) => {
+      length += chunk.length;
+      if (length > maximumBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+      } else if (!tooLarge) {
+        chunks.push(chunk);
+      }
+    });
+    req.on("end", () => {
+      if (tooLarge) { reject(new Error("request body is too large")); return; }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+      } catch (_error) {
+        reject(new Error("invalid json"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function clientAddress(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || String(req.socket.remoteAddress || "unknown");
 }
 
 function readManifest(req, github) {
@@ -128,14 +168,44 @@ const types = {".html": "text/html; charset=utf-8", ".json": "application/json; 
   ".md": "text/markdown; charset=utf-8", ".apk": "application/vnd.android.package-archive",
   ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"};
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
-    if (url.pathname === "/health") {
+    if (req.method === "GET" && url.pathname === "/health") {
       sendJson(res, 200, {ok: true, service: "lyrics-companion-update-server",
-        autoSyncEnabled: autoSync, syncIntervalMs, syncing, lastSync}); return;
+        autoSyncEnabled: autoSync, syncIntervalMs, syncing, lastSync,
+        online: onlineTracker.count()}); return;
     }
+    if (req.method === "GET" && url.pathname === "/api/online") {
+      sendJson(res, 200, {ok: true, online: onlineTracker.count(),
+        ttlSeconds: Math.round(onlineTtlMs / 1000), measuredAt: new Date().toISOString()});
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/online/heartbeat") {
+      let body;
+      try { body = await readJson(req); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      const clientId = normalizeClientId(body.clientId);
+      if (!clientId) { sendJson(res, 400, {ok: false, error: "invalid client id"}); return; }
+      const online = onlineTracker.heartbeat(clientId);
+      sendJson(res, 200, {ok: true, online,
+        ttlSeconds: Math.round(onlineTtlMs / 1000), measuredAt: new Date().toISOString()});
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/feedback") {
+      let body;
+      try { body = await readJson(req); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      try {
+        const entry = feedbackStore.submit(body.clientId, body, Date.now(), clientAddress(req));
+        sendJson(res, 201, {ok: true, id: entry.id, receivedAt: entry.createdAt});
+      } catch (error) {
+        const rateLimited = error.code === "RATE_LIMITED";
+        sendJson(res, rateLimited ? 429 : 400, {ok: false, error: error.message});
+      }
+      return;
+    }
+    if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
     if (url.pathname === "/update.json") { sendJson(res, 200, readManifest(req, false)); return; }
     if (url.pathname === "/update-github.json") { sendJson(res, 200, readManifest(req, true)); return; }
     if (url.pathname === "/versions.json") { sendJson(res, 200, readVersions(req, false)); return; }

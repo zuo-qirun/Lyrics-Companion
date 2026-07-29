@@ -12,7 +12,9 @@ import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
@@ -46,6 +48,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager.LayoutParams secondaryParams;
     private LyricsPanelView secondaryPanel;
     private boolean settingsVisible;
+    private final Handler communityHandler = new Handler(Looper.getMainLooper());
+    private final Runnable communityHeartbeat = new Runnable() {
+        @Override public void run() {
+            CommunityClient.heartbeatAsync(getApplicationContext(), null);
+            communityHandler.postDelayed(this, 60_000L);
+        }
+    };
 
     static void startOrRefresh(Context context) {
         Intent intent = new Intent(context, LyricsDisplayService.class).setAction(ACTION_REFRESH);
@@ -92,6 +101,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         startForeground(NOTIFICATION_ID, createNotification());
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         if (displayManager != null) displayManager.registerDisplayListener(this, null);
+        communityHandler.post(communityHeartbeat);
         rebuildAll();
     }
 
@@ -118,6 +128,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public void onDestroy() {
+        communityHandler.removeCallbacks(communityHeartbeat);
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
         dismissSecondary();
