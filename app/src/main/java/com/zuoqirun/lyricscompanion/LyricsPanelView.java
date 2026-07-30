@@ -370,11 +370,14 @@ final class LyricsPanelView extends View {
         float pad = 18f * density;
         float width = getWidth();
         float height = getHeight();
-        drawPanelShadow(canvas, 24f * density, Color.argb(Math.round(opacity * 2.55f), 6, 15, 27));
-
-        paint.setColor(0x406EE7F2);
-        workRect.set(pad, 10f * density, width - pad, 13f * density);
-        canvas.drawRoundRect(workRect, 2f * density, 2f * density, paint);
+        if (opacity > 0) {
+            drawPanelShadow(canvas, 24f * density,
+                    Color.argb(Math.round(opacity * 2.55f), 6, 15, 27));
+            paint.setColor(withAlpha(0x406EE7F2,
+                    Math.round(Color.alpha(0x406EE7F2) * opacity / 100f)));
+            workRect.set(pad, 10f * density, width - pad, 13f * density);
+            canvas.drawRoundRect(workRect, 2f * density, 2f * density, paint);
+        }
 
         float usableWidth = Math.max(1f, width - pad * 2f);
         float previewShift = browseVisualOffsetPx;
