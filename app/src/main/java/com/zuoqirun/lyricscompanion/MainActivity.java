@@ -49,6 +49,7 @@ import java.util.concurrent.Executors;
 
 @SuppressLint("SetTextI18n")
 public final class MainActivity extends AppCompatActivity {
+    private static final int REQUEST_CUSTOM_FONT = 2417;
     private static final String UPDATE_MANIFEST_URL =
             "https://lyrics-companion.zuoqirun.top/update.json";
     private static final String UPDATE_HISTORY_URL =
@@ -68,6 +69,7 @@ public final class MainActivity extends AppCompatActivity {
     private MaterialSwitch secondaryOverlaySwitch;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
+    private TextView globalFontSummary;
     private boolean bindingUi;
     private boolean updateBusy;
     private boolean onlineBusy;
@@ -114,6 +116,7 @@ public final class MainActivity extends AppCompatActivity {
             getWindow().setNavigationBarColor(0xFF07111F);
         }
         setContentView(buildContent());
+        CustomFontStore.applyToViewTree(this, getWindow().getDecorView());
         MusicStateStore.initialize(this);
         requestNotificationPermissionIfNeeded();
         handler.postDelayed(() -> checkForUpdates(false), 2_000L);
@@ -142,6 +145,22 @@ public final class MainActivity extends AppCompatActivity {
         handler.removeCallbacks(communityRefresh);
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_CUSTOM_FONT || resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+        try {
+            String name = CustomFontStore.importFont(this, uri);
+            AppPreferences.changed(this);
+            Toast.makeText(this, "已全局应用字体：" + name, Toast.LENGTH_SHORT).show();
+            recreate();
+        } catch (Exception error) {
+            Toast.makeText(this, error.getMessage() == null ? "导入字体失败" : error.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private View buildContent() {
@@ -279,6 +298,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams refinedParams = new LinearLayout.LayoutParams(-1, dp(50));
         refinedParams.topMargin = dp(10);
         styleCard.addView(refinedSettings, refinedParams);
+        addGlobalFontControls(styleCard);
         addSeekSetting(styleCard, "悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this), 900,
                 AppPreferences.panelWidthDp(this), " dp",
                 value -> AppPreferences.setPanelWidthDp(this, value));
@@ -671,6 +691,38 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private TextView sectionLabel(String value) { return text(value, 13, 0xFF6EE7F2, true); }
+
+    private void addGlobalFontControls(LinearLayout parent) {
+        TextView label = sectionLabel("全局字体");
+        label.setPadding(0, dp(16), 0, dp(3));
+        parent.addView(label);
+        globalFontSummary = text("当前：" + CustomFontStore.selectedFontLabel(this)
+                + "（替换应用界面与全部歌词，支持 TTF / OTF / TTC）",
+                12, 0xFF9EAFBF, false);
+        globalFontSummary.setPadding(0, 0, 0, dp(6));
+        parent.addView(globalFontSummary);
+        LinearLayout row = new LinearLayout(this);
+        MaterialButton importButton = button("导入全局字体", false);
+        importButton.setOnClickListener(v -> openFontPicker());
+        row.addView(importButton, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        MaterialButton resetButton = button("恢复系统字体", false);
+        resetButton.setOnClickListener(v -> {
+            CustomFontStore.clear(this);
+            AppPreferences.changed(this);
+            recreate();
+        });
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        resetParams.leftMargin = dp(10);
+        row.addView(resetButton, resetParams);
+        parent.addView(row);
+    }
+
+    private void openFontPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, REQUEST_CUSTOM_FONT);
+    }
 
     private TextView text(String value, int sp, int color, boolean bold) {
         TextView view = new TextView(this);

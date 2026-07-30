@@ -51,6 +51,7 @@ final class AppPreferences {
     static final String KEY_REFINED_CURRENT_ALIGN = "refined_current_align";
     static final String KEY_REFINED_SHOW_TRANSLATION = "refined_show_translation";
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
+    static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
 
     private AppPreferences() {}
@@ -198,6 +199,15 @@ final class AppPreferences {
     static int refinedLyricFontSize(Context context) {
         return Math.max(16, Math.min(64,
                 get(context).getInt(KEY_REFINED_LYRIC_FONT_SIZE, 32)));
+    }
+
+    static String customFontFile(Context context) {
+        return get(context).getString(KEY_CUSTOM_FONT_FILE, "");
+    }
+
+    static void setCustomFontFile(Context context, String fileName) {
+        get(context).edit().putString(KEY_CUSTOM_FONT_FILE,
+                fileName == null ? "" : fileName).apply();
     }
 
     static boolean refinedOriginalBold(Context context) {

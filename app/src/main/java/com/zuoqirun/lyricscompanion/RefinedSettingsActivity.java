@@ -152,6 +152,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         }
         root.addView(note);
         setContentView(scroll);
+        CustomFontStore.applyToViewTree(this, scroll);
     }
 
     @Override protected void onResume() {

@@ -7,6 +7,7 @@ import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -47,6 +48,8 @@ final class LyricsLayoutEditorView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        Typeface customTypeface = CustomFontStore.load(getContext());
+        paint.setTypeface(customTypeface == null ? Typeface.DEFAULT : customTypeface);
         float margin = dp(16);
         boolean wideLayout = isWideLayout();
         if (wideLayout) {

@@ -44,6 +44,7 @@ public final class LayoutEditorActivity extends AppCompatActivity {
         root.addView(actions);
         editor.setOnLayoutChangedListener(() -> AppPreferences.changed(this));
         setContentView(root);
+        CustomFontStore.applyToViewTree(this, root);
     }
 
     @Override protected void onResume() {

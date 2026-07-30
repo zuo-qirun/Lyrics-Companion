@@ -98,6 +98,7 @@ final class LyricsPanelView extends View {
     private long lastRenderedLineStartMs = Long.MIN_VALUE;
     private long lyricScrollAnimationStartedMs;
     private int lyricScrollDirection;
+    private Typeface customTypeface;
     private String compactMarqueeText = "";
     private long compactMarqueeElapsedMs;
     private long compactMarqueeLastFrameMs;
@@ -143,6 +144,7 @@ final class LyricsPanelView extends View {
         refinedCurrentAlign = AppPreferences.refinedCurrentAlign(getContext());
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext());
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext());
+        customTypeface = CustomFontStore.load(getContext());
         setLayerType(usesRefinedVisualStyle() && refinedLyricBlur
                 ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext());
@@ -1561,7 +1563,9 @@ final class LyricsPanelView extends View {
         paint.setMaskFilter(null);
         paint.clearShadowLayer();
         paint.setTextSize(size);
-        paint.setTypeface(style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL);
+        paint.setTypeface(customTypeface == null
+                ? (style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL)
+                : Typeface.create(customTypeface, style));
     }
 
     private void clearTextCaches() {
