@@ -279,14 +279,12 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams refinedParams = new LinearLayout.LayoutParams(-1, dp(50));
         refinedParams.topMargin = dp(10);
         styleCard.addView(refinedSettings, refinedParams);
-        addSeekSetting(styleCard, "悬浮窗宽度", 240, 900,
+        addSeekSetting(styleCard, "悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this), 900,
                 AppPreferences.panelWidthDp(this), " dp",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_PANEL_WIDTH_DP, value).apply());
-        addSeekSetting(styleCard, "悬浮窗高度", 140, 600,
+                value -> AppPreferences.setPanelWidthDp(this, value));
+        addSeekSetting(styleCard, "悬浮窗高度", AppPreferences.minimumPanelHeightDp(this), 600,
                 AppPreferences.panelHeightDp(this), " dp",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_PANEL_HEIGHT_DP, value).apply());
+                value -> AppPreferences.setPanelHeightDp(this, value));
         addSeekSetting(styleCard, "字号", 75, 150,
                 AppPreferences.get(this).getInt(AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.get(this).edit()
@@ -397,8 +395,8 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text("显示风格", 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"歌词伴侣默认", "Refined Now Playing", "PiPWindow", "自定义布局"};
-        String[] values = {"default", "refined", "pip", "custom"};
+        String[] labels = {"歌词伴侣默认", "Refined Now Playing", "紧凑单行", "PiPWindow", "自定义布局"};
+        String[] values = {"default", "refined", "compact", "pip", "custom"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
                 android.R.layout.simple_spinner_dropdown_item, labels) {
@@ -427,6 +425,7 @@ public final class MainActivity extends AppCompatActivity {
                         .putString(AppPreferences.KEY_OVERLAY_STYLE, values[position]).apply();
                 refreshPreview();
                 AppPreferences.changed(MainActivity.this);
+                recreate();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
@@ -641,7 +640,8 @@ public final class MainActivity extends AppCompatActivity {
                 : screenWidthDp - 72f;
         float aspectHeightDp = availableWidthDp * AppPreferences.panelHeightDp(this)
                 / (float) AppPreferences.panelWidthDp(this);
-        return dp(Math.max(140f, Math.min(420f, aspectHeightDp)));
+        return dp(Math.max(AppPreferences.minimumPanelHeightDp(this),
+                Math.min(420f, aspectHeightDp)));
     }
 
     private boolean useTwoColumnLayout() {

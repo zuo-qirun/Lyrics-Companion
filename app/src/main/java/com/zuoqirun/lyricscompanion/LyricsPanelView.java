@@ -98,6 +98,10 @@ final class LyricsPanelView extends View {
     private long lastRenderedLineStartMs = Long.MIN_VALUE;
     private long lyricScrollAnimationStartedMs;
     private int lyricScrollDirection;
+    private String compactMarqueeText = "";
+    private long compactMarqueeElapsedMs;
+    private long compactMarqueeLastFrameMs;
+    private boolean compactMarqueeActive;
 
     LyricsPanelView(Context context) { this(context, false); }
 
@@ -139,7 +143,7 @@ final class LyricsPanelView extends View {
         refinedCurrentAlign = AppPreferences.refinedCurrentAlign(getContext());
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext());
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext());
-        setLayerType("refined".equals(overlayStyle) && refinedLyricBlur
+        setLayerType(usesRefinedVisualStyle() && refinedLyricBlur
                 ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext());
         if (blurPreview != null && blurPreview != blurSource && !blurPreview.isRecycled()) {
@@ -172,6 +176,8 @@ final class LyricsPanelView extends View {
 
         if ("refined".equals(overlayStyle)) {
             drawRefined(canvas, snapshot, density);
+        } else if ("compact".equals(overlayStyle)) {
+            drawCompact(canvas, snapshot, density);
         } else if ("pip".equals(overlayStyle)) {
             drawPip(canvas, snapshot, density);
         } else if ("custom".equals(overlayStyle)) {
@@ -187,6 +193,7 @@ final class LyricsPanelView extends View {
 
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
         if (browsingLyrics || browseSettling) return 16L;
+        if (compactMarqueeActive && snapshot.playing) return 16L;
         if (lyricScrollAnimationStartedMs > 0L
                 && nowElapsedMs - lyricScrollAnimationStartedMs < 500L) return 16L;
         if (browseUntilElapsedMs > nowElapsedMs) {
@@ -221,6 +228,9 @@ final class LyricsPanelView extends View {
             return !"cover".equals(refinedDisplayMode)
                     && ("lyrics".equals(refinedDisplayMode) || x >= getWidth() * 0.46f);
         }
+        // The compact layout has no spare non-lyric area. Reserve its full surface for moving
+        // the overlay instead of swallowing every touch as lyric browsing.
+        if ("compact".equals(overlayStyle)) return false;
         if ("pip".equals(overlayStyle)) return y >= getHeight() * 0.34f;
         if ("custom".equals(overlayStyle)) return y >= getHeight() * 0.28f;
         return y >= getHeight() * 0.24f && y <= getHeight() * 0.86f;
@@ -361,6 +371,10 @@ final class LyricsPanelView extends View {
                 || ValueAnimator.areAnimatorsEnabled();
     }
 
+    private boolean usesRefinedVisualStyle() {
+        return "refined".equals(overlayStyle) || "compact".equals(overlayStyle);
+    }
+
     @Override public boolean performClick() {
         super.performClick();
         return true;
@@ -458,6 +472,220 @@ final class LyricsPanelView extends View {
         drawProgress(canvas, pad, progressY, width - pad, 2f * density,
                 snapshot, withAlpha(primaryText, 48), withAlpha(primaryText, 225));
         canvas.restoreToCount(contentSave);
+    }
+
+    /** A small horizontal media strip: lyric-led, with cover artwork as a side anchor. */
+    private void drawCompact(Canvas canvas, MusicSnapshot snapshot, float density) {
+        float width = getWidth();
+        float height = getHeight();
+        updatePalette(snapshot.albumArt);
+        boolean light = refinedUsesLightColors();
+        int accent = refinedAccentColor();
+        int primaryText = light ? mix(accent, Color.BLACK, 0.72f)
+                : mix(accent, Color.WHITE, 0.78f);
+        drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
+
+        int save = canvas.save();
+        float radius = Math.min(width, height) * 0.18f;
+        clipPath.reset();
+        clipPath.addRoundRect(panelRect, radius, radius, Path.Direction.CW);
+        canvas.clipPath(clipPath);
+        float pad = Math.max(7f * density, width * 0.028f);
+        float barsHeight = Math.max(4f * density, height * 0.052f);
+        float barsTop = height - pad * 0.42f - barsHeight;
+        float coverSize = Math.min(barsTop - pad * 0.62f,
+                Math.min(width * 0.23f, 58f * density));
+        coverSize = Math.max(30f * density, coverSize);
+        float coverLeft = width - pad - coverSize;
+        coverRect.set(coverLeft, pad * 0.62f, coverLeft + coverSize,
+                pad * 0.62f + coverSize);
+        drawCover(canvas, snapshot.albumArt, coverRect, 10f * density,
+                mix(accent, Color.DKGRAY, 0.55f));
+
+        float lyricLeft = pad;
+        float lyricWidth = Math.max(1f, coverLeft - lyricLeft - 4f * density);
+        float lyricTop = coverRect.top;
+        float lyricBottom = barsTop - 3f * density;
+        float lyricStageHeight = Math.max(1f, lyricBottom - lyricTop);
+        // The compact card is still a lyric surface, not a metadata row. Its main lyric uses
+        // a dedicated large type scale; overflow is handled by the tracked karaoke viewport
+        // below instead of shrinking the letters to fit.
+        float lyricSize = Math.max(22f * density,
+                Math.min(refinedLyricFontSize * density * textScale * 1.50f,
+                        lyricStageHeight * 0.56f));
+        boolean showTranslation = refinedShowTranslation
+                && !snapshot.lyrics.translatedLyric.isEmpty();
+        float translationSize = lyricSize * 0.48f;
+        setTextPaint(lyricSize, Typeface.BOLD);
+        float originalAscent = paint.ascent();
+        float originalDescent = paint.descent();
+        setTextPaint(translationSize, Typeface.NORMAL);
+        float translationAscent = paint.ascent();
+        float translationDescent = paint.descent();
+        float lineGap = Math.max(3f * density, lyricSize * 0.12f);
+        float groupHeight = showTranslation
+                ? originalDescent - originalAscent + lineGap
+                + translationDescent - translationAscent
+                : originalDescent - originalAscent;
+        float groupTop = lyricTop + Math.max(0f, (lyricStageHeight - groupHeight) * 0.5f);
+        float baseline = groupTop - originalAscent;
+        float translationBaseline = baseline + originalDescent + lineGap - translationAscent;
+        // Preserve the familiar lyric-then-translation reading order and center the complete
+        // pair in the stage to the left of the cover.
+        if (showTranslation) {
+            drawRefinedText(canvas, snapshot.lyrics.translatedLyric,
+                    lyricLeft + lyricWidth * 0.5f, translationBaseline, translationSize,
+                    primaryText, lyricWidth, Paint.Align.CENTER, Typeface.NORMAL, 165);
+        }
+        if (snapshot.lyrics.interlude) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
+            float dotRadius = lyricSize * 0.20f;
+            float dotWidth = interludeDotsWidth(dotRadius);
+            drawInterludeDots(canvas, snapshot, lyricLeft + (lyricWidth - dotWidth) * 0.5f,
+                    baseline - lyricSize * 0.72f,
+                    dotRadius, primaryText);
+        } else {
+            drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot), lyricLeft,
+                    baseline, lyricSize, lyricWidth, density,
+                    withAlpha(primaryText, 120), primaryText);
+        }
+        drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
+                width - pad, barsHeight, primaryText);
+        canvas.restoreToCount(save);
+    }
+
+    /** Decorative playback bars are driven by elapsed playback progress, never audio samples. */
+    private void drawCompactPlaybackBars(Canvas canvas, MusicSnapshot snapshot, float left,
+                                         float top, float right, float height, int color) {
+        if (right <= left || height <= 0f) return;
+        float width = right - left;
+        int count = Math.max(16, Math.min(40, Math.round(width / Math.max(5f, height * 1.2f))));
+        float slot = width / count;
+        float barWidth = Math.max(1f, slot * 0.48f);
+        float progress = snapshot.durationMs > 0L
+                ? clamp(snapshot.positionMs / (float) snapshot.durationMs) : 0f;
+        float phase = snapshot.playing ? SystemClock.elapsedRealtime() / 260f : 0f;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        for (int i = 0; i < count; i++) {
+            float normalized = (i + 0.5f) / count;
+            float pulse = 0.42f + 0.58f * (float) Math.abs(Math.sin(i * 0.73f + phase));
+            float shape = 0.36f + 0.64f * (float) Math.sin(normalized * Math.PI);
+            float barHeight = Math.max(1f, height * pulse * shape);
+            int alpha = normalized <= progress ? 220 : 72;
+            paint.setColor(withAlpha(color, alpha));
+            float x = left + i * slot + (slot - barWidth) * 0.5f;
+            progressRect.set(x, top + height - barHeight, x + barWidth, top + height);
+            canvas.drawRoundRect(progressRect, barWidth * 0.5f, barWidth * 0.5f, paint);
+        }
+    }
+
+    /**
+     * Keeps a word-timed lyric's active progress in view. This mirrors the display renderer:
+     * karaoke follows its highlighted text while a plain LRC line consumes its own duration.
+     */
+    private void drawCompactMarqueeKaraoke(Canvas canvas, MusicSnapshot snapshot, String value,
+                                           float x, float y, float requestedSize, float maxWidth,
+                                           float density, int baseColor, int activeColor) {
+        if (value == null || value.isEmpty()) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
+            return;
+        }
+        String text = value.replace('\n', ' ');
+        setTextPaint(requestedSize, Typeface.BOLD);
+        paint.setTextAlign(Paint.Align.LEFT);
+        float textWidth = paint.measureText(text);
+        if (textWidth <= maxWidth) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
+            drawKaraoke(canvas, snapshot, text, x + maxWidth * 0.5f, y, requestedSize,
+                    maxWidth, Paint.Align.CENTER,
+                    baseColor, activeColor);
+            return;
+        }
+
+        long now = SystemClock.elapsedRealtime();
+        if (!text.equals(compactMarqueeText)) {
+            compactMarqueeText = text;
+            compactMarqueeElapsedMs = 0L;
+            compactMarqueeLastFrameMs = now;
+        } else if (snapshot.playing) {
+            compactMarqueeElapsedMs += Math.max(0L, now - compactMarqueeLastFrameMs);
+            compactMarqueeLastFrameMs = now;
+        } else {
+            compactMarqueeLastFrameMs = now;
+        }
+        compactMarqueeActive = snapshot.playing;
+        float overflow = textWidth - maxWidth;
+        float offset;
+        if (snapshot.lyrics.wordTimed) {
+            LrcTimeline.At at = snapshot.lyrics;
+            int revealed = LrcTimeline.revealedCodePointCount(
+                    at.currentWord, at.wordProgressPermille);
+            int charEnd = at.currentWord.offsetByCodePoints(0, revealed);
+            float highlightedWidth = paint.measureText(at.completedLyric)
+                    + paint.measureText(at.currentWord.substring(0, charEnd));
+            // Follow the active syllable instead of the wall clock, keeping it comfortably
+            // inside the viewport even for a long line.
+            float anchor = Math.max(12f * density, maxWidth * 0.64f);
+            offset = Math.max(0f, Math.min(overflow, highlightedWidth - anchor));
+        } else if (snapshot.lyrics.lineStartMs >= 0L
+                && snapshot.lyrics.lineDurationMs > 0L) {
+            float lineProgress = clamp((snapshot.positionMs + lyricOffsetMs
+                    - snapshot.lyrics.lineStartMs) / (float) snapshot.lyrics.lineDurationMs);
+            // Preserve a readable lead-in, then make the final words visible before the
+            // following line is due, matching the TFT's timed scrolling behavior.
+            float scrollProgress = clamp((lineProgress - 0.06f) / 0.82f);
+            offset = overflow * scrollProgress;
+        } else {
+            // Metadata or untimed fallback: move briskly, but never use this path for lyrics
+            // that already have position information.
+            long travelMs = Math.max(240L, Math.round(overflow / (72f * density) * 1_000f));
+            long cycleMs = 400L + travelMs + 700L;
+            long cyclePosition = compactMarqueeElapsedMs % cycleMs;
+            offset = cyclePosition <= 400L ? 0f
+                    : cyclePosition >= 400L + travelMs ? overflow
+                    : overflow * (cyclePosition - 400L) / (float) travelMs;
+        }
+
+        int save = canvas.save();
+        canvas.clipRect(x, y - requestedSize * 1.25f, x + maxWidth, y + requestedSize * 0.35f);
+        float drawX = x - offset;
+        paint.setColor(baseColor);
+        canvas.drawText(text, drawX, y, paint);
+        if (!snapshot.lyricAvailable || snapshot.lyrics.lyric.isEmpty()) {
+            paint.setColor(activeColor);
+            canvas.drawText(text, drawX, y, paint);
+        } else if (!snapshot.lyrics.wordTimed) {
+            paint.setColor(activeColor);
+            applyRefinedTextEffect(requestedSize, activeColor, 255);
+            canvas.drawText(text, drawX, y, paint);
+            paint.clearShadowLayer();
+        } else {
+            LrcTimeline.At at = snapshot.lyrics;
+            int revealed = LrcTimeline.revealedCodePointCount(
+                    at.currentWord, at.wordProgressPermille);
+            int charEnd = at.currentWord.offsetByCodePoints(0, revealed);
+            float highlightedWidth = paint.measureText(at.completedLyric)
+                    + paint.measureText(at.currentWord.substring(0, charEnd));
+            int highlightSave = canvas.save();
+            canvas.clipRect(drawX, y - requestedSize * 1.25f,
+                    drawX + Math.min(textWidth, highlightedWidth), y + requestedSize * 0.35f);
+            paint.setColor(activeColor);
+            if (refinedLyricGlow) {
+                paint.setShadowLayer(Math.max(3f, requestedSize * 0.24f), 0f, 0f,
+                        withAlpha(activeColor, 90));
+            }
+            canvas.drawText(text, drawX, y, paint);
+            paint.clearShadowLayer();
+            canvas.restoreToCount(highlightSave);
+        }
+        canvas.restoreToCount(save);
     }
 
     private void drawRefinedSongInfo(Canvas canvas, MusicSnapshot snapshot, float density,
@@ -1250,7 +1478,7 @@ final class LyricsPanelView extends View {
         LrcTimeline.At at = snapshot.lyrics;
         if (!at.wordTimed) {
             paint.setColor(activeColor);
-            if ("refined".equals(overlayStyle)) {
+            if (usesRefinedVisualStyle()) {
                 applyRefinedTextEffect(size, activeColor, 255);
             }
             canvas.drawText(text, anchorX, y, paint);
@@ -1263,12 +1491,12 @@ final class LyricsPanelView extends View {
         float highlightedWidth = paint.measureText(at.completedLyric)
                 + paint.measureText(at.currentWord.substring(0, charEnd));
         int save = canvas.save();
-        float activeY = "refined".equals(overlayStyle)
+        float activeY = usesRefinedVisualStyle()
                 && "float".equals(refinedKaraokeAnimation) ? y - size * 0.06f : y;
         canvas.clipRect(left, y - size * 1.25f,
                 left + Math.min(textWidth, highlightedWidth), y + size * 0.35f);
         paint.setColor(activeColor);
-        boolean glow = !"refined".equals(overlayStyle) || refinedLyricGlow;
+        boolean glow = !usesRefinedVisualStyle() || refinedLyricGlow;
         if (glow) {
             paint.setShadowLayer(Math.max(4f, size * 0.35f), 0f, 0f,
                     Color.argb(100, Color.red(activeColor), Color.green(activeColor),

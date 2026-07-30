@@ -173,9 +173,11 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (mainWindowManager == null) return;
         Point screen = displaySize(mainWindowManager.getDefaultDisplay());
         int width = Math.min(dp(this, AppPreferences.panelWidthDp(this)),
-                Math.max(dp(this, 220), screen.x - dp(this, 24)));
+                Math.max(dp(this, AppPreferences.minimumPanelWidthDp(this)),
+                        screen.x - dp(this, 24)));
         int height = Math.min(dp(this, AppPreferences.panelHeightDp(this)),
-                Math.max(dp(this, 160), screen.y - dp(this, 24)));
+                Math.max(dp(this, AppPreferences.minimumPanelHeightDp(this)),
+                        screen.y - dp(this, 24)));
         mainPanel = new LyricsPanelView(this, false);
         mainParams = overlayParams(width, height);
         mainParams.x = clamp(AppPreferences.get(this).getInt(AppPreferences.KEY_MAIN_X, dp(this, 18)),
@@ -208,9 +210,11 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             Point screen = displaySize(display);
             int margin = dp(secondaryContext, 20);
             int width = Math.min(dp(secondaryContext, AppPreferences.panelWidthDp(this)),
-                    Math.max(dp(secondaryContext, 220), screen.x - margin * 2));
+                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelWidthDp(this)),
+                            screen.x - margin * 2));
             int height = Math.min(dp(secondaryContext, AppPreferences.panelHeightDp(this)),
-                    Math.max(dp(secondaryContext, 160), screen.y - margin * 2));
+                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelHeightDp(this)),
+                            screen.y - margin * 2));
             secondaryPanel = new LyricsPanelView(secondaryContext, true);
             secondaryParams = overlayParams(width, height);
             int defaultX = Math.max(0, (screen.x - width) / 2);

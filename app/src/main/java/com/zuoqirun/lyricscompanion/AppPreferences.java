@@ -11,6 +11,8 @@ final class AppPreferences {
     static final String KEY_PANEL_SCALE = "panel_scale";
     static final String KEY_PANEL_WIDTH_DP = "panel_width_dp";
     static final String KEY_PANEL_HEIGHT_DP = "panel_height_dp";
+    static final String KEY_COMPACT_PANEL_WIDTH_DP = "compact_panel_width_dp";
+    static final String KEY_COMPACT_PANEL_HEIGHT_DP = "compact_panel_height_dp";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
     static final String KEY_STYLE_BLUR = "style_blur";
     static final String KEY_STYLE_DIM = "style_dim";
@@ -78,13 +80,31 @@ final class AppPreferences {
     }
 
     static int panelWidthDp(Context context) {
-        return Math.max(240, Math.min(900, get(context).getInt(
-                KEY_PANEL_WIDTH_DP, defaultPanelWidthDp(overlayStyle(context)))));
+        String style = overlayStyle(context);
+        return Math.max(minimumPanelWidthDp(context), Math.min(900, get(context).getInt(
+                panelWidthKey(style), defaultPanelWidthDp(style))));
     }
 
     static int panelHeightDp(Context context) {
-        return Math.max(140, Math.min(600, get(context).getInt(
-                KEY_PANEL_HEIGHT_DP, defaultPanelHeightDp(overlayStyle(context)))));
+        String style = overlayStyle(context);
+        return Math.max(minimumPanelHeightDp(context), Math.min(600, get(context).getInt(
+                panelHeightKey(style), defaultPanelHeightDp(style))));
+    }
+
+    static int minimumPanelWidthDp(Context context) {
+        return "compact".equals(overlayStyle(context)) ? 220 : 240;
+    }
+
+    static int minimumPanelHeightDp(Context context) {
+        return "compact".equals(overlayStyle(context)) ? 72 : 140;
+    }
+
+    static void setPanelWidthDp(Context context, int value) {
+        get(context).edit().putInt(panelWidthKey(overlayStyle(context)), value).apply();
+    }
+
+    static void setPanelHeightDp(Context context, int value) {
+        get(context).edit().putInt(panelHeightKey(overlayStyle(context)), value).apply();
     }
 
     static int opacity(Context context) {
@@ -229,6 +249,7 @@ final class AppPreferences {
 
     private static int defaultPanelWidthDp(String style) {
         if ("refined".equals(style)) return 560;
+        if ("compact".equals(style)) return 320;
         if ("pip".equals(style)) return 440;
         if ("custom".equals(style)) return 460;
         return 390;
@@ -236,9 +257,20 @@ final class AppPreferences {
 
     private static int defaultPanelHeightDp(String style) {
         if ("refined".equals(style)) return 300;
+        // This leaves room for the optional translation and the compact playback bars while
+        // remaining a small horizontal overlay.
+        if ("compact".equals(style)) return 104;
         if ("pip".equals(style)) return 220;
         if ("custom".equals(style)) return 260;
         return 226;
+    }
+
+    private static String panelWidthKey(String style) {
+        return "compact".equals(style) ? KEY_COMPACT_PANEL_WIDTH_DP : KEY_PANEL_WIDTH_DP;
+    }
+
+    private static String panelHeightKey(String style) {
+        return "compact".equals(style) ? KEY_COMPACT_PANEL_HEIGHT_DP : KEY_PANEL_HEIGHT_DP;
     }
 
     static void changed(Context context) {
