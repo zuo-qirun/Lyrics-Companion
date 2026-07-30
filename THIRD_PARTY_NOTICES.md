@@ -1,5 +1,11 @@
 # Third-party notices
 
+## sherpa-onnx
+
+The optional offline Chinese-English real-time caption engine includes the `sherpa-onnx` C API header and its Android ONNX Runtime shared libraries. The model is downloaded only after user action and is stored in the application's private files directory.
+
+Copyright (c) 2023 Xiaomi Corporation. sherpa-onnx and the selected `csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` model are licensed under Apache License 2.0. License: https://www.apache.org/licenses/LICENSE-2.0
+
 ## Amap-for-ESP32 Android forwarder
 
 `LrcTimeline`, `NetEaseLyricClient`, media-session selection, playback-position interpolation and player recognition are adapted from the sibling `Amap-for-ESP32/android_forwarder` source tree.

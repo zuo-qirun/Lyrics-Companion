@@ -8,6 +8,7 @@ public final class LyricsCompanionApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
         DynamicColors.applyToActivitiesIfAvailable(this);
+        RealtimeCaptionEngine.installLocalRecognizer(new SherpaBilingualRecognizer(this));
     }
 
     @Override public void onLowMemory() {

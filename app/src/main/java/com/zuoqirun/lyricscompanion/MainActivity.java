@@ -10,6 +10,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -50,6 +51,7 @@ import java.util.concurrent.Executors;
 @SuppressLint("SetTextI18n")
 public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CUSTOM_FONT = 2417;
+    private static final int REQUEST_CAPTURE_AUDIO = 2418;
     private static final String UPDATE_MANIFEST_URL =
             "https://lyrics-companion.zuoqirun.top/update.json";
     private static final String UPDATE_HISTORY_URL =
@@ -65,8 +67,10 @@ public final class MainActivity extends AppCompatActivity {
     private TextView displayStatus;
     private TextView updateStatus;
     private TextView onlineStatus;
+    private TextView captionStatus;
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
+    private MaterialSwitch realtimeCaptionSwitch;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private TextView globalFontSummary;
@@ -149,6 +153,16 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CAPTURE_AUDIO) {
+            if (resultCode == RESULT_OK && data != null) {
+                RealtimeCaptionService.start(this, resultCode, data);
+            } else {
+                RealtimeCaptionStore.status(RealtimeCaptionState.Status.NEEDS_PERMISSION, "",
+                        "未授权系统播放音频捕获");
+            }
+            refreshStatus();
+            return;
+        }
         if (requestCode != REQUEST_CUSTOM_FONT || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
@@ -228,6 +242,53 @@ public final class MainActivity extends AppCompatActivity {
             MusicStateStore.reloadLyrics(this);
         });
         lyricCard.addView(playerCatalogFallback);
+
+        LinearLayout captionCard = card();
+        captionCard.addView(sectionLabel("实时生成字幕"));
+        realtimeCaptionSwitch = toggle("系统播放音频实时字幕",
+                "Android 10+；默认关闭。已有匹配歌词时继续显示歌词，未匹配时显示短句字幕");
+        realtimeCaptionSwitch.setChecked(AppPreferences.realtimeCaptionsEnabled(this));
+        realtimeCaptionSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            if (checked && !RealtimeCaptionService.isSupported()) {
+                bindingUi = true;
+                realtimeCaptionSwitch.setChecked(false);
+                bindingUi = false;
+                Toast.makeText(this, "系统播放音频捕获需要 Android 10 或更高版本", Toast.LENGTH_LONG).show();
+                return;
+            }
+            AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_REALTIME_CAPTIONS, checked).apply();
+            if (checked) requestCapturePermission();
+            else RealtimeCaptionService.stop(this);
+            refreshPreview();
+        });
+        captionCard.addView(realtimeCaptionSwitch);
+        MaterialSwitch cloudFallback = toggle("本地识别优先，允许云端兜底",
+                "云端适配器由后续部署提供；本应用不会保存密钥或上传音频，除非安装了适配器");
+        cloudFallback.setChecked(AppPreferences.cloudFallbackEnabled(this));
+        cloudFallback.setOnCheckedChangeListener((button, checked) ->
+                AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_CAPTION_CLOUD_FALLBACK, checked).apply());
+        captionCard.addView(cloudFallback);
+        MaterialButton downloadCaptionModel = button("下载中英离线模型（约 198 MB）", false);
+        downloadCaptionModel.setOnClickListener(v -> BilingualCaptionModel.downloadAsync(this,
+                new BilingualCaptionModel.Listener() {
+                    @Override public void onComplete() { runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, "中英离线模型已就绪", Toast.LENGTH_LONG).show();
+                        refreshCaptionStatus();
+                    }); }
+                    @Override public void onError(String message) { runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                        refreshCaptionStatus();
+                    }); }
+                }));
+        captionCard.addView(downloadCaptionModel, new LinearLayout.LayoutParams(-1, dp(48)));
+        MaterialButton capturePermission = button("授权或重新授权系统音频捕获", false);
+        capturePermission.setOnClickListener(v -> requestCapturePermission());
+        captionCard.addView(capturePermission, new LinearLayout.LayoutParams(-1, dp(48)));
+        captionStatus = text("", 12, 0xFF8392A8, false);
+        captionStatus.setLineSpacing(0f, 1.18f);
+        captionStatus.setPadding(0, dp(8), 0, 0);
+        captionCard.addView(captionStatus);
 
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("显示位置"));
@@ -388,6 +449,7 @@ public final class MainActivity extends AppCompatActivity {
             leftColumn.addView(styleCard, cardMargins());
             rightColumn.addView(accessCard, cardMargins());
             rightColumn.addView(lyricCard, cardMargins());
+            rightColumn.addView(captionCard, cardMargins());
             rightColumn.addView(communityCard, cardMargins());
             rightColumn.addView(updateCard, cardMargins());
             rightColumn.addView(outputCard, cardMargins());
@@ -397,6 +459,7 @@ public final class MainActivity extends AppCompatActivity {
             root.addView(previewCard, cardMargins());
             root.addView(accessCard, cardMargins());
             root.addView(lyricCard, cardMargins());
+            root.addView(captionCard, cardMargins());
             root.addView(communityCard, cardMargins());
             root.addView(updateCard, cardMargins());
             root.addView(outputCard, cardMargins());
@@ -513,6 +576,9 @@ public final class MainActivity extends AppCompatActivity {
         bindingUi = true;
         mainOverlaySwitch.setChecked(AppPreferences.mainEnabled(this));
         secondaryOverlaySwitch.setChecked(AppPreferences.secondaryEnabled(this));
+        if (realtimeCaptionSwitch != null) {
+            realtimeCaptionSwitch.setChecked(AppPreferences.realtimeCaptionsEnabled(this));
+        }
         bindingUi = false;
     }
 
@@ -537,6 +603,7 @@ public final class MainActivity extends AppCompatActivity {
                 + "\n最近成功读取会话：" + formatSessionReadAge(lastRead)
                 + "    当前会话数量：" + MusicNotificationListener.getLastSessionCount()
                 + "\n最近异常信息：" + error);
+        refreshCaptionStatus();
     }
 
     private void refreshDisplayChoices() {
@@ -947,6 +1014,48 @@ public final class MainActivity extends AppCompatActivity {
 
     private boolean canDrawOverlays() {
         return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this);
+    }
+
+    private void requestCapturePermission() {
+        if (!RealtimeCaptionService.isSupported()) {
+            RealtimeCaptionStore.status(RealtimeCaptionState.Status.ERROR, "",
+                    "系统播放音频捕获需要 Android 10 或更高版本");
+            refreshCaptionStatus();
+            return;
+        }
+        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+        if (manager == null) {
+            RealtimeCaptionStore.status(RealtimeCaptionState.Status.ERROR, "", "系统未提供媒体投影服务");
+            refreshCaptionStatus();
+            return;
+        }
+        RealtimeCaptionStore.status(RealtimeCaptionState.Status.NEEDS_PERMISSION, "", "等待系统授权");
+        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE_AUDIO);
+    }
+
+    private void refreshCaptionStatus() {
+        if (captionStatus == null) return;
+        RealtimeCaptionState state = RealtimeCaptionStore.snapshot();
+        String support = RealtimeCaptionService.isSupported() ? "系统音频捕获可用" : "此设备不支持系统音频捕获";
+        String model = BilingualCaptionModel.isInstalled(this) ? "中英离线模型已就绪" : "中英离线模型未下载";
+        String engine = state.engineName.isEmpty() ? "未选择" : state.engineName;
+        String language = state.language.isEmpty() ? "自动检测" : state.language;
+        String detail = state.error.isEmpty() ? "无" : state.error;
+        captionStatus.setText("状态：" + captionStatusText(state.status) + "  ·  " + support
+                + "\n模型：" + model + "\n引擎：" + engine + "  ·  语言：" + language + "\n说明：" + detail);
+        captionStatus.setTextColor(state.status == RealtimeCaptionState.Status.ERROR
+                ? 0xFFFFCA66 : 0xFF8392A8);
+    }
+
+    private static String captionStatusText(RealtimeCaptionState.Status status) {
+        switch (status) {
+            case NEEDS_PERMISSION: return "等待授权";
+            case STARTING: return "启动中";
+            case LISTENING: return "识别中";
+            case FALLING_BACK: return "云端兜底中";
+            case ERROR: return "不可用";
+            default: return "已关闭";
+        }
     }
 
     private void openNotificationAccess() {

@@ -103,6 +103,7 @@ final class LyricsPanelView extends View {
     private long compactMarqueeElapsedMs;
     private long compactMarqueeLastFrameMs;
     private boolean compactMarqueeActive;
+    private boolean renderingCaptionPartial;
 
     LyricsPanelView(Context context) { this(context, false); }
 
@@ -175,6 +176,10 @@ final class LyricsPanelView extends View {
         MusicSnapshot snapshot = browsingLyrics || browseUntilElapsedMs > now
                 ? MusicStateStore.snapshotForLyricBrowse(lyricOffsetMs, browsePositionMs)
                 : MusicStateStore.snapshot(lyricOffsetMs);
+        renderingCaptionPartial = false;
+        // Catalog lyrics always win. Captions fill the otherwise blank state without changing
+        // the layout or requiring a separate overlay on the main/secondary displays.
+        if (!browsingLyrics && !snapshot.lyricAvailable) snapshot = withRealtimeCaption(snapshot);
 
         if ("refined".equals(overlayStyle)) {
             drawRefined(canvas, snapshot, density);
@@ -371,6 +376,33 @@ final class LyricsPanelView extends View {
     private static boolean animationsEnabled() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.O
                 || ValueAnimator.areAnimatorsEnabled();
+    }
+
+    private MusicSnapshot withRealtimeCaption(MusicSnapshot original) {
+        RealtimeCaptionState caption = RealtimeCaptionStore.snapshot();
+        if (!caption.isVisible()) return original;
+        String current = caption.currentText();
+        String previous = "";
+        if (!caption.finalLines.isEmpty()) {
+            int index = caption.finalLines.size() - 1;
+            previous = caption.finalLines.get(Math.max(0, index - 1));
+            if (caption.partialText.isEmpty()) current = caption.finalLines.get(index);
+            else previous = caption.finalLines.get(index);
+        }
+        if (caption.partialText.isEmpty() && current.isEmpty()) {
+            current = caption.status == RealtimeCaptionState.Status.ERROR ? "实时字幕不可用" : "等待识别结果…";
+        }
+        renderingCaptionPartial = !caption.partialText.isEmpty();
+        String detail = renderingCaptionPartial ? "临时识别" : "已确认字幕";
+        if (!caption.language.isEmpty()) detail += " · " + caption.language;
+        String next = caption.error.isEmpty() ? detail : caption.error;
+        return new MusicSnapshot(original.active, original.playing, original.sourceName,
+                original.title, original.artist, original.albumArt, original.durationMs,
+                original.positionMs, true, true,
+                "实时字幕" + (caption.engineName.isEmpty() ? "" : " · " + caption.engineName),
+                new LrcTimeline.At(previous, current, renderingCaptionPartial ? detail : "", next,
+                        false, false, "", "", -1L, 0L, -1L, 0L, 0,
+                        Collections.<LrcTimeline.NearbyLine>emptyList()));
     }
 
     private boolean usesRefinedVisualStyle() {
@@ -1475,6 +1507,7 @@ final class LyricsPanelView extends View {
         float left = align == Paint.Align.CENTER ? anchorX - textWidth / 2f : anchorX;
         paint.setColor(baseColor);
         canvas.drawText(text, anchorX, y, paint);
+        if (renderingCaptionPartial) return;
         if (!snapshot.lyricAvailable || snapshot.lyrics.lyric.isEmpty()) return;
 
         LrcTimeline.At at = snapshot.lyrics;

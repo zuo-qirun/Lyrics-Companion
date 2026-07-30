@@ -53,6 +53,8 @@ final class AppPreferences {
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
+    static final String KEY_REALTIME_CAPTIONS = "realtime_captions";
+    static final String KEY_CAPTION_CLOUD_FALLBACK = "caption_cloud_fallback";
 
     private AppPreferences() {}
 
@@ -126,6 +128,14 @@ final class AppPreferences {
 
     static boolean playerCatalogFallback(Context context) {
         return get(context).getBoolean(KEY_PLAYER_CATALOG_FALLBACK, true);
+    }
+
+    static boolean realtimeCaptionsEnabled(Context context) {
+        return get(context).getBoolean(KEY_REALTIME_CAPTIONS, false);
+    }
+
+    static boolean cloudFallbackEnabled(Context context) {
+        return get(context).getBoolean(KEY_CAPTION_CLOUD_FALLBACK, true);
     }
 
     static String overlayStyle(Context context) {

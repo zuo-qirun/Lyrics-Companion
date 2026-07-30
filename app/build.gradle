@@ -12,6 +12,7 @@ def releaseSigningReady = releaseStoreFile && releaseStorePassword
 android {
     namespace "com.zuoqirun.lyricscompanion"
     compileSdk 36
+    ndkVersion "27.3.13750724"
 
     defaultConfig {
         applicationId "com.zuoqirun.lyricscompanion"
@@ -19,6 +20,18 @@ android {
         targetSdk 36
         versionCode Integer.parseInt(System.getenv("APP_VERSION_CODE") ?: "1")
         versionName System.getenv("APP_VERSION_NAME") ?: "0.1.0"
+
+        externalNativeBuild {
+            ndkBuild {
+                arguments "APP_PLATFORM=android-21"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path file("src/main/cpp/Android.mk")
+        }
     }
 
     signingConfigs {
