@@ -22,7 +22,11 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static final long SESSION_POLL_MS = 600L;
     private static final long EMPTY_SESSION_GRACE_MS = 5_000L;
     private static final long LEGACY_NATURAL_REBIND_GRACE_MS = 2_500L;
+    private static final long LEGACY_REBIND_DISABLE_MS = 750L;
+    private static final long COMPONENT_RECOVERY_DELAY_MS = 6_000L;
+    private static final long COMPONENT_RECOVERY_COOLDOWN_MS = 15_000L;
     private static final long PROCESS_CLASS_LOADED_ELAPSED_MS = SystemClock.elapsedRealtime();
+    private static final Handler REBIND_HANDLER = new Handler(Looper.getMainLooper());
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MusicSessionReader sessionReader;
     private LegacyRemoteControllerReader legacyReader;
@@ -35,12 +39,16 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static volatile String lastSessionError = "";
     private static volatile String backendName = "";
     private static volatile long lastReconnectRequestElapsedMs;
+    private static volatile long reconnectStartedElapsedMs;
+    private static volatile long lastComponentRecoveryElapsedMs;
+    private static volatile boolean legacyRebindInProgress;
 
     private final MusicSessionReader.Callback readerCallback = new MusicSessionReader.Callback() {
         @Override public void onReadSuccess(int sessionCount) {
             lastSuccessfulSessionReadElapsedMs = SystemClock.elapsedRealtime();
             lastSessionCount = Math.max(0, sessionCount);
             lastSessionError = "";
+            reconnectStartedElapsedMs = 0L;
         }
 
         @Override public void onReadError(String message, Throwable error) {
@@ -81,6 +89,14 @@ public final class MusicNotificationListener extends NotificationListenerService
             }
         }
     };
+    private final Runnable reconnectAfterSystemDisconnect = new Runnable() {
+        @Override public void run() {
+            if (Build.VERSION.SDK_INT >= 24 && !connected
+                    && hasNotificationAccess(MusicNotificationListener.this)) {
+                requestReconnect(MusicNotificationListener.this);
+            }
+        }
+    };
 
     @Override public void onCreate() {
         super.onCreate();
@@ -96,6 +112,7 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     @Override public void onListenerConnected() {
         if (Build.VERSION.SDK_INT < 21) return;
+        handler.removeCallbacks(reconnectAfterSystemDisconnect);
         startListening();
     }
 
@@ -131,6 +148,11 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     @Override public void onListenerDisconnected() {
         stopListening();
+        // API 24+ tells us that the system side has disconnected. Retry from this lifecycle
+        // callback instead of racing the initial bind when the permission screen closes.
+        if (Build.VERSION.SDK_INT >= 24 && hasNotificationAccess(this)) {
+            handler.postDelayed(reconnectAfterSystemDisconnect, 500L);
+        }
     }
 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
@@ -177,6 +199,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     @Override public void onDestroy() {
+        handler.removeCallbacks(reconnectAfterSystemDisconnect);
         stopListening();
         super.onDestroy();
     }
@@ -284,33 +307,83 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     static void requestReconnect(Context context) {
-        if (context == null || !hasNotificationAccess(context) || isHealthy(3_000L)) return;
+        if (context == null || !hasNotificationAccess(context)) return;
+        if (isHealthy(3_000L)) {
+            reconnectStartedElapsedMs = 0L;
+            return;
+        }
         long now = SystemClock.elapsedRealtime();
+        if (reconnectStartedElapsedMs <= 0L) reconnectStartedElapsedMs = now;
         if (Build.VERSION.SDK_INT < 24
                 && now - PROCESS_CLASS_LOADED_ELAPSED_MS < LEGACY_NATURAL_REBIND_GRACE_MS) {
             return;
         }
         if (now - lastReconnectRequestElapsedMs < 2_000L) return;
         lastReconnectRequestElapsedMs = now;
-        ComponentName component = new ComponentName(context, MusicNotificationListener.class);
+        Context appContext = context.getApplicationContext();
+        ComponentName component = new ComponentName(appContext, MusicNotificationListener.class);
         try {
             if (Build.VERSION.SDK_INT >= 24) {
-                Api24.requestRebind(component);
+                boolean shouldRecoverComponent = now - reconnectStartedElapsedMs
+                        >= COMPONENT_RECOVERY_DELAY_MS
+                        && (lastComponentRecoveryElapsedMs <= 0L
+                        || now - lastComponentRecoveryElapsedMs >= COMPONENT_RECOVERY_COOLDOWN_MS);
+                if (shouldRecoverComponent) {
+                    lastComponentRecoveryElapsedMs = now;
+                    lastSessionError = "\u7cfb\u7edf\u76d1\u542c\u5668\u672a\u7ed1\u5b9a\uff0c\u6b63\u5728\u91cd\u542f\u76d1\u542c\u7ec4\u4ef6";
+                    requestLegacyRebind(appContext, component);
+                } else {
+                    Api24.requestRebind(component);
+                }
             } else {
-                // requestRebind() was added in API 24. Toggling this exact service component
-                // makes NotificationManager re-evaluate enabled listeners on Android 4.4-6.0.
-                PackageManager manager = context.getPackageManager();
-                manager.setComponentEnabledSetting(component,
-                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                        PackageManager.DONT_KILL_APP);
-                manager.setComponentEnabledSetting(component,
-                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                        PackageManager.DONT_KILL_APP);
+                requestLegacyRebind(appContext, component);
             }
         } catch (Throwable error) {
             lastSessionError = "请求重连失败: " + safeMessage(error);
             Log.w(TAG, "Unable to request notification-listener rebind", error);
         }
+    }
+
+    /**
+     * Android 4.4-6.0 has no NotificationListenerService.requestRebind(). A back-to-back
+     * disable/enable call is commonly coalesced by the package manager, leaving the access entry
+     * present in Settings but without a live listener after the app process is recreated. Keep
+     * the component disabled briefly so NotificationManager observes both transitions.
+     */
+    private static void requestLegacyRebind(Context context, ComponentName component) {
+        if (legacyRebindInProgress) return;
+        legacyRebindInProgress = true;
+        PackageManager manager = context.getPackageManager();
+        try {
+            manager.setComponentEnabledSetting(component,
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP);
+        } catch (Throwable error) {
+            legacyRebindInProgress = false;
+            throw error;
+        }
+        REBIND_HANDLER.postDelayed(() -> {
+            try {
+                manager.setComponentEnabledSetting(component,
+                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        PackageManager.DONT_KILL_APP);
+            } catch (Throwable error) {
+                lastSessionError = "Unable to re-enable notification listener: "
+                        + safeMessage(error);
+                Log.w(TAG, "Unable to re-enable notification listener", error);
+            } finally {
+                legacyRebindInProgress = false;
+            }
+            if (Build.VERSION.SDK_INT >= 24 && hasNotificationAccess(context)) {
+                try {
+                    Api24.requestRebind(component);
+                } catch (Throwable error) {
+                    lastSessionError = "Unable to rebind notification listener: "
+                            + safeMessage(error);
+                    Log.w(TAG, "Unable to rebind notification listener", error);
+                }
+            }
+        }, LEGACY_REBIND_DISABLE_MS);
     }
 
     static boolean shouldClearAfterEmpty(long lastNonEmptyElapsedMs, long nowElapsedMs) {

@@ -6,6 +6,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
@@ -54,6 +55,7 @@ public final class MainActivity extends AppCompatActivity {
             "https://lyrics-companion.zuoqirun.top/versions";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final long LISTENER_HEALTH_MAX_AGE_MS = 3_000L;
+    private static final long LISTENER_INITIAL_RECONNECT_DELAY_MS = 2_500L;
     private static final long LISTENER_RECONNECT_INTERVAL_MS = 1_000L;
     private static final long LISTENER_RECONNECT_WINDOW_MS = 30_000L;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -99,6 +101,8 @@ public final class MainActivity extends AppCompatActivity {
             if (SystemClock.elapsedRealtime() < listenerReconnectDeadlineElapsedMs) {
                 listenerReconnectScheduled = true;
                 handler.postDelayed(this, LISTENER_RECONNECT_INTERVAL_MS);
+            } else {
+                listenerReconnectScheduled = false;
             }
         }
     };
@@ -287,7 +291,7 @@ public final class MainActivity extends AppCompatActivity {
                 AppPreferences.get(this).getInt(AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.get(this).edit()
                         .putInt(AppPreferences.KEY_TEXT_SCALE, value).apply());
-        addSeekSetting(styleCard, "背景不透明度", 45, 100,
+        addSeekSetting(styleCard, "背景不透明度", 0, 100,
                 AppPreferences.get(this).getInt(AppPreferences.KEY_OPACITY, 88), "%",
                 value -> AppPreferences.get(this).edit()
                         .putInt(AppPreferences.KEY_OPACITY, value).apply());
@@ -727,10 +731,8 @@ public final class MainActivity extends AppCompatActivity {
 
         TextInputLayout messageLayout = new TextInputLayout(this);
         messageLayout.setHint("反馈内容");
-        messageLayout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_FILLED);
-        messageLayout.setBoxBackgroundColor(0xFF132238);
         TextInputEditText message = new TextInputEditText(messageLayout.getContext());
-        message.setTextColor(Color.WHITE);
+        styleFeedbackInput(messageLayout, message);
         message.setTextSize(14f);
         message.setGravity(Gravity.TOP | Gravity.START);
         message.setMinLines(4);
@@ -745,10 +747,8 @@ public final class MainActivity extends AppCompatActivity {
         TextInputLayout contactLayout = new TextInputLayout(this);
         contactLayout.setHint("联系方式（可选）");
         contactLayout.setHelperText("可填写邮箱、QQ 或 GitHub 用户名");
-        contactLayout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_FILLED);
-        contactLayout.setBoxBackgroundColor(0xFF132238);
         TextInputEditText contact = new TextInputEditText(contactLayout.getContext());
-        contact.setTextColor(Color.WHITE);
+        styleFeedbackInput(contactLayout, contact);
         contact.setSingleLine(true);
         contact.setInputType(InputType.TYPE_CLASS_TEXT);
         contact.setFilters(new InputFilter[]{new InputFilter.LengthFilter(200)});
@@ -797,6 +797,17 @@ public final class MainActivity extends AppCompatActivity {
 
     private static String valueOf(TextInputEditText input) {
         return input.getText() == null ? "" : input.getText().toString().trim();
+    }
+
+    private static void styleFeedbackInput(TextInputLayout layout, TextInputEditText input) {
+        ColorStateList secondaryText = ColorStateList.valueOf(0xFF52657D);
+        layout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_FILLED);
+        layout.setBoxBackgroundColor(Color.WHITE);
+        layout.setBoxStrokeColor(0xFF6EE7F2);
+        layout.setHintTextColor(secondaryText);
+        layout.setHelperTextColor(secondaryText);
+        input.setTextColor(0xFF102033);
+        input.setHintTextColor(0xFF52657D);
     }
 
     private void checkForUpdates(boolean manual) {
@@ -887,10 +898,28 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void openNotificationAccess() {
+        if (startSettingsActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))) {
+            return;
+        }
+        // Notification access exists on Android 4.4, but its public settings action was only
+        // added in API 22. AOSP KitKat exposes this activity; vendor ROMs may not, so keep
+        // every fallback resolve-checked.
+        Intent kitKatNotificationAccess = new Intent().setComponent(new ComponentName(
+                "com.android.settings", "com.android.settings.Settings$NotificationAccessSettingsActivity"));
+        if (startSettingsActivity(kitKatNotificationAccess)) return;
+        if (startSettingsActivity(new Intent(Settings.ACTION_SECURITY_SETTINGS))) return;
+        if (startSettingsActivity(new Intent(Settings.ACTION_SETTINGS))) return;
+        Toast.makeText(this, "\u65e0\u6cd5\u6253\u5f00\u7cfb\u7edf\u7684\u901a\u77e5\u8bfb\u53d6\u8bbe\u7f6e\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u624b\u52a8\u5f00\u542f\u3002",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private boolean startSettingsActivity(Intent intent) {
         try {
-            startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+            if (intent.resolveActivity(getPackageManager()) == null) return false;
+            startActivity(intent);
+            return true;
         } catch (Throwable ignored) {
-            startActivity(new Intent(Settings.ACTION_SECURITY_SETTINGS));
+            return false;
         }
     }
 
@@ -902,7 +931,9 @@ public final class MainActivity extends AppCompatActivity {
         listenerReconnectDeadlineElapsedMs = SystemClock.elapsedRealtime()
                 + LISTENER_RECONNECT_WINDOW_MS;
         listenerReconnectScheduled = true;
-        listenerReconnect.run();
+        // Let NotificationManager restore its listener first. Requesting a rebind immediately
+        // after returning from Settings can race the platform's natural bind on Android 7+.
+        handler.postDelayed(listenerReconnect, LISTENER_INITIAL_RECONNECT_DELAY_MS);
     }
 
     private String listenerState(boolean notificationAccess) {
