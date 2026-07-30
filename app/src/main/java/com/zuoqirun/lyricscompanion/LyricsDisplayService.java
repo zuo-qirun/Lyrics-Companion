@@ -209,11 +209,11 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             if (secondaryWindowManager == null) return;
             Point screen = displaySize(display);
             int margin = dp(secondaryContext, 20);
-            int width = Math.min(dp(secondaryContext, AppPreferences.panelWidthDp(this)),
-                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelWidthDp(this)),
+            int width = Math.min(dp(secondaryContext, AppPreferences.panelWidthDp(this, true)),
+                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelWidthDp(this, true)),
                             screen.x - margin * 2));
-            int height = Math.min(dp(secondaryContext, AppPreferences.panelHeightDp(this)),
-                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelHeightDp(this)),
+            int height = Math.min(dp(secondaryContext, AppPreferences.panelHeightDp(this, true)),
+                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelHeightDp(this, true)),
                             screen.y - margin * 2));
             secondaryPanel = new LyricsPanelView(secondaryContext, true);
             secondaryParams = overlayParams(width, height);
@@ -264,12 +264,15 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             int downY;
             boolean moved;
             boolean lyricGesture;
+            MediaControlAction playbackControl;
 
             @Override public boolean onTouch(View v, MotionEvent event) {
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                    lyricGesture = v instanceof LyricsPanelView
-                            && ((LyricsPanelView) v).isLyricGestureRegion(
-                            event.getX(), event.getY());
+                    playbackControl = v instanceof LyricsPanelView
+                            ? ((LyricsPanelView) v).playbackControlAt(event.getX(), event.getY())
+                            : null;
+                    lyricGesture = playbackControl == null && v instanceof LyricsPanelView
+                            && ((LyricsPanelView) v).isLyricGestureRegion(event.getX(), event.getY());
                 }
                 if (lyricGesture) {
                     boolean finished = event.getActionMasked() == MotionEvent.ACTION_UP
@@ -302,10 +305,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                                 .putInt(xKey, params.x).putInt(yKey, params.y).apply();
                         if (!moved) {
                             v.performClick();
-                            if (openOnTap) openMainActivity();
+                            if (playbackControl != null) {
+                                MusicNotificationListener.requestPlaybackControl(
+                                        LyricsDisplayService.this, playbackControl);
+                            } else if (openOnTap) {
+                                openMainActivity();
+                            }
                         }
+                        playbackControl = null;
                         return true;
                     case MotionEvent.ACTION_CANCEL:
+                        playbackControl = null;
                         return true;
                     default:
                         return true;

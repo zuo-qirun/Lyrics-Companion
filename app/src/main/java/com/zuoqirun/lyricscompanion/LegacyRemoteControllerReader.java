@@ -9,6 +9,7 @@ import android.media.RemoteControlClient;
 import android.media.RemoteController;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.KeyEvent;
 
 /** Android 4.4 media reader backed by RemoteControlClient metadata. */
 final class LegacyRemoteControllerReader implements MusicSessionReader {
@@ -82,6 +83,34 @@ final class LegacyRemoteControllerReader implements MusicSessionReader {
             else publish();
         } catch (Throwable error) {
             callback.onReadError("读取 Android 4.4 RemoteController 失败", error);
+        }
+    }
+
+    @Override public boolean dispatchControl(MediaControlAction action) {
+        if (audioManager == null || action == null) return false;
+        int keyCode;
+        switch (action) {
+            case PREVIOUS:
+                keyCode = KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+                break;
+            case NEXT:
+                keyCode = KeyEvent.KEYCODE_MEDIA_NEXT;
+                break;
+            case TOGGLE_PLAY_PAUSE:
+            default:
+                keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+                break;
+        }
+        try {
+            long now = SystemClock.uptimeMillis();
+            audioManager.dispatchMediaKeyEvent(new KeyEvent(now, now,
+                    KeyEvent.ACTION_DOWN, keyCode, 0));
+            audioManager.dispatchMediaKeyEvent(new KeyEvent(now, now,
+                    KeyEvent.ACTION_UP, keyCode, 0));
+            return true;
+        } catch (Throwable error) {
+            callback.onReadError("发送 Android 4.4 播放器控制命令失败", error);
+            return false;
         }
     }
 

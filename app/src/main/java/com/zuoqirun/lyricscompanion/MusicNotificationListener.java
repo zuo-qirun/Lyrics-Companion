@@ -42,6 +42,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static volatile long reconnectStartedElapsedMs;
     private static volatile long lastComponentRecoveryElapsedMs;
     private static volatile boolean legacyRebindInProgress;
+    private static volatile MusicNotificationListener activeInstance;
 
     private final MusicSessionReader.Callback readerCallback = new MusicSessionReader.Callback() {
         @Override public void onReadSuccess(int sessionCount) {
@@ -100,6 +101,7 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     @Override public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         MusicStateStore.initialize(this);
         lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
         // Android 4.4 predates onListenerConnected(); the system only creates this service
@@ -201,7 +203,29 @@ public final class MusicNotificationListener extends NotificationListenerService
     @Override public void onDestroy() {
         handler.removeCallbacks(reconnectAfterSystemDisconnect);
         stopListening();
+        if (activeInstance == this) activeInstance = null;
         super.onDestroy();
+    }
+
+    static void requestPlaybackControl(Context context, MediaControlAction action) {
+        MusicNotificationListener listener = activeInstance;
+        if (listener == null || action == null) return;
+        listener.handler.post(() -> listener.dispatchPlaybackControl(action));
+    }
+
+    private void dispatchPlaybackControl(MediaControlAction action) {
+        if (!connected || sessionReader == null) {
+            lastSessionError = "播放器控制不可用：通知读取服务未连接";
+            return;
+        }
+        sessionReader.refresh();
+        if (!sessionReader.dispatchControl(action)) {
+            lastSessionError = "播放器未提供可用的控制会话";
+            return;
+        }
+        handler.postDelayed(() -> {
+            if (connected && sessionReader != null) sessionReader.refresh();
+        }, 180L);
     }
 
     private void stopListening() {

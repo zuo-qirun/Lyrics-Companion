@@ -120,7 +120,7 @@ final class LyricsPanelView extends View {
         backgroundBlur = AppPreferences.styleBlur(getContext());
         backgroundDim = AppPreferences.styleDim(getContext());
         lyricLineCount = AppPreferences.styleLyricLines(getContext());
-        overlayStyle = AppPreferences.overlayStyle(getContext());
+        overlayStyle = AppPreferences.overlayStyle(getContext(), secondary);
         refinedDisplayMode = AppPreferences.refinedDisplayMode(getContext());
         refinedColorScheme = AppPreferences.refinedColorScheme(getContext());
         refinedAccentVariant = AppPreferences.refinedAccentVariant(getContext());
@@ -190,6 +190,7 @@ final class LyricsPanelView extends View {
         if (browsingLyrics || browseUntilElapsedMs > now) {
             drawBrowseIndicator(canvas, snapshot, density);
         }
+        if (!secondary) drawPlaybackControls(canvas, snapshot, density);
         postInvalidateDelayed(nextFrameDelay(snapshot, now));
     }
 
@@ -224,6 +225,7 @@ final class LyricsPanelView extends View {
 
     boolean isLyricGestureRegion(float x, float y) {
         if (getWidth() <= 0 || getHeight() <= 0) return false;
+        if (playbackControlAt(x, y) != null) return false;
         MusicSnapshot snapshot = MusicStateStore.snapshot(lyricOffsetMs);
         if (!snapshot.lyricAvailable) return false;
         if ("refined".equals(overlayStyle)) {
@@ -236,6 +238,22 @@ final class LyricsPanelView extends View {
         if ("pip".equals(overlayStyle)) return y >= getHeight() * 0.34f;
         if ("custom".equals(overlayStyle)) return y >= getHeight() * 0.28f;
         return y >= getHeight() * 0.24f && y <= getHeight() * 0.86f;
+    }
+
+    MediaControlAction playbackControlAt(float x, float y) {
+        if (secondary || getWidth() <= 0 || getHeight() <= 0) return null;
+        float density = getResources().getDisplayMetrics().density;
+        PlaybackControlLayout layout = playbackControlLayout(density);
+        if (insideCircle(x, y, layout.centerX - layout.spacing, layout.centerY, layout.radius)) {
+            return MediaControlAction.PREVIOUS;
+        }
+        if (insideCircle(x, y, layout.centerX, layout.centerY, layout.radius * 1.12f)) {
+            return MediaControlAction.TOGGLE_PLAY_PAUSE;
+        }
+        if (insideCircle(x, y, layout.centerX + layout.spacing, layout.centerY, layout.radius)) {
+            return MediaControlAction.NEXT;
+        }
+        return null;
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
@@ -382,6 +400,149 @@ final class LyricsPanelView extends View {
         return true;
     }
 
+    private void drawPlaybackControls(Canvas canvas, MusicSnapshot snapshot, float density) {
+        PlaybackControlLayout layout = playbackControlLayout(density);
+        int fill = snapshot.active ? 0xC92B405A : 0x8A26384E;
+        int icon = snapshot.active ? 0xFFF5F9FF : 0xFF9AAABB;
+        int accent = snapshot.playing ? 0xFFFFCA66 : 0xFF6EE7F2;
+        int primaryFill = snapshot.active ? 0xE0445D78 : fill;
+        if ("refined".equals(overlayStyle)) {
+            fill = snapshot.active ? 0x8C243B52 : 0x62243852;
+            primaryFill = snapshot.active ? 0xC13A5872 : fill;
+        } else if ("compact".equals(overlayStyle)) {
+            workRect.set(layout.centerX - layout.spacing - layout.radius * 1.65f,
+                    layout.centerY - layout.radius * 1.42f,
+                    layout.centerX + layout.spacing + layout.radius * 1.65f,
+                    layout.centerY + layout.radius * 1.42f);
+            paint.setColor(snapshot.active ? 0xC51A2535 : 0x8A1A2535);
+            canvas.drawRoundRect(workRect, layout.radius * 1.45f, layout.radius * 1.45f, paint);
+            fill = 0x00000000;
+            icon = snapshot.active ? 0xFFE9F2FA : 0xFF9AAABB;
+            primaryFill = snapshot.active ? 0xC43B5B78 : fill;
+        } else if ("pip".equals(overlayStyle)) {
+            fill = snapshot.active ? 0xD6F3E7D7 : 0x96E7D8C5;
+            icon = 0xFF312820;
+            accent = snapshot.playing ? 0xFF7B3F20 : 0xFF4D453E;
+            primaryFill = snapshot.active ? 0xFFE2BA8C : fill;
+        } else if ("custom".equals(overlayStyle)) {
+            fill = snapshot.active ? 0xA31B3048 : 0x641B3048;
+            primaryFill = snapshot.active ? 0xD0375A78 : fill;
+        }
+
+        drawPlaybackButton(canvas, layout.centerX - layout.spacing, layout.centerY,
+                layout.radius, fill, icon,
+                MediaControlAction.PREVIOUS, false);
+        drawPlaybackButton(canvas, layout.centerX, layout.centerY, layout.radius * 1.12f,
+                primaryFill, accent,
+                MediaControlAction.TOGGLE_PLAY_PAUSE, snapshot.playing);
+        drawPlaybackButton(canvas, layout.centerX + layout.spacing, layout.centerY,
+                layout.radius, fill, icon,
+                MediaControlAction.NEXT, false);
+    }
+
+    private void drawPlaybackButton(Canvas canvas, float centerX, float centerY, float radius,
+                                    int fill, int icon, MediaControlAction action,
+                                    boolean playing) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(fill);
+        canvas.drawCircle(centerX, centerY, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(1f, radius * 0.075f));
+        paint.setColor(withAlpha(icon, 125));
+        canvas.drawCircle(centerX, centerY, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(icon);
+        float iconHalf = radius * 0.34f;
+        if (action == MediaControlAction.TOGGLE_PLAY_PAUSE) {
+            if (playing) {
+                float barWidth = Math.max(2f, radius * 0.19f);
+                float gap = radius * 0.12f;
+                workRect.set(centerX - gap - barWidth, centerY - iconHalf,
+                        centerX - gap, centerY + iconHalf);
+                canvas.drawRoundRect(workRect, barWidth, barWidth, paint);
+                workRect.set(centerX + gap, centerY - iconHalf,
+                        centerX + gap + barWidth, centerY + iconHalf);
+                canvas.drawRoundRect(workRect, barWidth, barWidth, paint);
+            } else {
+                Path triangle = new Path();
+                triangle.moveTo(centerX - iconHalf * 0.52f, centerY - iconHalf);
+                triangle.lineTo(centerX - iconHalf * 0.52f, centerY + iconHalf);
+                triangle.lineTo(centerX + iconHalf, centerY);
+                triangle.close();
+                canvas.drawPath(triangle, paint);
+            }
+            return;
+        }
+        boolean previous = action == MediaControlAction.PREVIOUS;
+        float direction = previous ? -1f : 1f;
+        float baseX = centerX - direction * iconHalf;
+        Path triangle = new Path();
+        triangle.moveTo(baseX, centerY - iconHalf);
+        triangle.lineTo(baseX, centerY + iconHalf);
+        triangle.lineTo(centerX + direction * iconHalf * 0.78f, centerY);
+        triangle.close();
+        canvas.drawPath(triangle, paint);
+        float barX = centerX + direction * iconHalf * 1.05f;
+        canvas.drawRect(barX - radius * 0.075f, centerY - iconHalf,
+                barX + radius * 0.075f, centerY + iconHalf, paint);
+    }
+
+    private PlaybackControlLayout playbackControlLayout(float density) {
+        float width = getWidth();
+        float height = getHeight();
+        float radius = Math.max(10f * density, Math.min(16f * density, height * 0.095f));
+        float spacing = radius * 2.85f;
+        float centerX = width * 0.5f;
+        float centerY = height - radius - 7f * density;
+        if ("refined".equals(overlayStyle)) {
+            radius = Math.max(11f * density, Math.min(16f * density, height * 0.07f));
+            spacing = radius * 2.7f;
+            centerX = width * 0.75f;
+            centerY = radius + 18f * density;
+        } else if ("compact".equals(overlayStyle)) {
+            radius = Math.max(7f * density, Math.min(10f * density, height * 0.085f));
+            spacing = radius * 2.45f;
+            centerX = width * 0.38f;
+            centerY = height - radius - 11f * density;
+        } else if ("pip".equals(overlayStyle)) {
+            radius = Math.max(9f * density, Math.min(13f * density, height * 0.075f));
+            spacing = radius * 2.6f;
+            centerX = width - (spacing + radius + 14f * density);
+            centerY = height - radius - 12f * density;
+        } else if ("custom".equals(overlayStyle)) {
+            radius = Math.max(9f * density, Math.min(14f * density, height * 0.085f));
+            spacing = radius * 2.7f;
+            centerX = width - (spacing + radius + 14f * density);
+            centerY = height - radius - 12f * density;
+        }
+        float horizontalInset = spacing + radius * 1.18f;
+        centerX = Math.max(horizontalInset, Math.min(width - horizontalInset, centerX));
+        centerY = Math.max(radius + 4f * density,
+                Math.min(height - radius - 4f * density, centerY));
+        return new PlaybackControlLayout(centerX, centerY, radius, spacing);
+    }
+
+    private static final class PlaybackControlLayout {
+        final float centerX;
+        final float centerY;
+        final float radius;
+        final float spacing;
+
+        PlaybackControlLayout(float centerX, float centerY, float radius, float spacing) {
+            this.centerX = centerX;
+            this.centerY = centerY;
+            this.radius = radius;
+            this.spacing = spacing;
+        }
+    }
+
+    private static boolean insideCircle(float x, float y, float centerX, float centerY,
+                                        float radius) {
+        float dx = x - centerX;
+        float dy = y - centerY;
+        return dx * dx + dy * dy <= radius * radius;
+    }
+
     private void drawDefault(Canvas canvas, MusicSnapshot snapshot, float density) {
         float pad = 18f * density;
         float width = getWidth();
@@ -430,8 +591,9 @@ final class LyricsPanelView extends View {
             drawCentered(canvas, snapshot.lyrics.translatedLyric, y + previewShift,
                     12f * density * textScale * unit, 0xFFB8C5D8, usableWidth, Typeface.NORMAL);
         }
+        float controlReserve = secondary ? 0f : 31f * density;
         drawCentered(canvas, snapshot.lyrics.nextLyric,
-                height - 37f * density + previewShift,
+                height - 37f * density - controlReserve + previewShift,
                 12f * density * textScale * unit, 0xFF68778C, usableWidth, Typeface.NORMAL);
         drawProgress(canvas, pad, height - 17f * density, width - pad, 3f * density,
                 snapshot, 0x354B5F78, 0xFFFFCA66);

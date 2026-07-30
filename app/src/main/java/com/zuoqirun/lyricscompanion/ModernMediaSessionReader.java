@@ -72,6 +72,34 @@ final class ModernMediaSessionReader implements MusicSessionReader {
         }
     }
 
+    @Override public boolean dispatchControl(MediaControlAction action) {
+        if (action == null) return false;
+        if (selectedController == null) refresh();
+        MediaController controller = selectedController;
+        if (controller == null) return false;
+        try {
+            MediaController.TransportControls controls = controller.getTransportControls();
+            if (controls == null) return false;
+            switch (action) {
+                case PREVIOUS:
+                    controls.skipToPrevious();
+                    break;
+                case NEXT:
+                    controls.skipToNext();
+                    break;
+                case TOGGLE_PLAY_PAUSE:
+                    PlaybackState state = controller.getPlaybackState();
+                    if (state != null && playbackRank(state) >= 10_000) controls.pause();
+                    else controls.play();
+                    break;
+            }
+            return true;
+        } catch (Throwable error) {
+            callback.onReadError("发送播放器控制命令失败", error);
+            return false;
+        }
+    }
+
     @Override public void stop() {
         try {
             if (sessionManager != null) {

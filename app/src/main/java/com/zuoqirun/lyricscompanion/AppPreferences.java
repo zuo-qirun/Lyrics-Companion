@@ -14,6 +14,8 @@ final class AppPreferences {
     static final String KEY_COMPACT_PANEL_WIDTH_DP = "compact_panel_width_dp";
     static final String KEY_COMPACT_PANEL_HEIGHT_DP = "compact_panel_height_dp";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
+    static final String KEY_MAIN_OVERLAY_STYLE = "main_overlay_style";
+    static final String KEY_SECONDARY_OVERLAY_STYLE = "secondary_overlay_style";
     static final String KEY_STYLE_BLUR = "style_blur";
     static final String KEY_STYLE_DIM = "style_dim";
     static final String KEY_STYLE_COVER_SIZE = "style_cover_size";
@@ -81,23 +83,41 @@ final class AppPreferences {
     }
 
     static int panelWidthDp(Context context) {
-        String style = overlayStyle(context);
-        return Math.max(minimumPanelWidthDp(context), Math.min(900, get(context).getInt(
+        return panelWidthDp(context, false);
+    }
+
+    static int panelWidthDp(Context context, boolean secondary) {
+        String style = overlayStyle(context, secondary);
+        return Math.max(minimumPanelWidthDp(context, secondary), Math.min(900, get(context).getInt(
                 panelWidthKey(style), defaultPanelWidthDp(style))));
     }
 
     static int panelHeightDp(Context context) {
-        String style = overlayStyle(context);
-        return Math.max(minimumPanelHeightDp(context), Math.min(600, get(context).getInt(
+        return panelHeightDp(context, false);
+    }
+
+    static int panelHeightDp(Context context, boolean secondary) {
+        String style = overlayStyle(context, secondary);
+        return Math.max(minimumPanelHeightDp(context, secondary), Math.min(600, get(context).getInt(
                 panelHeightKey(style), defaultPanelHeightDp(style))));
     }
 
     static int minimumPanelWidthDp(Context context) {
-        return "compact".equals(overlayStyle(context)) ? 220 : 240;
+        return minimumPanelWidthDp(context, false);
+    }
+
+    static int minimumPanelWidthDp(Context context, boolean secondary) {
+        return "compact".equals(overlayStyle(context, secondary)) ? 220 : 240;
     }
 
     static int minimumPanelHeightDp(Context context) {
-        return "compact".equals(overlayStyle(context)) ? 72 : 140;
+        return minimumPanelHeightDp(context, false);
+    }
+
+    static int minimumPanelHeightDp(Context context, boolean secondary) {
+        // Leave a dedicated bottom row for main-display transport controls while keeping
+        // the lyric lines readable on both displays.
+        return "compact".equals(overlayStyle(context, secondary)) ? 72 : 176;
     }
 
     static void setPanelWidthDp(Context context, int value) {
@@ -129,11 +149,35 @@ final class AppPreferences {
     }
 
     static String overlayStyle(Context context) {
-        return get(context).getString(KEY_OVERLAY_STYLE, "default");
+        return overlayStyle(context, false);
+    }
+
+    static String overlayStyle(Context context, boolean secondary) {
+        SharedPreferences preferences = get(context);
+        String key = secondary ? KEY_SECONDARY_OVERLAY_STYLE : KEY_MAIN_OVERLAY_STYLE;
+        // A fresh install starts with the former Refined presentation. Existing users who had
+        // explicitly picked the former classic card keep that "default" preference instead.
+        String fallback = preferences.contains(KEY_OVERLAY_STYLE)
+                ? preferences.getString(KEY_OVERLAY_STYLE, "refined")
+                : secondary ? "compact" : "refined";
+        return normalizeOverlayStyle(preferences.getString(key, fallback));
+    }
+
+    static void setOverlayStyle(Context context, boolean secondary, String style) {
+        get(context).edit().putString(secondary ? KEY_SECONDARY_OVERLAY_STYLE
+                : KEY_MAIN_OVERLAY_STYLE, normalizeOverlayStyle(style)).apply();
+    }
+
+    private static String normalizeOverlayStyle(String style) {
+        if ("default".equals(style) || "refined".equals(style)
+                || "compact".equals(style) || "pip".equals(style) || "custom".equals(style)) {
+            return style;
+        }
+        return "refined";
     }
 
     static int styleBlur(Context context) {
-        return get(context).getInt(KEY_STYLE_BLUR, 72);
+        return get(context).getInt(KEY_STYLE_BLUR, 128);
     }
 
     static int styleDim(Context context) {
@@ -165,7 +209,7 @@ final class AppPreferences {
     }
 
     static boolean refinedProgressBottom(Context context) {
-        return get(context).getBoolean(KEY_REFINED_PROGRESS_BOTTOM, false);
+        return get(context).getBoolean(KEY_REFINED_PROGRESS_BOTTOM, true);
     }
 
     static String refinedCoverHorizontal(Context context) {
@@ -181,7 +225,7 @@ final class AppPreferences {
     }
 
     static boolean refinedCoverShadow(Context context) {
-        return get(context).getBoolean(KEY_REFINED_COVER_SHADOW, true);
+        return get(context).getBoolean(KEY_REFINED_COVER_SHADOW, false);
     }
 
     static String refinedBackgroundType(Context context) {
@@ -198,7 +242,7 @@ final class AppPreferences {
 
     static int refinedLyricFontSize(Context context) {
         return Math.max(16, Math.min(64,
-                get(context).getInt(KEY_REFINED_LYRIC_FONT_SIZE, 32)));
+                get(context).getInt(KEY_REFINED_LYRIC_FONT_SIZE, 16)));
     }
 
     static String customFontFile(Context context) {
@@ -227,12 +271,12 @@ final class AppPreferences {
     }
 
     static boolean refinedLyricRotate(Context context) {
-        return get(context).getBoolean(KEY_REFINED_LYRIC_ROTATE, false);
+        return get(context).getBoolean(KEY_REFINED_LYRIC_ROTATE, true);
     }
 
     static int refinedRotateCurvature(Context context) {
         return Math.max(10, Math.min(80,
-                get(context).getInt(KEY_REFINED_ROTATE_CURVATURE, 30)));
+                get(context).getInt(KEY_REFINED_ROTATE_CURVATURE, 10)));
     }
 
     static String refinedKaraokeAnimation(Context context) {

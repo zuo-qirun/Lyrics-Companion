@@ -274,35 +274,24 @@ public final class MainActivity extends AppCompatActivity {
         outputCard.addView(joystick, joystickParams);
 
         LinearLayout styleCard = card();
-        styleCard.addView(sectionLabel("悬浮窗风格与同步"));
-        addStyleSelector(styleCard);
-        MaterialButton layoutEditor = button("打开可视化布局编辑器", false);
-        layoutEditor.setOnClickListener(v -> {
-            AppPreferences.get(this).edit()
-                    .putString(AppPreferences.KEY_OVERLAY_STYLE, "custom").apply();
-            refreshPreview();
-            AppPreferences.changed(this);
-            startActivity(new Intent(this, LayoutEditorActivity.class));
-        });
-        LinearLayout.LayoutParams editorParams = new LinearLayout.LayoutParams(-1, dp(50));
-        editorParams.topMargin = dp(12);
-        styleCard.addView(layoutEditor, editorParams);
-        MaterialButton refinedSettings = button("Refined 风格详细设置", false);
-        refinedSettings.setOnClickListener(v -> {
-            AppPreferences.get(this).edit()
-                    .putString(AppPreferences.KEY_OVERLAY_STYLE, "refined").apply();
+        styleCard.addView(sectionLabel("主屏 / 副屏样式"));
+        addStyleSelector(styleCard, "主屏悬浮窗样式", false);
+        addStyleSelector(styleCard, "副屏歌词样式", true);
+        MaterialButton defaultStyleSettings = button("Refined Now Playing 详细设置", false);
+        defaultStyleSettings.setOnClickListener(v -> {
+            AppPreferences.setOverlayStyle(this, false, "refined");
             refreshPreview();
             AppPreferences.changed(this);
             startActivity(new Intent(this, RefinedSettingsActivity.class));
         });
-        LinearLayout.LayoutParams refinedParams = new LinearLayout.LayoutParams(-1, dp(50));
-        refinedParams.topMargin = dp(10);
-        styleCard.addView(refinedSettings, refinedParams);
+        LinearLayout.LayoutParams defaultSettingsParams = new LinearLayout.LayoutParams(-1, dp(50));
+        defaultSettingsParams.topMargin = dp(10);
+        styleCard.addView(defaultStyleSettings, defaultSettingsParams);
         addGlobalFontControls(styleCard);
-        addSeekSetting(styleCard, "悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this), 900,
+        addSeekSetting(styleCard, "主屏悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this), 900,
                 AppPreferences.panelWidthDp(this), " dp",
                 value -> AppPreferences.setPanelWidthDp(this, value));
-        addSeekSetting(styleCard, "悬浮窗高度", AppPreferences.minimumPanelHeightDp(this), 600,
+        addSeekSetting(styleCard, "主屏悬浮窗高度", AppPreferences.minimumPanelHeightDp(this), 600,
                 AppPreferences.panelHeightDp(this), " dp",
                 value -> AppPreferences.setPanelHeightDp(this, value));
         addSeekSetting(styleCard, "字号", 75, 150,
@@ -411,12 +400,12 @@ public final class MainActivity extends AppCompatActivity {
         return scroll;
     }
 
-    private void addStyleSelector(LinearLayout parent) {
-        TextView label = text("显示风格", 14, 0xFFD7E1EE, true);
+    private void addStyleSelector(LinearLayout parent, String title, boolean secondary) {
+        TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"歌词伴侣默认", "Refined Now Playing", "紧凑单行", "PiPWindow", "自定义布局"};
-        String[] values = {"default", "refined", "compact", "pip", "custom"};
+        String[] labels = {"Refined Now Playing", "歌词伴侣经典样式", "紧凑单行", "PiPWindow"};
+        String[] values = {"refined", "default", "compact", "pip"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
                 android.R.layout.simple_spinner_dropdown_item, labels) {
@@ -433,24 +422,25 @@ public final class MainActivity extends AppCompatActivity {
             }
         };
         spinner.setAdapter(adapter);
-        String saved = AppPreferences.overlayStyle(this);
+        String saved = AppPreferences.overlayStyle(this, secondary);
         int selection = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
         spinner.setSelection(selection, false);
         spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
                                                  View view, int position, long id) {
-                if (values[position].equals(AppPreferences.overlayStyle(MainActivity.this))) return;
-                AppPreferences.get(MainActivity.this).edit()
-                        .putString(AppPreferences.KEY_OVERLAY_STYLE, values[position]).apply();
-                refreshPreview();
+                if (values[position].equals(AppPreferences.overlayStyle(MainActivity.this, secondary))) return;
+                AppPreferences.setOverlayStyle(MainActivity.this, secondary, values[position]);
+                if (!secondary) refreshPreview();
                 AppPreferences.changed(MainActivity.this);
-                recreate();
+                if (!secondary) recreate();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView help = text("Refined 偏沉浸式大封面；PiPWindow 是暖色紧凑窗；自定义布局可拖动、隐藏每个内容块。",
+        TextView help = text(secondary
+                        ? "副屏可独立选择样式。"
+                        : "Refined Now Playing 为原 Refined 双栏样式；经典样式保留原歌词伴侣默认布局。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);

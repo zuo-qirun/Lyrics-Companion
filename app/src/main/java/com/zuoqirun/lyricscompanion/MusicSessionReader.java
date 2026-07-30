@@ -10,5 +10,6 @@ interface MusicSessionReader {
 
     void start();
     void refresh();
+    boolean dispatchControl(MediaControlAction action);
     void stop();
 }
