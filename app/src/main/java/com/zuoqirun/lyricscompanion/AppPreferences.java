@@ -53,6 +53,11 @@ final class AppPreferences {
     static final String KEY_REFINED_CURRENT_ALIGN = "refined_current_align";
     static final String KEY_REFINED_SHOW_TRANSLATION = "refined_show_translation";
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
+    static final String KEY_COMPACT_SHOW_COVER = "compact_show_cover";
+    static final String KEY_COMPACT_SHOW_BARS = "compact_show_bars";
+    static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
+    static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
+    static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
 
@@ -70,12 +75,69 @@ final class AppPreferences {
         return get(context).getBoolean(KEY_SECONDARY_OVERLAY, false);
     }
 
+    static boolean showPreviousButton(Context context) {
+        return get(context).getBoolean(KEY_SHOW_PREVIOUS_BUTTON, true);
+    }
+
+    static boolean showPlayPauseButton(Context context) {
+        return get(context).getBoolean(KEY_SHOW_PLAY_PAUSE_BUTTON, true);
+    }
+
+    static boolean showNextButton(Context context) {
+        return get(context).getBoolean(KEY_SHOW_NEXT_BUTTON, true);
+    }
+
     static int displayId(Context context) {
         return get(context).getInt(KEY_DISPLAY_ID, -1);
     }
 
-    static float textScale(Context context) {
-        return get(context).getInt(KEY_TEXT_SCALE, 100) / 100f;
+    /**
+     * Visual values are deliberately scoped per display.  The legacy unscoped key remains a
+     * read-only migration fallback so existing installations retain their current appearance
+     * until either display is adjusted for the first time.
+     */
+    private static String displayKey(String key, boolean secondary) {
+        return key + (secondary ? "_secondary" : "_main");
+    }
+
+    static int displayInt(Context context, boolean secondary, String key, int fallback) {
+        SharedPreferences preferences = get(context);
+        String scoped = displayKey(key, secondary);
+        return preferences.contains(scoped) ? preferences.getInt(scoped, fallback)
+                : preferences.getInt(key, fallback);
+    }
+
+    static boolean displayBoolean(Context context, boolean secondary, String key,
+                                  boolean fallback) {
+        SharedPreferences preferences = get(context);
+        String scoped = displayKey(key, secondary);
+        return preferences.contains(scoped) ? preferences.getBoolean(scoped, fallback)
+                : preferences.getBoolean(key, fallback);
+    }
+
+    static String displayString(Context context, boolean secondary, String key, String fallback) {
+        SharedPreferences preferences = get(context);
+        String scoped = displayKey(key, secondary);
+        return preferences.contains(scoped) ? preferences.getString(scoped, fallback)
+                : preferences.getString(key, fallback);
+    }
+
+    static void putDisplayInt(Context context, boolean secondary, String key, int value) {
+        get(context).edit().putInt(displayKey(key, secondary), value).apply();
+    }
+
+    static void putDisplayBoolean(Context context, boolean secondary, String key, boolean value) {
+        get(context).edit().putBoolean(displayKey(key, secondary), value).apply();
+    }
+
+    static void putDisplayString(Context context, boolean secondary, String key, String value) {
+        get(context).edit().putString(displayKey(key, secondary), value).apply();
+    }
+
+    static float textScale(Context context) { return textScale(context, false); }
+
+    static float textScale(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_TEXT_SCALE, 100) / 100f;
     }
 
     static float panelScale(Context context) {
@@ -88,8 +150,8 @@ final class AppPreferences {
 
     static int panelWidthDp(Context context, boolean secondary) {
         String style = overlayStyle(context, secondary);
-        return Math.max(minimumPanelWidthDp(context, secondary), Math.min(900, get(context).getInt(
-                panelWidthKey(style), defaultPanelWidthDp(style))));
+        return Math.max(minimumPanelWidthDp(context, secondary), Math.min(900,
+                displayInt(context, secondary, panelWidthKey(style), defaultPanelWidthDp(style))));
     }
 
     static int panelHeightDp(Context context) {
@@ -98,8 +160,8 @@ final class AppPreferences {
 
     static int panelHeightDp(Context context, boolean secondary) {
         String style = overlayStyle(context, secondary);
-        return Math.max(minimumPanelHeightDp(context, secondary), Math.min(600, get(context).getInt(
-                panelHeightKey(style), defaultPanelHeightDp(style))));
+        return Math.max(minimumPanelHeightDp(context, secondary), Math.min(600,
+                displayInt(context, secondary, panelHeightKey(style), defaultPanelHeightDp(style))));
     }
 
     static int minimumPanelWidthDp(Context context) {
@@ -121,19 +183,31 @@ final class AppPreferences {
     }
 
     static void setPanelWidthDp(Context context, int value) {
-        get(context).edit().putInt(panelWidthKey(overlayStyle(context)), value).apply();
+        setPanelWidthDp(context, false, value);
+    }
+
+    static void setPanelWidthDp(Context context, boolean secondary, int value) {
+        putDisplayInt(context, secondary, panelWidthKey(overlayStyle(context, secondary)), value);
     }
 
     static void setPanelHeightDp(Context context, int value) {
-        get(context).edit().putInt(panelHeightKey(overlayStyle(context)), value).apply();
+        setPanelHeightDp(context, false, value);
     }
 
-    static int opacity(Context context) {
-        return get(context).getInt(KEY_OPACITY, 88);
+    static void setPanelHeightDp(Context context, boolean secondary, int value) {
+        putDisplayInt(context, secondary, panelHeightKey(overlayStyle(context, secondary)), value);
     }
 
-    static int lyricOffsetMs(Context context) {
-        return get(context).getInt(KEY_LYRIC_OFFSET, 0);
+    static int opacity(Context context) { return opacity(context, false); }
+
+    static int opacity(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_OPACITY, 88);
+    }
+
+    static int lyricOffsetMs(Context context) { return lyricOffsetMs(context, false); }
+
+    static int lyricOffsetMs(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_LYRIC_OFFSET, 0);
     }
 
     static String lyricCatalog(Context context) {
@@ -176,73 +250,95 @@ final class AppPreferences {
         return "refined";
     }
 
-    static int styleBlur(Context context) {
-        return get(context).getInt(KEY_STYLE_BLUR, 128);
+    static int styleBlur(Context context) { return styleBlur(context, false); }
+
+    static int styleBlur(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_STYLE_BLUR, 128);
     }
 
-    static int styleDim(Context context) {
-        return get(context).getInt(KEY_STYLE_DIM, 38);
+    static int styleDim(Context context) { return styleDim(context, false); }
+
+    static int styleDim(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_STYLE_DIM, 38);
     }
 
-    static float styleCoverScale(Context context) {
-        return get(context).getInt(KEY_STYLE_COVER_SIZE, 100) / 100f;
+    static float styleCoverScale(Context context) { return styleCoverScale(context, false); }
+
+    static float styleCoverScale(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_STYLE_COVER_SIZE, 100) / 100f;
     }
 
-    static int styleLyricLines(Context context) {
-        return Math.max(1, Math.min(3, get(context).getInt(KEY_STYLE_LYRIC_LINES, 3)));
+    static int styleLyricLines(Context context) { return styleLyricLines(context, false); }
+
+    static int styleLyricLines(Context context, boolean secondary) {
+        return Math.max(1, Math.min(3,
+                displayInt(context, secondary, KEY_STYLE_LYRIC_LINES, 3)));
     }
 
-    static String refinedDisplayMode(Context context) {
-        return get(context).getString(KEY_REFINED_DISPLAY_MODE, "all");
+    static String refinedDisplayMode(Context context) { return refinedDisplayMode(context, false); }
+    static String refinedDisplayMode(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_DISPLAY_MODE, "all");
     }
 
-    static String refinedColorScheme(Context context) {
-        return get(context).getString(KEY_REFINED_COLOR_SCHEME, "auto");
+    static String refinedColorScheme(Context context) { return refinedColorScheme(context, false); }
+    static String refinedColorScheme(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_COLOR_SCHEME, "auto");
     }
 
-    static String refinedAccentVariant(Context context) {
-        return get(context).getString(KEY_REFINED_ACCENT_VARIANT, "primary");
+    static String refinedAccentVariant(Context context) { return refinedAccentVariant(context, false); }
+    static String refinedAccentVariant(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_ACCENT_VARIANT, "primary");
     }
 
-    static String refinedTextEffect(Context context) {
-        return get(context).getString(KEY_REFINED_TEXT_EFFECT, "none");
+    static String refinedTextEffect(Context context) { return refinedTextEffect(context, false); }
+    static String refinedTextEffect(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_TEXT_EFFECT, "none");
     }
 
-    static boolean refinedProgressBottom(Context context) {
-        return get(context).getBoolean(KEY_REFINED_PROGRESS_BOTTOM, true);
+    static boolean refinedProgressBottom(Context context) { return refinedProgressBottom(context, false); }
+    static boolean refinedProgressBottom(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_PROGRESS_BOTTOM, true);
     }
 
-    static String refinedCoverHorizontal(Context context) {
-        return get(context).getString(KEY_REFINED_COVER_HORIZONTAL, "left");
+    static String refinedCoverHorizontal(Context context) { return refinedCoverHorizontal(context, false); }
+    static String refinedCoverHorizontal(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_COVER_HORIZONTAL, "left");
     }
 
-    static String refinedCoverVertical(Context context) {
-        return get(context).getString(KEY_REFINED_COVER_VERTICAL, "bottom");
+    static String refinedCoverVertical(Context context) { return refinedCoverVertical(context, false); }
+    static String refinedCoverVertical(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_COVER_VERTICAL, "bottom");
     }
 
-    static boolean refinedRectangleCover(Context context) {
-        return get(context).getBoolean(KEY_REFINED_RECTANGLE_COVER, true);
+    static boolean refinedRectangleCover(Context context) { return refinedRectangleCover(context, false); }
+    static boolean refinedRectangleCover(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_RECTANGLE_COVER, true);
     }
 
-    static boolean refinedCoverShadow(Context context) {
-        return get(context).getBoolean(KEY_REFINED_COVER_SHADOW, false);
+    static boolean refinedCoverShadow(Context context) { return refinedCoverShadow(context, false); }
+    static boolean refinedCoverShadow(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_COVER_SHADOW, false);
     }
 
-    static String refinedBackgroundType(Context context) {
-        return get(context).getString(KEY_REFINED_BACKGROUND_TYPE, "blur");
+    static String refinedBackgroundType(Context context) { return refinedBackgroundType(context, false); }
+    static String refinedBackgroundType(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_BACKGROUND_TYPE, "blur");
     }
 
-    static boolean refinedStaticFluid(Context context) {
-        return get(context).getBoolean(KEY_REFINED_STATIC_FLUID, false);
+    static boolean refinedStaticFluid(Context context) { return refinedStaticFluid(context, false); }
+    static boolean refinedStaticFluid(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_STATIC_FLUID, false);
     }
 
-    static boolean refinedDynamicGradient(Context context) {
-        return get(context).getBoolean(KEY_REFINED_DYNAMIC_GRADIENT, true);
+    static boolean refinedDynamicGradient(Context context) { return refinedDynamicGradient(context, false); }
+    static boolean refinedDynamicGradient(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_DYNAMIC_GRADIENT, true);
     }
 
-    static int refinedLyricFontSize(Context context) {
+    static int refinedLyricFontSize(Context context) { return refinedLyricFontSize(context, false); }
+    static int refinedLyricFontSize(Context context, boolean secondary) {
         return Math.max(16, Math.min(64,
-                get(context).getInt(KEY_REFINED_LYRIC_FONT_SIZE, 16)));
+                displayInt(context, secondary, KEY_REFINED_LYRIC_FONT_SIZE, 16)));
     }
 
     static String customFontFile(Context context) {
@@ -254,51 +350,70 @@ final class AppPreferences {
                 fileName == null ? "" : fileName).apply();
     }
 
-    static boolean refinedOriginalBold(Context context) {
-        return get(context).getBoolean(KEY_REFINED_ORIGINAL_BOLD, true);
+    static boolean refinedOriginalBold(Context context) { return refinedOriginalBold(context, false); }
+    static boolean refinedOriginalBold(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_ORIGINAL_BOLD, true);
     }
 
-    static boolean refinedLyricFade(Context context) {
-        return get(context).getBoolean(KEY_REFINED_LYRIC_FADE, false);
+    static boolean refinedLyricFade(Context context) { return refinedLyricFade(context, false); }
+    static boolean refinedLyricFade(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_LYRIC_FADE, false);
     }
 
-    static boolean refinedLyricZoom(Context context) {
-        return get(context).getBoolean(KEY_REFINED_LYRIC_ZOOM, false);
+    static boolean refinedLyricZoom(Context context) { return refinedLyricZoom(context, false); }
+    static boolean refinedLyricZoom(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_LYRIC_ZOOM, false);
     }
 
-    static boolean refinedLyricBlur(Context context) {
-        return get(context).getBoolean(KEY_REFINED_LYRIC_BLUR, false);
+    static boolean refinedLyricBlur(Context context) { return refinedLyricBlur(context, false); }
+    static boolean refinedLyricBlur(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_LYRIC_BLUR, false);
     }
 
-    static boolean refinedLyricRotate(Context context) {
-        return get(context).getBoolean(KEY_REFINED_LYRIC_ROTATE, true);
+    static boolean refinedLyricRotate(Context context) { return refinedLyricRotate(context, false); }
+    static boolean refinedLyricRotate(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_LYRIC_ROTATE, true);
     }
 
-    static int refinedRotateCurvature(Context context) {
+    static int refinedRotateCurvature(Context context) { return refinedRotateCurvature(context, false); }
+    static int refinedRotateCurvature(Context context, boolean secondary) {
         return Math.max(10, Math.min(80,
-                get(context).getInt(KEY_REFINED_ROTATE_CURVATURE, 10)));
+                displayInt(context, secondary, KEY_REFINED_ROTATE_CURVATURE, 10)));
     }
 
-    static String refinedKaraokeAnimation(Context context) {
-        return get(context).getString(KEY_REFINED_KARAOKE_ANIMATION, "float");
+    static String refinedKaraokeAnimation(Context context) { return refinedKaraokeAnimation(context, false); }
+    static String refinedKaraokeAnimation(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_REFINED_KARAOKE_ANIMATION, "float");
     }
 
-    static int refinedCurrentAlign(Context context) {
+    static int refinedCurrentAlign(Context context) { return refinedCurrentAlign(context, false); }
+    static int refinedCurrentAlign(Context context, boolean secondary) {
         int value;
         try {
-            value = Integer.parseInt(get(context).getString(KEY_REFINED_CURRENT_ALIGN, "50"));
+            value = Integer.parseInt(displayString(context, secondary,
+                    KEY_REFINED_CURRENT_ALIGN, "50"));
         } catch (Exception ignored) {
             value = 50;
         }
         return value <= 30 ? 30 : 50;
     }
 
-    static boolean refinedShowTranslation(Context context) {
-        return get(context).getBoolean(KEY_REFINED_SHOW_TRANSLATION, true);
+    static boolean refinedShowTranslation(Context context) { return refinedShowTranslation(context, false); }
+    static boolean refinedShowTranslation(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_SHOW_TRANSLATION, true);
     }
 
-    static boolean refinedLyricGlow(Context context) {
-        return get(context).getBoolean(KEY_REFINED_LYRIC_GLOW, true);
+    static boolean refinedLyricGlow(Context context) { return refinedLyricGlow(context, false); }
+    static boolean refinedLyricGlow(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_REFINED_LYRIC_GLOW, true);
+    }
+
+    static boolean compactShowCover(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_COMPACT_SHOW_COVER, true);
+    }
+
+    static boolean compactShowBars(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_COMPACT_SHOW_BARS, true);
     }
 
     private static int defaultPanelWidthDp(String style) {

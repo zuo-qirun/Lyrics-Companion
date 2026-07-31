@@ -50,6 +50,9 @@
             android:name=".RefinedSettingsActivity"
             android:exported="false" />
         <activity
+            android:name=".DisplaySettingsActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

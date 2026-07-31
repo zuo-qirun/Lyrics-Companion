@@ -38,8 +38,11 @@ final class LyricsLayoutConfig {
         return new LyricsLayoutConfig(result);
     }
 
-    static LyricsLayoutConfig load(Context context) {
-        String raw = AppPreferences.get(context).getString(AppPreferences.KEY_COMPONENT_LAYOUT, "");
+    static LyricsLayoutConfig load(Context context) { return load(context, false); }
+
+    static LyricsLayoutConfig load(Context context, boolean secondary) {
+        String raw = AppPreferences.displayString(context, secondary,
+                AppPreferences.KEY_COMPONENT_LAYOUT, "");
         if (raw == null || raw.isEmpty()) return defaults();
         LyricsLayoutConfig defaults = defaults();
         try {
@@ -59,7 +62,9 @@ final class LyricsLayoutConfig {
         }
     }
 
-    void save(Context context) {
+    void save(Context context) { save(context, false); }
+
+    void save(Context context, boolean secondary) {
         JSONArray array = new JSONArray();
         for (Item item : items) {
             JSONObject object = new JSONObject();
@@ -71,8 +76,8 @@ final class LyricsLayoutConfig {
                 array.put(object);
             } catch (Exception ignored) { }
         }
-        AppPreferences.get(context).edit()
-                .putString(AppPreferences.KEY_COMPONENT_LAYOUT, array.toString()).apply();
+        AppPreferences.putDisplayString(context, secondary, AppPreferences.KEY_COMPONENT_LAYOUT,
+                array.toString());
     }
 
     List<Item> items() { return Collections.unmodifiableList(items); }

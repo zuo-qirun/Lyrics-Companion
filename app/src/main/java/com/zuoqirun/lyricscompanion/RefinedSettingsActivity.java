@@ -1,7 +1,6 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.annotation.SuppressLint;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -23,10 +22,13 @@ import com.google.android.material.shape.MaterialShapeDrawable;
 /** Native controls mirroring the visual settings exposed by Refined Now Playing. */
 @SuppressLint("SetTextI18n")
 public final class RefinedSettingsActivity extends AppCompatActivity {
+    static final String EXTRA_SECONDARY = "secondary";
     private LyricsPanelView preview;
+    private boolean secondary;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(0xFF07111F);
@@ -38,86 +40,88 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle("Refined 风格详细设置");
         toolbar.setSubtitle("按 BetterNCM 插件源码映射到原生 Canvas");
+        toolbar.setTitle((secondary ? "\u526f\u5c4f" : "\u4e3b\u5c4f")
+                + " Refined \u98ce\u683c\u8be6\u7ec6\u8bbe\u7f6e");
         toolbar.setTitleTextColor(Color.WHITE);
         toolbar.setSubtitleTextColor(0xFFA9B6C8);
         toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
         toolbar.setNavigationOnClickListener(v -> finish());
         root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(70)));
 
-        preview = new LyricsPanelView(this, false);
+        preview = new LyricsPanelView(this, secondary);
 
         LinearLayout appearance = card("外观");
         addChoice(appearance, "显示内容", AppPreferences.KEY_REFINED_DISPLAY_MODE,
                 new String[]{"全部", "仅歌词", "仅封面"},
-                new String[]{"all", "lyrics", "cover"}, AppPreferences.refinedDisplayMode(this));
+                new String[]{"all", "lyrics", "cover"}, AppPreferences.refinedDisplayMode(this, secondary));
         addChoice(appearance, "颜色模式", AppPreferences.KEY_REFINED_COLOR_SCHEME,
                 new String[]{"跟随系统", "暗色", "亮色"},
-                new String[]{"auto", "dark", "light"}, AppPreferences.refinedColorScheme(this));
+                new String[]{"auto", "dark", "light"}, AppPreferences.refinedColorScheme(this, secondary));
         addChoice(appearance, "沉浸主题色", AppPreferences.KEY_REFINED_ACCENT_VARIANT,
                 new String[]{"鲜艳", "柔和", "偏色", "关闭"},
                 new String[]{"primary", "secondary", "tertiary", "off"},
-                AppPreferences.refinedAccentVariant(this));
+                AppPreferences.refinedAccentVariant(this, secondary));
         addChoice(appearance, "文字效果", AppPreferences.KEY_REFINED_TEXT_EFFECT,
                 new String[]{"无", "文字阴影", "文字辉光"},
-                new String[]{"none", "shadow", "glow"}, AppPreferences.refinedTextEffect(this));
+                new String[]{"none", "shadow", "glow"}, AppPreferences.refinedTextEffect(this, secondary));
         addToggle(appearance, "进度条贴底", AppPreferences.KEY_REFINED_PROGRESS_BOTTOM,
-                AppPreferences.refinedProgressBottom(this));
+                AppPreferences.refinedProgressBottom(this, secondary));
 
         LinearLayout cover = card("封面");
         addChoice(cover, "水平对齐", AppPreferences.KEY_REFINED_COVER_HORIZONTAL,
                 new String[]{"居左", "居中"}, new String[]{"left", "center"},
-                AppPreferences.refinedCoverHorizontal(this));
+                AppPreferences.refinedCoverHorizontal(this, secondary));
         addChoice(cover, "垂直对齐", AppPreferences.KEY_REFINED_COVER_VERTICAL,
                 new String[]{"居下", "居中"}, new String[]{"bottom", "middle"},
-                AppPreferences.refinedCoverVertical(this));
+                AppPreferences.refinedCoverVertical(this, secondary));
         addToggle(cover, "方形专辑封面", AppPreferences.KEY_REFINED_RECTANGLE_COVER,
-                AppPreferences.refinedRectangleCover(this));
+                AppPreferences.refinedRectangleCover(this, secondary));
         addToggle(cover, "封面弥散阴影", AppPreferences.KEY_REFINED_COVER_SHADOW,
-                AppPreferences.refinedCoverShadow(this));
+                AppPreferences.refinedCoverShadow(this, secondary));
         addSeek(cover, "封面大小", AppPreferences.KEY_STYLE_COVER_SIZE,
-                60, 150, Math.round(AppPreferences.styleCoverScale(this) * 100f), "%");
+                60, 150, Math.round(AppPreferences.styleCoverScale(this, secondary) * 100f), "%");
 
         LinearLayout background = card("背景");
         addChoice(background, "类型", AppPreferences.KEY_REFINED_BACKGROUND_TYPE,
                 new String[]{"流体", "模糊", "渐变", "纯色", "无"},
                 new String[]{"fluid", "blur", "gradient", "solid", "none"},
-                AppPreferences.refinedBackgroundType(this));
+                AppPreferences.refinedBackgroundType(this, secondary));
         addToggle(background, "静态流体", AppPreferences.KEY_REFINED_STATIC_FLUID,
-                AppPreferences.refinedStaticFluid(this));
+                AppPreferences.refinedStaticFluid(this, secondary));
         addToggle(background, "动态渐变", AppPreferences.KEY_REFINED_DYNAMIC_GRADIENT,
-                AppPreferences.refinedDynamicGradient(this));
+                AppPreferences.refinedDynamicGradient(this, secondary));
         addSeek(background, "背景模糊", AppPreferences.KEY_STYLE_BLUR,
-                0, 128, AppPreferences.styleBlur(this), "");
+                0, 128, AppPreferences.styleBlur(this, secondary), "");
         addSeek(background, "背景暗化", AppPreferences.KEY_STYLE_DIM,
-                0, 90, AppPreferences.styleDim(this), "%");
+                0, 90, AppPreferences.styleDim(this, secondary), "%");
         addSeek(background, "背景不透明度", AppPreferences.KEY_OPACITY,
-                0, 100, AppPreferences.opacity(this), "%");
+                0, 100, AppPreferences.opacity(this, secondary), "%");
 
         LinearLayout lyric = card("歌词");
         addSeek(lyric, "字体大小", AppPreferences.KEY_REFINED_LYRIC_FONT_SIZE,
-                16, 64, AppPreferences.refinedLyricFontSize(this), " sp");
+                16, 64, AppPreferences.refinedLyricFontSize(this, secondary), " sp");
         addToggle(lyric, "加粗首行", AppPreferences.KEY_REFINED_ORIGINAL_BOLD,
-                AppPreferences.refinedOriginalBold(this));
+                AppPreferences.refinedOriginalBold(this, secondary));
         addToggle(lyric, "显示翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
-                AppPreferences.refinedShowTranslation(this));
+                AppPreferences.refinedShowTranslation(this, secondary));
         addToggle(lyric, "歌词渐隐", AppPreferences.KEY_REFINED_LYRIC_FADE,
-                AppPreferences.refinedLyricFade(this));
+                AppPreferences.refinedLyricFade(this, secondary));
         addToggle(lyric, "歌词缩放", AppPreferences.KEY_REFINED_LYRIC_ZOOM,
-                AppPreferences.refinedLyricZoom(this));
+                AppPreferences.refinedLyricZoom(this, secondary));
         addToggle(lyric, "歌词模糊", AppPreferences.KEY_REFINED_LYRIC_BLUR,
-                AppPreferences.refinedLyricBlur(this));
+                AppPreferences.refinedLyricBlur(this, secondary));
         addToggle(lyric, "歌词旋转", AppPreferences.KEY_REFINED_LYRIC_ROTATE,
-                AppPreferences.refinedLyricRotate(this));
+                AppPreferences.refinedLyricRotate(this, secondary));
         addSeek(lyric, "旋转曲率（弧形换句）", AppPreferences.KEY_REFINED_ROTATE_CURVATURE,
-                10, 80, AppPreferences.refinedRotateCurvature(this), "°");
+                10, 80, AppPreferences.refinedRotateCurvature(this, secondary), "°");
         addChoice(lyric, "逐字动画", AppPreferences.KEY_REFINED_KARAOKE_ANIMATION,
                 new String[]{"上浮（整字符）", "阶梯点亮"},
-                new String[]{"float", "step"}, AppPreferences.refinedKaraokeAnimation(this));
+                new String[]{"float", "step"}, AppPreferences.refinedKaraokeAnimation(this, secondary));
         addChoice(lyric, "当前歌词位置", AppPreferences.KEY_REFINED_CURRENT_ALIGN,
                 new String[]{"居中", "居上"}, new String[]{"50", "30"},
-                Integer.toString(AppPreferences.refinedCurrentAlign(this)));
+                Integer.toString(AppPreferences.refinedCurrentAlign(this, secondary)));
         addToggle(lyric, "当前歌词辉光", AppPreferences.KEY_REFINED_LYRIC_GLOW,
-                AppPreferences.refinedLyricGlow(this));
+                AppPreferences.refinedLyricGlow(this, secondary));
 
         TextView note = text("逐字动画保持完整 Unicode 字符跳变；没有逐字时间轴的普通 LRC 仍按整句切换。BetterNCM 的鼠标悬停、评论区和播放器底栏选项不属于悬浮窗渲染范围。",
                 12, 0xFF74869D, false);
@@ -214,10 +218,11 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parentView, View view,
                                                  int position, long id) {
-                SharedPreferences prefs = AppPreferences.get(RefinedSettingsActivity.this);
-                String existing = prefs.getString(key, current);
+                String existing = AppPreferences.displayString(RefinedSettingsActivity.this,
+                        secondary, key, current);
                 if (values[position].equals(existing)) return;
-                prefs.edit().putString(key, values[position]).apply();
+                AppPreferences.putDisplayString(RefinedSettingsActivity.this, secondary,
+                        key, values[position]);
                 changed();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
@@ -234,7 +239,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         toggle.setPadding(0, dp(8), 0, 0);
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit().putBoolean(key, checked).apply();
+            AppPreferences.putDisplayBoolean(this, secondary, key, checked);
             changed();
         });
         parent.addView(toggle);
@@ -258,8 +263,8 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
                 int selected = min + progress;
                 value.setText(selected + suffix);
                 if (!fromUser) return;
-                AppPreferences.get(RefinedSettingsActivity.this).edit()
-                        .putInt(key, selected).apply();
+                AppPreferences.putDisplayInt(RefinedSettingsActivity.this, secondary,
+                        key, selected);
                 changed();
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) { }

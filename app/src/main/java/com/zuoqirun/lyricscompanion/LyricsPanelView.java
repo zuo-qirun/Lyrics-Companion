@@ -113,41 +113,41 @@ final class LyricsPanelView extends View {
     }
 
     void reloadStyle() {
-        textScale = AppPreferences.textScale(getContext());
-        coverScale = AppPreferences.styleCoverScale(getContext());
-        opacity = AppPreferences.opacity(getContext());
-        lyricOffsetMs = AppPreferences.lyricOffsetMs(getContext());
-        backgroundBlur = AppPreferences.styleBlur(getContext());
-        backgroundDim = AppPreferences.styleDim(getContext());
-        lyricLineCount = AppPreferences.styleLyricLines(getContext());
+        textScale = AppPreferences.textScale(getContext(), secondary);
+        coverScale = AppPreferences.styleCoverScale(getContext(), secondary);
+        opacity = AppPreferences.opacity(getContext(), secondary);
+        lyricOffsetMs = AppPreferences.lyricOffsetMs(getContext(), secondary);
+        backgroundBlur = AppPreferences.styleBlur(getContext(), secondary);
+        backgroundDim = AppPreferences.styleDim(getContext(), secondary);
+        lyricLineCount = AppPreferences.styleLyricLines(getContext(), secondary);
         overlayStyle = AppPreferences.overlayStyle(getContext(), secondary);
-        refinedDisplayMode = AppPreferences.refinedDisplayMode(getContext());
-        refinedColorScheme = AppPreferences.refinedColorScheme(getContext());
-        refinedAccentVariant = AppPreferences.refinedAccentVariant(getContext());
-        refinedTextEffect = AppPreferences.refinedTextEffect(getContext());
-        refinedProgressBottom = AppPreferences.refinedProgressBottom(getContext());
-        refinedCoverHorizontal = AppPreferences.refinedCoverHorizontal(getContext());
-        refinedCoverVertical = AppPreferences.refinedCoverVertical(getContext());
-        refinedRectangleCover = AppPreferences.refinedRectangleCover(getContext());
-        refinedCoverShadow = AppPreferences.refinedCoverShadow(getContext());
-        refinedBackgroundType = AppPreferences.refinedBackgroundType(getContext());
-        refinedStaticFluid = AppPreferences.refinedStaticFluid(getContext());
-        refinedDynamicGradient = AppPreferences.refinedDynamicGradient(getContext());
-        refinedLyricFontSize = AppPreferences.refinedLyricFontSize(getContext());
-        refinedOriginalBold = AppPreferences.refinedOriginalBold(getContext());
-        refinedLyricFade = AppPreferences.refinedLyricFade(getContext());
-        refinedLyricZoom = AppPreferences.refinedLyricZoom(getContext());
-        refinedLyricBlur = AppPreferences.refinedLyricBlur(getContext());
-        refinedLyricRotate = AppPreferences.refinedLyricRotate(getContext());
-        refinedRotateCurvature = AppPreferences.refinedRotateCurvature(getContext());
-        refinedKaraokeAnimation = AppPreferences.refinedKaraokeAnimation(getContext());
-        refinedCurrentAlign = AppPreferences.refinedCurrentAlign(getContext());
-        refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext());
-        refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext());
+        refinedDisplayMode = AppPreferences.refinedDisplayMode(getContext(), secondary);
+        refinedColorScheme = AppPreferences.refinedColorScheme(getContext(), secondary);
+        refinedAccentVariant = AppPreferences.refinedAccentVariant(getContext(), secondary);
+        refinedTextEffect = AppPreferences.refinedTextEffect(getContext(), secondary);
+        refinedProgressBottom = AppPreferences.refinedProgressBottom(getContext(), secondary);
+        refinedCoverHorizontal = AppPreferences.refinedCoverHorizontal(getContext(), secondary);
+        refinedCoverVertical = AppPreferences.refinedCoverVertical(getContext(), secondary);
+        refinedRectangleCover = AppPreferences.refinedRectangleCover(getContext(), secondary);
+        refinedCoverShadow = AppPreferences.refinedCoverShadow(getContext(), secondary);
+        refinedBackgroundType = AppPreferences.refinedBackgroundType(getContext(), secondary);
+        refinedStaticFluid = AppPreferences.refinedStaticFluid(getContext(), secondary);
+        refinedDynamicGradient = AppPreferences.refinedDynamicGradient(getContext(), secondary);
+        refinedLyricFontSize = AppPreferences.refinedLyricFontSize(getContext(), secondary);
+        refinedOriginalBold = AppPreferences.refinedOriginalBold(getContext(), secondary);
+        refinedLyricFade = AppPreferences.refinedLyricFade(getContext(), secondary);
+        refinedLyricZoom = AppPreferences.refinedLyricZoom(getContext(), secondary);
+        refinedLyricBlur = AppPreferences.refinedLyricBlur(getContext(), secondary);
+        refinedLyricRotate = AppPreferences.refinedLyricRotate(getContext(), secondary);
+        refinedRotateCurvature = AppPreferences.refinedRotateCurvature(getContext(), secondary);
+        refinedKaraokeAnimation = AppPreferences.refinedKaraokeAnimation(getContext(), secondary);
+        refinedCurrentAlign = AppPreferences.refinedCurrentAlign(getContext(), secondary);
+        refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext(), secondary);
+        refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext(), secondary);
         customTypeface = CustomFontStore.load(getContext());
         setLayerType(usesRefinedVisualStyle() && refinedLyricBlur
                 ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
-        layoutConfig = LyricsLayoutConfig.load(getContext());
+        layoutConfig = LyricsLayoutConfig.load(getContext(), secondary);
         if (blurPreview != null && blurPreview != blurSource && !blurPreview.isRecycled()) {
             blurPreview.recycle();
         }
@@ -244,13 +244,18 @@ final class LyricsPanelView extends View {
         if (secondary || getWidth() <= 0 || getHeight() <= 0) return null;
         float density = getResources().getDisplayMetrics().density;
         PlaybackControlLayout layout = playbackControlLayout(density);
-        if (insideCircle(x, y, layout.centerX - layout.spacing, layout.centerY, layout.radius)) {
+        if (AppPreferences.showPreviousButton(getContext())
+                && insideCircle(x, y, layout.centerX - layout.spacing, layout.centerY,
+                layout.radius)) {
             return MediaControlAction.PREVIOUS;
         }
-        if (insideCircle(x, y, layout.centerX, layout.centerY, layout.radius * 1.12f)) {
+        if (AppPreferences.showPlayPauseButton(getContext())
+                && insideCircle(x, y, layout.centerX, layout.centerY, layout.radius * 1.12f)) {
             return MediaControlAction.TOGGLE_PLAY_PAUSE;
         }
-        if (insideCircle(x, y, layout.centerX + layout.spacing, layout.centerY, layout.radius)) {
+        if (AppPreferences.showNextButton(getContext())
+                && insideCircle(x, y, layout.centerX + layout.spacing, layout.centerY,
+                layout.radius)) {
             return MediaControlAction.NEXT;
         }
         return null;
@@ -429,15 +434,18 @@ final class LyricsPanelView extends View {
             primaryFill = snapshot.active ? 0xD0375A78 : fill;
         }
 
-        drawPlaybackButton(canvas, layout.centerX - layout.spacing, layout.centerY,
-                layout.radius, fill, icon,
-                MediaControlAction.PREVIOUS, false);
-        drawPlaybackButton(canvas, layout.centerX, layout.centerY, layout.radius * 1.12f,
-                primaryFill, accent,
-                MediaControlAction.TOGGLE_PLAY_PAUSE, snapshot.playing);
-        drawPlaybackButton(canvas, layout.centerX + layout.spacing, layout.centerY,
-                layout.radius, fill, icon,
-                MediaControlAction.NEXT, false);
+        if (AppPreferences.showPreviousButton(getContext())) {
+            drawPlaybackButton(canvas, layout.centerX - layout.spacing, layout.centerY,
+                    layout.radius, fill, icon, MediaControlAction.PREVIOUS, false);
+        }
+        if (AppPreferences.showPlayPauseButton(getContext())) {
+            drawPlaybackButton(canvas, layout.centerX, layout.centerY, layout.radius * 1.12f,
+                    primaryFill, accent, MediaControlAction.TOGGLE_PLAY_PAUSE, snapshot.playing);
+        }
+        if (AppPreferences.showNextButton(getContext())) {
+            drawPlaybackButton(canvas, layout.centerX + layout.spacing, layout.centerY,
+                    layout.radius, fill, icon, MediaControlAction.NEXT, false);
+        }
     }
 
     private void drawPlaybackButton(Canvas canvas, float centerX, float centerY, float radius,
@@ -655,20 +663,25 @@ final class LyricsPanelView extends View {
         clipPath.addRoundRect(panelRect, radius, radius, Path.Direction.CW);
         canvas.clipPath(clipPath);
         float pad = Math.max(7f * density, width * 0.028f);
-        float barsHeight = Math.max(4f * density, height * 0.052f);
-        float barsTop = height - pad * 0.42f - barsHeight;
-        float coverSize = Math.min(barsTop - pad * 0.62f,
-                Math.min(width * 0.23f, 58f * density));
-        coverSize = Math.max(30f * density, coverSize);
-        float coverLeft = width - pad - coverSize;
-        coverRect.set(coverLeft, pad * 0.62f, coverLeft + coverSize,
-                pad * 0.62f + coverSize);
-        drawCover(canvas, snapshot.albumArt, coverRect, 10f * density,
-                mix(accent, Color.DKGRAY, 0.55f));
+        boolean showCover = AppPreferences.compactShowCover(getContext(), secondary);
+        boolean showBars = AppPreferences.compactShowBars(getContext(), secondary);
+        float barsHeight = showBars ? Math.max(4f * density, height * 0.052f) : 0f;
+        float barsTop = showBars ? height - pad * 0.42f - barsHeight : height - pad;
+        float coverLeft = width - pad;
+        if (showCover) {
+            float coverSize = Math.min(barsTop - pad * 0.62f,
+                    Math.min(width * 0.23f, 58f * density));
+            coverSize = Math.max(30f * density, coverSize);
+            coverLeft = width - pad - coverSize;
+            coverRect.set(coverLeft, pad * 0.62f, coverLeft + coverSize,
+                    pad * 0.62f + coverSize);
+            drawCover(canvas, snapshot.albumArt, coverRect, 10f * density,
+                    mix(accent, Color.DKGRAY, 0.55f));
+        }
 
         float lyricLeft = pad;
         float lyricWidth = Math.max(1f, coverLeft - lyricLeft - 4f * density);
-        float lyricTop = coverRect.top;
+        float lyricTop = showCover ? coverRect.top : pad;
         float lyricBottom = barsTop - 3f * density;
         float lyricStageHeight = Math.max(1f, lyricBottom - lyricTop);
         // The compact card is still a lyric surface, not a metadata row. Its main lyric uses
@@ -715,8 +728,10 @@ final class LyricsPanelView extends View {
                     baseline, lyricSize, lyricWidth, density,
                     withAlpha(primaryText, 120), primaryText);
         }
-        drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
-                width - pad, barsHeight, primaryText);
+        if (showBars) {
+            drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
+                    width - pad, barsHeight, primaryText);
+        }
         canvas.restoreToCount(save);
     }
 

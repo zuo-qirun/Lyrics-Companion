@@ -26,7 +26,6 @@ import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -277,7 +276,7 @@ public final class MainActivity extends AppCompatActivity {
         styleCard.addView(sectionLabel("主屏 / 副屏样式"));
         addStyleSelector(styleCard, "主屏悬浮窗样式", false);
         addStyleSelector(styleCard, "副屏歌词样式", true);
-        MaterialButton defaultStyleSettings = button("Refined Now Playing 详细设置", false);
+        MaterialButton defaultStyleSettings = button("主屏 Refined Now Playing 详细设置", false);
         defaultStyleSettings.setOnClickListener(v -> {
             AppPreferences.setOverlayStyle(this, false, "refined");
             refreshPreview();
@@ -287,41 +286,17 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams defaultSettingsParams = new LinearLayout.LayoutParams(-1, dp(50));
         defaultSettingsParams.topMargin = dp(10);
         styleCard.addView(defaultStyleSettings, defaultSettingsParams);
+        MaterialButton secondaryStyleSettings = button("\u526f\u5c4f Refined Now Playing \u8be6\u7ec6\u8bbe\u7f6e", false);
+        secondaryStyleSettings.setOnClickListener(v -> {
+            AppPreferences.setOverlayStyle(this, true, "refined");
+            AppPreferences.changed(this);
+            startActivity(new Intent(this, RefinedSettingsActivity.class)
+                    .putExtra(RefinedSettingsActivity.EXTRA_SECONDARY, true));
+        });
+        styleCard.addView(secondaryStyleSettings, new LinearLayout.LayoutParams(-1, dp(50)));
         addGlobalFontControls(styleCard);
-        addSeekSetting(styleCard, "主屏悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this), 900,
-                AppPreferences.panelWidthDp(this), " dp",
-                value -> AppPreferences.setPanelWidthDp(this, value));
-        addSeekSetting(styleCard, "主屏悬浮窗高度", AppPreferences.minimumPanelHeightDp(this), 600,
-                AppPreferences.panelHeightDp(this), " dp",
-                value -> AppPreferences.setPanelHeightDp(this, value));
-        addSeekSetting(styleCard, "字号", 75, 150,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_TEXT_SCALE, 100), "%",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_TEXT_SCALE, value).apply());
-        addSeekSetting(styleCard, "背景不透明度", 0, 100,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_OPACITY, 88), "%",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_OPACITY, value).apply());
-        addSeekSetting(styleCard, "封面大小", 60, 150,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_COVER_SIZE, 100), "%",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_STYLE_COVER_SIZE, value).apply());
-        addSeekSetting(styleCard, "封面背景柔化", 0, 100,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_BLUR, 72), "%",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_STYLE_BLUR, value).apply());
-        addSeekSetting(styleCard, "封面背景遮罩", 0, 80,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_DIM, 38), "%",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_STYLE_DIM, value).apply());
-        addSeekSetting(styleCard, "歌词显示行数", 1, 3,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_STYLE_LYRIC_LINES, value).apply());
-        addSeekSetting(styleCard, "歌词时间校正", -5000, 5000,
-                AppPreferences.get(this).getInt(AppPreferences.KEY_LYRIC_OFFSET, 0), " ms",
-                value -> AppPreferences.get(this).edit()
-                        .putInt(AppPreferences.KEY_LYRIC_OFFSET, value).apply());
+        addDisplaySettingsLaunchers(styleCard);
+        addPlaybackControlToggles(styleCard);
 
         LinearLayout updateCard = card();
         updateCard.addView(sectionLabel("应用更新"));
@@ -587,38 +562,50 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void addSeekSetting(LinearLayout parent, String title, int min, int max,
-                                int initial, String suffix, ValueConsumer consumer) {
+    private void addPlaybackControlToggles(LinearLayout parent) {
+        TextView label = sectionLabel("主屏播放控制按键");
+        label.setPadding(0, dp(18), 0, dp(3));
+        parent.addView(label);
+        addPlaybackControlToggle(parent, "显示上一首按键",
+                AppPreferences.KEY_SHOW_PREVIOUS_BUTTON,
+                AppPreferences.showPreviousButton(this));
+        addPlaybackControlToggle(parent, "显示暂停/播放按键",
+                AppPreferences.KEY_SHOW_PLAY_PAUSE_BUTTON,
+                AppPreferences.showPlayPauseButton(this));
+        addPlaybackControlToggle(parent, "显示下一首按键",
+                AppPreferences.KEY_SHOW_NEXT_BUTTON,
+                AppPreferences.showNextButton(this));
+    }
+
+    private void addDisplaySettingsLaunchers(LinearLayout parent) {
+        TextView label = sectionLabel("显示参数");
+        label.setPadding(0, dp(18), 0, dp(4));
+        parent.addView(label);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(14), 0, 0);
-        TextView label = text(title, 14, 0xFFD7E1EE, true);
-        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView valueText = text(formatValue(initial, suffix), 13, 0xFF6EE7F2, true);
-        row.addView(valueText);
+        MaterialButton main = button("主屏显示参数", true);
+        main.setOnClickListener(v -> startActivity(new Intent(this, DisplaySettingsActivity.class)
+                .putExtra(DisplaySettingsActivity.EXTRA_SECONDARY, false)));
+        row.addView(main, weightedButton());
+        MaterialButton secondary = button("副屏显示参数", false);
+        secondary.setOnClickListener(v -> startActivity(new Intent(this, DisplaySettingsActivity.class)
+                .putExtra(DisplaySettingsActivity.EXTRA_SECONDARY, true)));
+        LinearLayout.LayoutParams secondaryParams = weightedButton();
+        secondaryParams.leftMargin = dp(10);
+        row.addView(secondary, secondaryParams);
         parent.addView(row);
-        SeekBar seek = new SeekBar(this);
-        seek.setMax(max - min);
-        seek.setProgress(clamp(initial, min, max) - min);
-        if (Build.VERSION.SDK_INT >= 21) {
-            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
-        }
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                int value = min + progress;
-                valueText.setText(formatValue(value, suffix));
-                if (fromUser) {
-                    consumer.accept(value);
-                    refreshPreview();
-                    AppPreferences.changed(MainActivity.this);
-                }
-            }
-            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
-            @Override public void onStopTrackingTouch(SeekBar seekBar) { }
+    }
+
+    private void addPlaybackControlToggle(LinearLayout parent, String title, String key,
+                                          boolean initial) {
+        MaterialSwitch toggle = toggle(title, "关闭后按键和对应触控操作都会隐藏");
+        toggle.setChecked(initial);
+        toggle.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit().putBoolean(key, checked).apply();
+            refreshPreview();
+            AppPreferences.changed(this);
         });
-        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+        parent.addView(toggle);
     }
 
     private MaterialSwitch toggle(String title, String subtitle) {
@@ -1025,16 +1012,6 @@ public final class MainActivity extends AppCompatActivity {
     private int dp(float value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
-
-    private static String formatValue(int value, String suffix) {
-        return (value > 0 && suffix.trim().equals("ms") ? "+" : "") + value + suffix;
-    }
-
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(value, max));
-    }
-
-    private interface ValueConsumer { void accept(int value); }
 
     private static final class DisplayChoice {
         final int id;
