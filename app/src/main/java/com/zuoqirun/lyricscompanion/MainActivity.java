@@ -64,6 +64,7 @@ public final class MainActivity extends AppCompatActivity {
     private TextView displayStatus;
     private TextView updateStatus;
     private TextView onlineStatus;
+    private TextView feedbackReplyStatus;
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
     private Spinner displaySpinner;
@@ -73,6 +74,7 @@ public final class MainActivity extends AppCompatActivity {
     private boolean updateBusy;
     private boolean onlineBusy;
     private boolean feedbackBusy;
+    private boolean diagnosticBusy;
     private boolean activityResumed;
     private boolean listenerReconnectScheduled;
     private long listenerReconnectDeadlineElapsedMs;
@@ -128,6 +130,7 @@ public final class MainActivity extends AppCompatActivity {
         bindPreferences();
         refreshDisplayChoices();
         refreshPreview();
+        refreshFeedbackReplies();
         LyricsDisplayService.startOrRefresh(this);
         LyricsDisplayService.setSettingsVisible(this, true);
         handler.removeCallbacks(statusRefresh);
@@ -328,6 +331,7 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton feedback = button("意见反馈", false);
         feedback.setOnClickListener(v -> showFeedbackDialog());
         communityCard.addView(feedback, new LinearLayout.LayoutParams(-1, dp(48)));
+        addSupportControls(communityCard);
 
         LinearLayout stateCard = card();
         stateCard.addView(sectionLabel("音乐状态与诊断"));
@@ -617,6 +621,81 @@ public final class MainActivity extends AppCompatActivity {
         view.setPadding(0, dp(12), 0, dp(6));
         view.setLineSpacing(0f, 1.15f);
         return view;
+    }
+
+    private void addSupportControls(LinearLayout parent) {
+        MaterialSwitch crashUpload = toggle("自动上传闪退诊断",
+                "仅上传本应用的异常堆栈、系统版本和悬浮窗状态；默认关闭");
+        crashUpload.setChecked(AppPreferences.get(this).getBoolean(
+                AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false));
+        crashUpload.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit().putBoolean(
+                    AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, checked).apply();
+            if (checked) CommunityClient.uploadPendingCrashAsync(this, null);
+        });
+        parent.addView(crashUpload);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton snapshot = button("上传诊断快照", true);
+        snapshot.setOnClickListener(v -> uploadDiagnosticSnapshot());
+        actions.addView(snapshot, weightedButton());
+        MaterialButton replies = button("查看反馈回复", false);
+        replies.setOnClickListener(v -> showFeedbackReplies());
+        LinearLayout.LayoutParams repliesParams = weightedButton();
+        repliesParams.leftMargin = dp(10);
+        actions.addView(replies, repliesParams);
+        parent.addView(actions);
+        feedbackReplyStatus = text("反馈回复：正在检查…", 12, 0xFF8392A8, false);
+        feedbackReplyStatus.setPadding(0, dp(8), 0, 0);
+        parent.addView(feedbackReplyStatus);
+    }
+
+    private void uploadDiagnosticSnapshot() {
+        if (diagnosticBusy) return;
+        diagnosticBusy = true;
+        CommunityClient.uploadSnapshotAsync(this, result -> runOnUiThread(() -> {
+            diagnosticBusy = false;
+            if (isFinishing() || isDestroyed()) return;
+            Toast.makeText(this, result.success ? "诊断快照已上传" : "诊断上传失败：" + result.error,
+                    Toast.LENGTH_LONG).show();
+        }));
+    }
+
+    private void refreshFeedbackReplies() {
+        if (feedbackReplyStatus == null) return;
+        CommunityClient.fetchFeedbackRepliesAsync(this, result -> runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || feedbackReplyStatus == null) return;
+            if (!result.success) {
+                feedbackReplyStatus.setText("反馈回复：暂时无法检查");
+            } else if (result.replies.isEmpty()) {
+                feedbackReplyStatus.setText("反馈回复：暂无新回复");
+            } else {
+                feedbackReplyStatus.setText("反馈回复：收到 " + result.replies.size() + " 条，请点击查看");
+            }
+        }));
+    }
+
+    private void showFeedbackReplies() {
+        CommunityClient.fetchFeedbackRepliesAsync(this, result -> runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (!result.success) {
+                Toast.makeText(this, "无法读取回复：" + result.error, Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (result.replies.isEmpty()) {
+                Toast.makeText(this, "暂时没有收到回复", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            StringBuilder content = new StringBuilder();
+            for (CommunityClient.FeedbackReply reply : result.replies) {
+                if (content.length() > 0) content.append("\n\n");
+                content.append(reply.createdAt).append("\n").append(reply.message);
+            }
+            new MaterialAlertDialogBuilder(this).setTitle("反馈回复")
+                    .setMessage(content).setPositiveButton("知道了", null).show();
+            refreshFeedbackReplies();
+        }));
     }
 
     private void refreshPreview() {

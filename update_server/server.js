@@ -6,7 +6,7 @@ const http = require("http");
 const path = require("path");
 const {spawn} = require("child_process");
 const {loadEnv} = require("./release-sync-config");
-const {FeedbackStore, OnlineTracker, normalizeClientId} = require("./community");
+const {DiagnosticStore, FeedbackStore, OnlineTracker, normalizeClientId} = require("./community");
 const {publicBaseUrl} = require("./server-address");
 
 loadEnv(path.join(__dirname, ".env"));
@@ -21,13 +21,18 @@ const syncScript = path.join(__dirname, "sync-release.js");
 const stateDir = process.env.STATE_DIR
   ? path.resolve(process.env.STATE_DIR) : path.resolve(__dirname, "state");
 const feedbackPath = path.join(stateDir, "feedback.jsonl");
+const feedbackRepliesPath = path.join(stateDir, "feedback-replies.jsonl");
+const diagnosticsPath = path.join(stateDir, "diagnostics.jsonl");
 const autoSync = process.env.AUTO_SYNC !== "0";
 const syncIntervalMs = Math.max(60_000, Number(process.env.SYNC_INTERVAL_MS || 300_000));
 const onlineTtlMs = Math.max(30_000, Number(process.env.ONLINE_TTL_MS || 120_000));
 const feedbackIntervalMs = Math.max(10_000,
   Number(process.env.FEEDBACK_INTERVAL_MS || 60_000));
+const diagnosticIntervalMs = Math.max(10_000,
+  Number(process.env.DIAGNOSTIC_INTERVAL_MS || 60_000));
 const onlineTracker = new OnlineTracker(onlineTtlMs);
-const feedbackStore = new FeedbackStore(feedbackPath, feedbackIntervalMs);
+const feedbackStore = new FeedbackStore(feedbackPath, feedbackIntervalMs, feedbackRepliesPath);
+const diagnosticStore = new DiagnosticStore(diagnosticsPath, diagnosticIntervalMs);
 let syncing = false;
 let lastSync = null;
 
@@ -93,6 +98,37 @@ function clientAddress(req) {
   return forwarded || String(req.socket.remoteAddress || "unknown");
 }
 
+function adminAuthorized(req) {
+  const expected = String(process.env.ADMIN_TOKEN || "");
+  const provided = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (!expected || !provided) return false;
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  return expectedBytes.length === providedBytes.length
+    && crypto.timingSafeEqual(expectedBytes, providedBytes);
+}
+
+function requireAdmin(req, res) {
+  if (!process.env.ADMIN_TOKEN) {
+    sendJson(res, 503, {ok: false, error: "admin console is not configured"});
+    return false;
+  }
+  if (!adminAuthorized(req)) {
+    sendJson(res, 401, {ok: false, error: "admin authentication required"});
+    return false;
+  }
+  return true;
+}
+
+function localApkUrl(req, relativePath, fingerprint) {
+  const url = new URL(`/${relativePath}`, `${baseUrl(req)}/`);
+  // The public CDN can retain a previous file at the stable APK path after a
+  // new manifest is available. A content fingerprint makes every release URL
+  // immutable and keeps the manifest size/SHA-256 paired with its download.
+  if (fingerprint) url.searchParams.set("v", fingerprint);
+  return url.toString();
+}
+
 function readManifest(req, github) {
   const source = fs.existsSync(manifestPath) ? manifestPath : templatePath;
   const manifest = JSON.parse(fs.readFileSync(source, "utf8"));
@@ -102,9 +138,10 @@ function readManifest(req, github) {
     manifest.downloadChannel = "github";
   } else if (apkPath.startsWith(publicDir + path.sep) && fs.existsSync(apkPath)) {
     const relative = path.relative(publicDir, apkPath).replace(/\\/g, "/");
-    manifest.apkUrl = new URL(`/${relative}`, `${baseUrl(req)}/`).toString();
+    const digest = sha256(apkPath);
+    manifest.apkUrl = localApkUrl(req, relative, digest);
     manifest.downloadChannel = github ? "server-fallback" : "server";
-    manifest.sha256 = sha256(apkPath);
+    manifest.sha256 = digest;
     manifest.size = fs.statSync(apkPath).size;
   }
   const changelog = path.join(publicDir, "CHANGELOG.md");
@@ -131,10 +168,10 @@ function readVersions(req, github) {
       next.apkUrl = next.githubApkUrl;
       next.downloadChannel = "github";
     } else if (local.startsWith(publicDir + path.sep) && fs.existsSync(local)) {
-      next.apkUrl = new URL(`/${String(next.apkPath).replace(/\\/g, "/")}`,
-        `${baseUrl(req)}/`).toString();
+      const digest = sha256(local);
+      next.apkUrl = localApkUrl(req, String(next.apkPath).replace(/\\/g, "/"), digest);
       next.downloadChannel = github ? "server-fallback" : "server";
-      next.sha256 = sha256(local);
+      next.sha256 = digest;
       next.size = fs.statSync(local).size;
     }
     delete next.apkPath;
@@ -197,10 +234,59 @@ const server = http.createServer(async (req, res) => {
       catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
       try {
         const entry = feedbackStore.submit(body.clientId, body, Date.now(), clientAddress(req));
-        sendJson(res, 201, {ok: true, id: entry.id, receivedAt: entry.createdAt});
+        sendJson(res, 201, {ok: true, id: entry.id, replyToken: entry.replyToken,
+          receivedAt: entry.createdAt});
       } catch (error) {
         const rateLimited = error.code === "RATE_LIMITED";
         sendJson(res, rateLimited ? 429 : 400, {ok: false, error: error.message});
+      }
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/feedback/replies") {
+      let body;
+      try { body = await readJson(req); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      sendJson(res, 200, {ok: true, replies: feedbackStore.repliesForTickets(body.tickets)});
+      return;
+    }
+    if (req.method === "POST" && (url.pathname === "/api/diagnostics"
+        || url.pathname === "/api/diagnostics/crash")) {
+      let body;
+      try { body = await readJson(req, 48 * 1024); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      try {
+        body.kind = url.pathname.endsWith("/crash") ? "crash" : body.kind;
+        const entry = diagnosticStore.submit(body.clientId, body, Date.now(), clientAddress(req));
+        sendJson(res, 201, {ok: true, id: entry.id, receivedAt: entry.createdAt});
+      } catch (error) {
+        sendJson(res, error.code === "RATE_LIMITED" ? 429 : 400, {ok: false, error: error.message});
+      }
+      return;
+    }
+    if (url.pathname === "/api/admin/feedback") {
+      if (!requireAdmin(req, res)) return;
+      if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
+      sendJson(res, 200, {ok: true, feedback: feedbackStore.list(url.searchParams.get("limit"))});
+      return;
+    }
+    if (url.pathname === "/api/admin/diagnostics") {
+      if (!requireAdmin(req, res)) return;
+      if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
+      sendJson(res, 200, {ok: true, diagnostics: diagnosticStore.list(url.searchParams.get("limit"))});
+      return;
+    }
+    const replyRoute = url.pathname.match(/^\/api\/admin\/feedback\/([a-f0-9-]{36})\/replies$/i);
+    if (replyRoute) {
+      if (!requireAdmin(req, res)) return;
+      if (req.method !== "POST") { sendText(res, 405, "method not allowed"); return; }
+      let body;
+      try { body = await readJson(req); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      try {
+        const reply = feedbackStore.addReply(replyRoute[1], body.message, Date.now());
+        sendJson(res, 201, {ok: true, reply});
+      } catch (error) {
+        sendJson(res, error.code === "NOT_FOUND" ? 404 : 400, {ok: false, error: error.message});
       }
       return;
     }
@@ -210,7 +296,8 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/versions.json") { sendJson(res, 200, readVersions(req, false)); return; }
     if (url.pathname === "/versions-github.json") { sendJson(res, 200, readVersions(req, true)); return; }
     const route = url.pathname === "/" ? "/index.html"
-      : url.pathname === "/versions" ? "/versions.html" : url.pathname;
+      : url.pathname === "/versions" ? "/versions.html"
+        : url.pathname === "/feedback" ? "/feedback.html" : url.pathname;
     const filePath = path.resolve(publicDir, `.${decodeURIComponent(route)}`);
     if (!filePath.startsWith(publicDir + path.sep)) { sendText(res, 403, "forbidden"); return; }
     sendFile(res, filePath, types[path.extname(filePath).toLowerCase()] || "application/octet-stream");

@@ -14,12 +14,19 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.util.Locale;
 
 /** Stores a user-selected lyric font in private app storage so overlays outlive URI grants. */
 final class CustomFontStore {
     private static final String DIRECTORY = "lyrics-fonts";
     private static final long MAX_FONT_BYTES = 24L * 1024L * 1024L;
+    private static final String FONT_FILE_NAME = "lyrics-custom-font";
+    private static final int SFNT_TRUETYPE = 0x00010000;
+    private static final int SFNT_TRUE = 0x74727565;
+    private static final int SFNT_TYP1 = 0x74797031;
+    private static final int SFNT_OTTO = 0x4F54544F;
+    private static final int TTCF = 0x74746366;
     private static String cachedFileName = "";
     private static Typeface cachedTypeface;
 
@@ -35,20 +42,28 @@ final class CustomFontStore {
         if (!directory.exists() && !directory.mkdirs()) {
             throw new IOException("无法创建字体存储目录");
         }
-        String targetName = "lyrics-custom-font." + extension;
-        File temporary = new File(directory, targetName + ".tmp");
+        String targetName = FONT_FILE_NAME + "." + extension;
+        File temporary = new File(directory, FONT_FILE_NAME + ".pending." + extension);
         File target = new File(directory, targetName);
         try {
             copyWithLimit(context.getContentResolver().openInputStream(uri), temporary);
-            Typeface typeface = Typeface.createFromFile(temporary);
+            if (!isRecognizedFontFile(temporary)) {
+                throw new IOException("该文件不是完整的 TrueType、OpenType 或字体集合文件");
+            }
             if (target.exists() && !target.delete()) {
                 throw new IOException("无法替换原来的字体文件");
             }
             if (!temporary.renameTo(target)) throw new IOException("无法保存字体文件");
             removeOtherFonts(directory, targetName);
             AppPreferences.setCustomFontFile(context, targetName);
-            cachedFileName = targetName;
-            cachedTypeface = typeface;
+            // Do not retain a Typeface created from a temporary path. Older Android builds may
+            // defer native font reads until drawing, after that temporary file has been removed.
+            cachedFileName = "";
+            cachedTypeface = null;
+            if (load(context) == null) {
+                clear(context);
+                throw new IOException("车机无法加载该字体，已恢复系统字体");
+            }
             return displayName;
         } catch (RuntimeException error) {
             throw new IOException("该文件不是可用的 Android 字体", error);
@@ -62,13 +77,18 @@ final class CustomFontStore {
         if (storedName.isEmpty()) return null;
         if (storedName.equals(cachedFileName) && cachedTypeface != null) return cachedTypeface;
         File file = new File(new File(context.getFilesDir(), DIRECTORY), storedName);
-        if (!file.isFile()) return null;
+        if (!isSupportedExtension(extension(storedName))
+                || !file.isFile() || !isRecognizedFontFile(file)) {
+            clearInvalidFont(context, file);
+            return null;
+        }
         try {
             Typeface typeface = Typeface.createFromFile(file);
             cachedFileName = storedName;
             cachedTypeface = typeface;
             return typeface;
         } catch (RuntimeException ignored) {
+            clearInvalidFont(context, file);
             return null;
         }
     }
@@ -153,6 +173,60 @@ final class CustomFontStore {
 
     private static boolean isSupportedExtension(String extension) {
         return "ttf".equals(extension) || "otf".equals(extension) || "ttc".equals(extension);
+    }
+
+    /**
+     * Filters truncated or falsely named files before they reach Typeface. Android 11 supports
+     * TrueType, OpenType/CFF and TrueType collections, including variable fonts.
+     */
+    static boolean isRecognizedFontFile(File file) {
+        if (file == null || !file.isFile() || file.length() < 12 || file.length() > MAX_FONT_BYTES) {
+            return false;
+        }
+        try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
+            int signature = input.readInt();
+            if (signature != TTCF) return isSaneSfnt(input, 0L, file.length());
+            input.readInt(); // TTC version
+            long fontCount = input.readInt() & 0xFFFFFFFFL;
+            if (fontCount < 1 || fontCount > 64) return false;
+            for (int index = 0; index < fontCount; index++) {
+                input.seek(12L + index * 4L);
+                long offset = input.readInt() & 0xFFFFFFFFL;
+                if (!isSaneSfnt(input, offset, file.length())) return false;
+            }
+            return true;
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isSaneSfnt(RandomAccessFile input, long start, long fileLength)
+            throws IOException {
+        if (start < 0 || start > fileLength - 12) return false;
+        input.seek(start);
+        int version = input.readInt();
+        if (version != SFNT_TRUETYPE && version != SFNT_TRUE
+                && version != SFNT_TYP1 && version != SFNT_OTTO) return false;
+        int tableCount = input.readUnsignedShort();
+        if (tableCount < 1 || tableCount > 256 || start > fileLength - 12L - tableCount * 16L) {
+            return false;
+        }
+        input.skipBytes(6);
+        for (int index = 0; index < tableCount; index++) {
+            input.readInt(); // tag
+            input.readInt(); // checksum
+            long offset = input.readInt() & 0xFFFFFFFFL;
+            long length = input.readInt() & 0xFFFFFFFFL;
+            if (offset > fileLength || length > fileLength - offset) return false;
+        }
+        return true;
+    }
+
+    private static void clearInvalidFont(Context context, File file) {
+        if (file.isFile()) file.delete();
+        AppPreferences.setCustomFontFile(context, "");
+        cachedFileName = "";
+        cachedTypeface = null;
     }
 
     private static String safeFileName(String value) {

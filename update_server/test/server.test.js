@@ -43,7 +43,7 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
   const child = spawn(process.execPath, ["server.js"], {
     cwd: serverDir,
     env: {...process.env, HOST: "127.0.0.1", PORT: String(port), AUTO_SYNC: "0",
-      STATE_DIR: stateDir},
+      STATE_DIR: stateDir, ADMIN_TOKEN: "test-admin-token"},
     stdio: ["ignore", "pipe", "pipe"],
   });
   try {
@@ -67,9 +67,29 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
       appVersion: "test", message: "本地接口集成测试反馈", contact: "",
     });
     assert.equal(feedback.status, 201);
-    assert.equal((await feedback.json()).ok, true);
+    const ticket = await feedback.json();
+    assert.equal(ticket.ok, true);
+    assert.ok(ticket.replyToken);
     const stored = fs.readFileSync(path.join(stateDir, "feedback.jsonl"), "utf8").trim();
     assert.equal(JSON.parse(stored).message, "本地接口集成测试反馈");
+    assert.notEqual(JSON.parse(stored).replyTokenHash, ticket.replyToken);
+
+    const adminHeaders = {authorization: "Bearer test-admin-token", "content-type": "application/json"};
+    const inbox = await fetch(`http://127.0.0.1:${port}/api/admin/feedback`, {headers: adminHeaders});
+    assert.equal(inbox.status, 200);
+    assert.equal((await inbox.json()).feedback.length, 1);
+    const reply = await fetch(`http://127.0.0.1:${port}/api/admin/feedback/${ticket.id}/replies`, {
+      method: "POST", headers: adminHeaders, body: JSON.stringify({message: "已收到，正在排查。"}),
+    });
+    assert.equal(reply.status, 201);
+    const replies = await post("/api/feedback/replies", {tickets: [{id: ticket.id, token: ticket.replyToken}]});
+    assert.equal((await replies.json()).replies[0].message, "已收到，正在排查。");
+
+    const diagnostic = await post("/api/diagnostics/crash", {clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      appVersion: "test", summary: "IllegalStateException", details: "stack trace"});
+    assert.equal(diagnostic.status, 201);
+    const diagnostics = await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics`, {headers: adminHeaders});
+    assert.equal((await diagnostics.json()).diagnostics[0].kind, "crash");
   } finally {
     if (child.exitCode === null) {
       child.kill();

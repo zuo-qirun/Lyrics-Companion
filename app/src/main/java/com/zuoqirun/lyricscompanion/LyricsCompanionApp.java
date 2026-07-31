@@ -7,7 +7,11 @@ import com.google.android.material.color.DynamicColors;
 public final class LyricsCompanionApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
+        CrashReporter.install(this);
         DynamicColors.applyToActivitiesIfAvailable(this);
+        if (AppPreferences.get(this).getBoolean(AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false)) {
+            CommunityClient.uploadPendingCrashAsync(this, null);
+        }
     }
 
     @Override public void onLowMemory() {
