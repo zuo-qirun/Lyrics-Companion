@@ -67,6 +67,8 @@ public final class MainActivity extends AppCompatActivity {
     private TextView feedbackReplyStatus;
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
+    private MaterialButton mainRefinedSettingsButton;
+    private MaterialButton secondaryRefinedSettingsButton;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private TextView globalFontSummary;
@@ -279,24 +281,20 @@ public final class MainActivity extends AppCompatActivity {
         styleCard.addView(sectionLabel("主屏 / 副屏样式"));
         addStyleSelector(styleCard, "主屏悬浮窗样式", false);
         addStyleSelector(styleCard, "副屏歌词样式", true);
-        MaterialButton defaultStyleSettings = button("主屏 Refined Now Playing 详细设置", false);
-        defaultStyleSettings.setOnClickListener(v -> {
-            AppPreferences.setOverlayStyle(this, false, "refined");
-            refreshPreview();
-            AppPreferences.changed(this);
+        mainRefinedSettingsButton = button("主屏 Refined Now Playing 详细设置", false);
+        mainRefinedSettingsButton.setOnClickListener(v -> {
             startActivity(new Intent(this, RefinedSettingsActivity.class));
         });
         LinearLayout.LayoutParams defaultSettingsParams = new LinearLayout.LayoutParams(-1, dp(50));
         defaultSettingsParams.topMargin = dp(10);
-        styleCard.addView(defaultStyleSettings, defaultSettingsParams);
-        MaterialButton secondaryStyleSettings = button("\u526f\u5c4f Refined Now Playing \u8be6\u7ec6\u8bbe\u7f6e", false);
-        secondaryStyleSettings.setOnClickListener(v -> {
-            AppPreferences.setOverlayStyle(this, true, "refined");
-            AppPreferences.changed(this);
+        styleCard.addView(mainRefinedSettingsButton, defaultSettingsParams);
+        secondaryRefinedSettingsButton = button("\u526f\u5c4f Refined Now Playing \u8be6\u7ec6\u8bbe\u7f6e", false);
+        secondaryRefinedSettingsButton.setOnClickListener(v -> {
             startActivity(new Intent(this, RefinedSettingsActivity.class)
                     .putExtra(RefinedSettingsActivity.EXTRA_SECONDARY, true));
         });
-        styleCard.addView(secondaryStyleSettings, new LinearLayout.LayoutParams(-1, dp(50)));
+        styleCard.addView(secondaryRefinedSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
+        updateRefinedSettingsVisibility();
         addGlobalFontControls(styleCard);
         addDisplaySettingsLaunchers(styleCard);
         addPlaybackControlToggles(styleCard);
@@ -410,6 +408,7 @@ public final class MainActivity extends AppCompatActivity {
                                                  View view, int position, long id) {
                 if (values[position].equals(AppPreferences.overlayStyle(MainActivity.this, secondary))) return;
                 AppPreferences.setOverlayStyle(MainActivity.this, secondary, values[position]);
+                updateRefinedSettingsVisibility();
                 if (!secondary) refreshPreview();
                 AppPreferences.changed(MainActivity.this);
                 if (!secondary) recreate();
@@ -423,6 +422,17 @@ public final class MainActivity extends AppCompatActivity {
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
+    }
+
+    private void updateRefinedSettingsVisibility() {
+        if (mainRefinedSettingsButton != null) {
+            mainRefinedSettingsButton.setVisibility("refined".equals(AppPreferences.overlayStyle(this, false))
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (secondaryRefinedSettingsButton != null) {
+            secondaryRefinedSettingsButton.setVisibility("refined".equals(AppPreferences.overlayStyle(this, true))
+                    ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void addLyricCatalogSelector(LinearLayout parent,
