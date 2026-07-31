@@ -36,6 +36,7 @@ final class CustomFontStore {
         String displayName = displayName(context, uri);
         String extension = extension(displayName);
         if (!isSupportedExtension(extension)) {
+            DiagnosticLog.record(context, "Font", "rejected extension=" + extension);
             throw new IOException("请选择 .ttf、.otf 或 .ttc 字体文件");
         }
         File directory = new File(context.getFilesDir(), DIRECTORY);
@@ -48,6 +49,7 @@ final class CustomFontStore {
         try {
             copyWithLimit(context.getContentResolver().openInputStream(uri), temporary);
             if (!isRecognizedFontFile(temporary)) {
+                DiagnosticLog.record(context, "Font", "rejected malformed " + extension + " file");
                 throw new IOException("该文件不是完整的 TrueType、OpenType 或字体集合文件");
             }
             if (target.exists() && !target.delete()) {
@@ -62,10 +64,13 @@ final class CustomFontStore {
             cachedTypeface = null;
             if (load(context) == null) {
                 clear(context);
+                DiagnosticLog.record(context, "Font", "Android loader rejected " + extension + " file");
                 throw new IOException("车机无法加载该字体，已恢复系统字体");
             }
+            DiagnosticLog.record(context, "Font", "imported " + extension + " file");
             return displayName;
         } catch (RuntimeException error) {
+            DiagnosticLog.record(context, "Font", "loader exception=" + error.getClass().getSimpleName());
             throw new IOException("该文件不是可用的 Android 字体", error);
         } finally {
             if (temporary.exists()) temporary.delete();
@@ -79,6 +84,7 @@ final class CustomFontStore {
         File file = new File(new File(context.getFilesDir(), DIRECTORY), storedName);
         if (!isSupportedExtension(extension(storedName))
                 || !file.isFile() || !isRecognizedFontFile(file)) {
+            DiagnosticLog.record(context, "Font", "cleared invalid stored font");
             clearInvalidFont(context, file);
             return null;
         }
@@ -88,6 +94,8 @@ final class CustomFontStore {
             cachedTypeface = typeface;
             return typeface;
         } catch (RuntimeException ignored) {
+            DiagnosticLog.record(context, "Font", "stored loader exception="
+                    + ignored.getClass().getSimpleName());
             clearInvalidFont(context, file);
             return null;
         }

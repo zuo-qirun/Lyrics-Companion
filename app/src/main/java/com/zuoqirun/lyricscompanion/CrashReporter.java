@@ -69,7 +69,8 @@ final class CrashReporter {
         JSONObject report = new JSONObject();
         try {
             report.put("summary", "Manual diagnostic snapshot");
-            report.put("details", deviceDetails(context));
+            report.put("details", deviceDetails(context) + "\n\nRecent app events:\n"
+                    + DiagnosticLog.recent(context));
         } catch (Throwable ignored) { }
         return report;
     }
@@ -82,7 +83,8 @@ final class CrashReporter {
             if (message != null && !message.trim().isEmpty()) summary += ": " + message.trim();
             report.put("summary", trim(summary, 500));
             report.put("details", deviceDetails(context) + "\nthread=" + thread.getName()
-                    + "\n\n" + trim(Log.getStackTraceString(error), MAX_STACK_CHARS));
+                    + "\n\n" + trim(Log.getStackTraceString(error), MAX_STACK_CHARS)
+                    + "\n\nRecent app events:\n" + DiagnosticLog.recent(context));
         } catch (Throwable ignored) { }
         return report;
     }

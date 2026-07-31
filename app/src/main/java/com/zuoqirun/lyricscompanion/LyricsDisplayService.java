@@ -144,6 +144,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public void onDisplayChanged(int displayId) { rebuildSecondary(); }
 
     private void rebuildAll() {
+        DiagnosticLog.record(this, "Overlay", "rebuild main=" + AppPreferences.mainEnabled(this)
+                + " secondary=" + AppPreferences.secondaryEnabled(this)
+                + " permission=" + canDrawOverlays());
         Log.i(TAG, "Rebuild main=" + AppPreferences.mainEnabled(this)
                 + " secondary=" + AppPreferences.secondaryEnabled(this)
                 + " settingsVisible=" + settingsVisible
@@ -188,9 +191,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 AppPreferences.KEY_MAIN_X, AppPreferences.KEY_MAIN_Y, true);
         try {
             mainWindowManager.addView(mainPanel, mainParams);
+            DiagnosticLog.record(this, "Overlay", "main attached");
             Log.i(TAG, "Main overlay attached at " + mainParams.x + "," + mainParams.y
                     + " size=" + width + "x" + height);
         } catch (Throwable error) {
+            DiagnosticLog.record(this, "Overlay", "main attach failed="
+                    + error.getClass().getSimpleName());
             Log.e(TAG, "Unable to add main overlay", error);
             dismissMain();
         }
