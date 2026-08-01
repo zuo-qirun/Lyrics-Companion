@@ -4,9 +4,12 @@ import android.annotation.SuppressLint;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -60,6 +63,16 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_TEXT_SCALE, value));
+        addSeek(panel, "下一句字号", 45, 120,
+                AppPreferences.nextLyricScale(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_NEXT_LYRIC_SCALE, value));
+        addSeek(panel, "下一句不透明度", 20, 100,
+                AppPreferences.nextLyricOpacity(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
+        addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
+                AppPreferences.smoothLyricScroll(this, secondary));
         addSeek(panel, "歌词显示行数", 1, 3,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
                 value -> AppPreferences.putDisplayInt(this, secondary,
@@ -69,6 +82,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_LYRIC_OFFSET, value));
         addCard(root, panel);
+
+        LinearLayout sourceCorrection = card("按播放器校正");
+        addSourceCorrection(sourceCorrection);
+        addCard(root, sourceCorrection);
 
         LinearLayout artwork = card("背景与封面");
         addSeek(artwork, "背景不透明度", 0, 100,
@@ -170,10 +187,76 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         toggle.setPadding(0, dp(10), 0, 0);
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.putDisplayBoolean(this, true, key, checked);
+            AppPreferences.putDisplayBoolean(this, secondary, key, checked);
             changed();
         });
         parent.addView(toggle);
+    }
+
+    private void addSourceCorrection(LinearLayout parent) {
+        TextView description = text("在全局时间校正的基础上，为不同播放器单独微调。", 12,
+                0xFF8392A8, false);
+        description.setPadding(0, dp(10), 0, dp(4));
+        parent.addView(description);
+        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "其他播放器"};
+        String[] sourceIds = {"netease", "qqmusic", "kugou", "kuwo", "soda", "media"};
+        String active = MusicStateStore.activeSourceId();
+        int initialIndex = sourceIndex(sourceIds, active);
+        final String[] selectedSource = {sourceIds[initialIndex]};
+
+        Spinner picker = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels);
+        picker.setAdapter(adapter);
+        picker.setSelection(initialIndex);
+        parent.addView(picker, new LinearLayout.LayoutParams(-1, dp(44)));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, 0);
+        row.addView(text("所选播放器额外校正", 14, 0xFFD7E1EE, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView value = text("0 ms", 13, 0xFF6EE7F2, true);
+        row.addView(value);
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(10_000);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                int offsetMs = progress - 5_000;
+                value.setText(formatValue(offsetMs, " ms"));
+                if (!fromUser) return;
+                AppPreferences.putLyricSourceOffsetMs(DisplaySettingsActivity.this, secondary,
+                        selectedSource[0], offsetMs);
+                changed();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+        picker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parentView, android.view.View view,
+                                                 int position, long id) {
+                selectedSource[0] = sourceIds[position];
+                int offsetMs = AppPreferences.lyricSourceOffsetMs(DisplaySettingsActivity.this,
+                        secondary, selectedSource[0]);
+                seek.setProgress(offsetMs + 5_000);
+            }
+            @Override public void onNothingSelected(AdapterView<?> parentView) { }
+        });
+        seek.setProgress(AppPreferences.lyricSourceOffsetMs(this, secondary, selectedSource[0])
+                + 5_000);
+    }
+
+    private static int sourceIndex(String[] sourceIds, String sourceId) {
+        for (int i = 0; i < sourceIds.length; i++) {
+            if (sourceIds[i].equals(sourceId)) return i;
+        }
+        return sourceIds.length - 1;
     }
 
     private void changed() {

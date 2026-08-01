@@ -806,7 +806,23 @@ public final class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        startActivityForResult(intent, REQUEST_CUSTOM_FONT);
+        if (startDocumentPicker(intent)) return;
+        Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+        fallback.addCategory(Intent.CATEGORY_OPENABLE);
+        fallback.setType("*/*");
+        if (startDocumentPicker(fallback)) return;
+        Toast.makeText(this, "此设备没有可用的文件选择器，请安装或启用系统文件管理器后重试。",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private boolean startDocumentPicker(Intent intent) {
+        try {
+            if (intent.resolveActivity(getPackageManager()) == null) return false;
+            startActivityForResult(intent, REQUEST_CUSTOM_FONT);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
@@ -1097,16 +1113,24 @@ public final class MainActivity extends AppCompatActivity {
 
     private void openOverlayPermission() {
         if (Build.VERSION.SDK_INT < 23) {
-            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName())));
+            if (!startSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())))) {
+                Toast.makeText(this, "无法打开系统应用设置，请在系统设置中手动开启悬浮窗权限。",
+                        Toast.LENGTH_LONG).show();
+            }
             return;
         }
         Intent intent = new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION",
                 Uri.parse("package:" + getPackageName()));
-        try { startActivity(intent); }
-        catch (Throwable ignored) {
-            startActivity(new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION"));
+        if (startSettingsActivity(intent)) return;
+        if (startSettingsActivity(new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION"))) {
+            return;
         }
+        if (startSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())))) {
+            return;
+        }
+        Toast.makeText(this, "无法打开系统悬浮窗权限设置，请在系统设置中手动开启。", Toast.LENGTH_LONG).show();
     }
 
     private void requestNotificationPermissionIfNeeded() {

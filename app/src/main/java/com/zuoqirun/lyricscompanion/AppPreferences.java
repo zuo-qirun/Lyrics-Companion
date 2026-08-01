@@ -24,6 +24,10 @@ final class AppPreferences {
     static final String KEY_TEXT_SCALE = "text_scale";
     static final String KEY_OPACITY = "opacity";
     static final String KEY_LYRIC_OFFSET = "lyric_offset";
+    static final String KEY_LYRIC_SOURCE_OFFSET = "lyric_source_offset";
+    static final String KEY_NEXT_LYRIC_SCALE = "next_lyric_scale";
+    static final String KEY_NEXT_LYRIC_OPACITY = "next_lyric_opacity";
+    static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
     static final String KEY_PLAYER_CATALOG_FALLBACK = "player_catalog_fallback";
     static final String KEY_MAIN_X = "main_x";
@@ -211,6 +215,35 @@ final class AppPreferences {
 
     static int lyricOffsetMs(Context context, boolean secondary) {
         return displayInt(context, secondary, KEY_LYRIC_OFFSET, 0);
+    }
+
+    /** The global correction remains the baseline; a player profile is an additive trim. */
+    static int lyricOffsetMs(Context context, boolean secondary, String sourceId) {
+        return lyricOffsetMs(context, secondary)
+                + lyricSourceOffsetMs(context, secondary, sourceId);
+    }
+
+    static int lyricSourceOffsetMs(Context context, boolean secondary, String sourceId) {
+        return displayInt(context, secondary, lyricSourceOffsetKey(sourceId), 0);
+    }
+
+    static void putLyricSourceOffsetMs(Context context, boolean secondary, String sourceId,
+                                       int value) {
+        putDisplayInt(context, secondary, lyricSourceOffsetKey(sourceId), value);
+    }
+
+    static int nextLyricScale(Context context, boolean secondary) {
+        return Math.max(45, Math.min(120,
+                displayInt(context, secondary, KEY_NEXT_LYRIC_SCALE, 70)));
+    }
+
+    static int nextLyricOpacity(Context context, boolean secondary) {
+        return Math.max(20, Math.min(100,
+                displayInt(context, secondary, KEY_NEXT_LYRIC_OPACITY, 100)));
+    }
+
+    static boolean smoothLyricScroll(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_SMOOTH_LYRIC_SCROLL, true);
     }
 
     static String lyricCatalog(Context context) {
@@ -447,5 +480,11 @@ final class AppPreferences {
 
     static void changed(Context context) {
         LyricsDisplayService.startOrRefresh(context);
+    }
+
+    private static String lyricSourceOffsetKey(String sourceId) {
+        String safe = sourceId == null ? "media" : sourceId.trim().toLowerCase();
+        if (!safe.matches("[a-z0-9_]+")) safe = "media";
+        return KEY_LYRIC_SOURCE_OFFSET + "_" + safe;
     }
 }

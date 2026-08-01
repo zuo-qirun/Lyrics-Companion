@@ -49,6 +49,9 @@ final class LyricsPanelView extends View {
     private float coverScale = 1f;
     private int opacity = 88;
     private int lyricOffsetMs;
+    private float nextLyricScale = 0.70f;
+    private int nextLyricOpacity = 100;
+    private boolean smoothLyricScroll = true;
     private int backgroundBlur;
     private int backgroundDim;
     private int lyricLineCount;
@@ -98,6 +101,8 @@ final class LyricsPanelView extends View {
     private long lastRenderedLineStartMs = Long.MIN_VALUE;
     private long lyricScrollAnimationStartedMs;
     private int lyricScrollDirection;
+    private long lastBasicLineStartMs = Long.MIN_VALUE;
+    private long basicLyricScrollAnimationStartedMs;
     private Typeface customTypeface;
     private String compactMarqueeText = "";
     private long compactMarqueeElapsedMs;
@@ -117,6 +122,9 @@ final class LyricsPanelView extends View {
         coverScale = AppPreferences.styleCoverScale(getContext(), secondary);
         opacity = AppPreferences.opacity(getContext(), secondary);
         lyricOffsetMs = AppPreferences.lyricOffsetMs(getContext(), secondary);
+        nextLyricScale = AppPreferences.nextLyricScale(getContext(), secondary) / 100f;
+        nextLyricOpacity = AppPreferences.nextLyricOpacity(getContext(), secondary);
+        smoothLyricScroll = AppPreferences.smoothLyricScroll(getContext(), secondary);
         backgroundBlur = AppPreferences.styleBlur(getContext(), secondary);
         backgroundDim = AppPreferences.styleDim(getContext(), secondary);
         lyricLineCount = AppPreferences.styleLyricLines(getContext(), secondary);
@@ -172,6 +180,8 @@ final class LyricsPanelView extends View {
             browseVisualOffsetPx = 0f;
             browseVelocityPxPerSecond = 0f;
         }
+        lyricOffsetMs = AppPreferences.lyricOffsetMs(getContext(), secondary,
+                MusicStateStore.activeSourceId());
         MusicSnapshot snapshot = browsingLyrics || browseUntilElapsedMs > now
                 ? MusicStateStore.snapshotForLyricBrowse(lyricOffsetMs, browsePositionMs)
                 : MusicStateStore.snapshot(lyricOffsetMs);
@@ -226,7 +236,7 @@ final class LyricsPanelView extends View {
     boolean isLyricGestureRegion(float x, float y) {
         if (getWidth() <= 0 || getHeight() <= 0) return false;
         if (playbackControlAt(x, y) != null) return false;
-        MusicSnapshot snapshot = MusicStateStore.snapshot(lyricOffsetMs);
+        MusicSnapshot snapshot = MusicStateStore.snapshot(effectiveLyricOffsetMs());
         if (!snapshot.lyricAvailable) return false;
         if ("refined".equals(overlayStyle)) {
             return !"cover".equals(refinedDisplayMode)
@@ -264,6 +274,7 @@ final class LyricsPanelView extends View {
     @Override public boolean onTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                lyricOffsetMs = effectiveLyricOffsetMs();
                 MusicSnapshot live = MusicStateStore.snapshot(lyricOffsetMs);
                 if (!live.lyricAvailable) return false;
                 long now = SystemClock.elapsedRealtime();
@@ -580,29 +591,33 @@ final class LyricsPanelView extends View {
         drawCentered(canvas, snapshot.active ? snapshot.title : "打开音乐播放器并开始播放", y,
                 15f * density * textScale * unit, 0xFFF6F9FF, usableWidth, Typeface.BOLD);
         y += 27f * density * unit;
-        drawCentered(canvas, snapshot.lyrics.previousLyric, y + previewShift,
+        float basicScrollShift = basicLyricEntryShift(snapshot.lyrics.lineStartMs,
+                32f * density * unit);
+        drawCentered(canvas, snapshot.lyrics.previousLyric, y + previewShift + basicScrollShift,
                 12f * density * textScale * unit, 0xFF68778C, usableWidth, Typeface.NORMAL);
         y += 32f * density * unit;
         if (snapshot.lyrics.interlude) {
             float dotRadius = 22f * density * textScale * unit * 0.35f;
             float dotWidth = interludeDotsWidth(dotRadius);
             drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
-                    y + previewShift - dotRadius, dotRadius, 0xFFFFCA66);
+                    y + previewShift + basicScrollShift - dotRadius, dotRadius, 0xFFFFCA66);
         } else {
             drawKaraoke(canvas, snapshot, currentText(snapshot), width / 2f,
-                    y + previewShift,
+                    y + previewShift + basicScrollShift,
                     22f * density * textScale * unit, usableWidth, Paint.Align.CENTER,
                     0xFFB1BCCB, 0xFFFFCA66);
         }
         if (!snapshot.lyrics.translatedLyric.isEmpty()) {
             y += 24f * density * unit;
-            drawCentered(canvas, snapshot.lyrics.translatedLyric, y + previewShift,
+            drawCentered(canvas, snapshot.lyrics.translatedLyric,
+                    y + previewShift + basicScrollShift,
                     12f * density * textScale * unit, 0xFFB8C5D8, usableWidth, Typeface.NORMAL);
         }
         float controlReserve = secondary ? 0f : 31f * density;
         drawCentered(canvas, snapshot.lyrics.nextLyric,
                 height - 37f * density - controlReserve + previewShift,
-                12f * density * textScale * unit, 0xFF68778C, usableWidth, Typeface.NORMAL);
+                nextLyricSize(22f * density * textScale * unit),
+                nextLyricColor(0xFF68778C), usableWidth, Typeface.NORMAL);
         drawProgress(canvas, pad, height - 17f * density, width - pad, 3f * density,
                 snapshot, 0x354B5F78, 0xFFFFCA66);
     }
@@ -975,7 +990,9 @@ final class LyricsPanelView extends View {
             top += curve.translationY;
             float centerY = top + heights[i] / 2f;
             float scale = refinedLyricZoom ? refinedScaleForOffset(offset) : 1f;
+            if (offset == 1) scale *= nextLyricScale;
             float opacity = offset == 0 ? 1f : 0.40f;
+            if (offset == 1) opacity *= nextLyricOpacity / 100f;
             if (refinedLyricFade && Math.abs(offset) > 1) {
                 opacity *= Math.max(0f, 1f - 0.4f * (Math.abs(offset) - 1));
             }
@@ -1026,7 +1043,7 @@ final class LyricsPanelView extends View {
     }
 
     private float animatedLyricScrollShift(long lineStartMs, float stepHeight) {
-        if (lineStartMs < 0L) return 0f;
+        if (lineStartMs < 0L || !smoothLyricScroll) return 0f;
         if (manualPreviewActive()) {
             lastRenderedLineStartMs = lineStartMs;
             lyricScrollAnimationStartedMs = 0L;
@@ -1046,6 +1063,39 @@ final class LyricsPanelView extends View {
                 - lyricScrollAnimationStartedMs) / 500f);
         float eased = 1f - (float) Math.pow(1f - progress, 3d);
         return lyricScrollDirection * stepHeight * (1f - eased);
+    }
+
+    /** Animates the default card's old current line up while the new line enters below it. */
+    private float basicLyricEntryShift(long lineStartMs, float stepHeight) {
+        if (lineStartMs < 0L || !smoothLyricScroll || manualPreviewActive()) {
+            lastBasicLineStartMs = lineStartMs;
+            return 0f;
+        }
+        if (lastBasicLineStartMs == Long.MIN_VALUE) {
+            lastBasicLineStartMs = lineStartMs;
+            return 0f;
+        }
+        if (lineStartMs != lastBasicLineStartMs) {
+            lastBasicLineStartMs = lineStartMs;
+            basicLyricScrollAnimationStartedMs = SystemClock.elapsedRealtime();
+        }
+        float progress = clamp((SystemClock.elapsedRealtime()
+                - basicLyricScrollAnimationStartedMs) / 360f);
+        float eased = 1f - (float) Math.pow(1f - progress, 3d);
+        return stepHeight * (1f - eased);
+    }
+
+    private float nextLyricSize(float currentLyricSize) {
+        return currentLyricSize * nextLyricScale;
+    }
+
+    private int nextLyricColor(int color) {
+        return withAlpha(color, Math.round(Color.alpha(color) * nextLyricOpacity / 100f));
+    }
+
+    private int effectiveLyricOffsetMs() {
+        return AppPreferences.lyricOffsetMs(getContext(), secondary,
+                MusicStateStore.activeSourceId());
     }
 
     private float refinedScaleForOffset(int offset) {
@@ -1272,7 +1322,8 @@ final class LyricsPanelView extends View {
         if (lyricLineCount >= 2) {
             drawLeft(canvas, snapshot.lyrics.nextLyric, pad,
                     lyricY - pipLyricSize + currentHeight + 36f * density,
-                    14f * density * textScale, 0x985A5148, lyricWidth, Typeface.BOLD);
+                    nextLyricSize(pipLyricSize), nextLyricColor(0x985A5148), lyricWidth,
+                    Typeface.BOLD);
         }
     }
 
@@ -1320,7 +1371,8 @@ final class LyricsPanelView extends View {
                     break;
                 case LyricsLayoutConfig.NEXT:
                     drawLeft(canvas, snapshot.lyrics.nextLyric, x, y,
-                            12f * density * textScale, 0x7FFFFFFF, maxWidth, Typeface.NORMAL);
+                            nextLyricSize(22f * density * textScale),
+                            nextLyricColor(0x7FFFFFFF), maxWidth, Typeface.NORMAL);
                     break;
                 case LyricsLayoutConfig.PROGRESS:
                     drawProgress(canvas, x, y, Math.min(width - pad, x + width * 0.38f),

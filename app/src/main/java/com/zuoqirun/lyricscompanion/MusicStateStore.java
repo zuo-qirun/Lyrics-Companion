@@ -232,6 +232,12 @@ final class MusicStateStore {
         }
     }
 
+    static String activeSourceId() {
+        synchronized (LOCK) {
+            return source;
+        }
+    }
+
     static MusicSnapshot snapshotForLyricBrowse(int lyricOffsetMs, long lyricPositionMs) {
         synchronized (LOCK) {
             long position = Math.max(0L, lyricPositionMs - lyricOffsetMs);
