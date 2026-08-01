@@ -13,7 +13,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,6 +25,7 @@ final class CommunityClient {
     private static final String API_BASE = "https://lyrics-companion.zuoqirun.top/api";
     private static final int MAX_RESPONSE_BYTES = 64 * 1024;
     private static final int MAX_TICKETS = 20;
+    private static final int MAX_READ_REPLY_IDS = 100;
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(2);
 
     private CommunityClient() {}
@@ -83,6 +86,46 @@ final class CommunityClient {
                 complete(callback, new FeedbackRepliesResult(false, new ArrayList<>(), safeMessage(error)));
             }
         });
+    }
+
+    static List<FeedbackReply> unreadFeedbackReplies(Context context,
+                                                      List<FeedbackReply> replies) {
+        return unreadFeedbackReplies(replies, AppPreferences.get(context).getString(
+                AppPreferences.KEY_FEEDBACK_READ_REPLY_IDS, ""));
+    }
+
+    static void markFeedbackRepliesRead(Context context, List<FeedbackReply> replies) {
+        String existing = AppPreferences.get(context).getString(
+                AppPreferences.KEY_FEEDBACK_READ_REPLY_IDS, "");
+        AppPreferences.get(context).edit().putString(AppPreferences.KEY_FEEDBACK_READ_REPLY_IDS,
+                markFeedbackRepliesRead(existing, replies)).apply();
+    }
+
+    static List<FeedbackReply> unreadFeedbackReplies(List<FeedbackReply> replies,
+                                                      String readReplyIds) {
+        Set<String> readIds = replyIds(readReplyIds);
+        List<FeedbackReply> unread = new ArrayList<>();
+        if (replies == null) return unread;
+        for (FeedbackReply reply : replies) {
+            if (reply != null && !reply.id.isEmpty() && !readIds.contains(reply.id)) {
+                unread.add(reply);
+            }
+        }
+        return unread;
+    }
+
+    static String markFeedbackRepliesRead(String readReplyIds, List<FeedbackReply> replies) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>(replyIds(readReplyIds));
+        if (replies != null) for (FeedbackReply reply : replies) {
+            if (reply != null && !reply.id.isEmpty()) ids.add(reply.id);
+        }
+        while (ids.size() > MAX_READ_REPLY_IDS) ids.remove(ids.iterator().next());
+        StringBuilder value = new StringBuilder();
+        for (String id : ids) {
+            if (value.length() > 0) value.append('\n');
+            value.append(id);
+        }
+        return value.toString();
     }
 
     static void uploadSnapshotAsync(Context context, Callback<DiagnosticResult> callback) {
@@ -168,6 +211,16 @@ final class CommunityClient {
         } catch (Throwable ignored) {
             return new JSONArray();
         }
+    }
+
+    private static Set<String> replyIds(String value) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (value == null || value.isEmpty()) return ids;
+        for (String id : value.split("\\n")) {
+            String trimmed = id.trim();
+            if (!trimmed.isEmpty()) ids.add(trimmed);
+        }
+        return ids;
     }
 
     private static String appVersion(Context context) {

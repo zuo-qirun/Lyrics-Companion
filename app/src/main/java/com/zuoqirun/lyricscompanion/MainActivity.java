@@ -77,6 +77,7 @@ public final class MainActivity extends AppCompatActivity {
     private boolean onlineBusy;
     private boolean feedbackBusy;
     private boolean diagnosticBusy;
+    private boolean feedbackReplyDialogVisible;
     private boolean activityResumed;
     private boolean listenerReconnectScheduled;
     private long listenerReconnectDeadlineElapsedMs;
@@ -681,7 +682,14 @@ public final class MainActivity extends AppCompatActivity {
             } else if (result.replies.isEmpty()) {
                 feedbackReplyStatus.setText("反馈回复：暂无新回复");
             } else {
-                feedbackReplyStatus.setText("反馈回复：收到 " + result.replies.size() + " 条，请点击查看");
+                List<CommunityClient.FeedbackReply> unread =
+                        CommunityClient.unreadFeedbackReplies(this, result.replies);
+                if (unread.isEmpty()) {
+                    feedbackReplyStatus.setText("反馈回复：已查看 " + result.replies.size() + " 条");
+                } else {
+                    feedbackReplyStatus.setText("反馈回复：收到 " + unread.size() + " 条新回复");
+                    showFeedbackRepliesDialog(unread);
+                }
             }
         }));
     }
@@ -697,15 +705,26 @@ public final class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "暂时没有收到回复", Toast.LENGTH_SHORT).show();
                 return;
             }
-            StringBuilder content = new StringBuilder();
-            for (CommunityClient.FeedbackReply reply : result.replies) {
-                if (content.length() > 0) content.append("\n\n");
-                content.append(reply.createdAt).append("\n").append(reply.message);
-            }
-            new MaterialAlertDialogBuilder(this).setTitle("反馈回复")
-                    .setMessage(content).setPositiveButton("知道了", null).show();
-            refreshFeedbackReplies();
+            showFeedbackRepliesDialog(result.replies);
         }));
+    }
+
+    private void showFeedbackRepliesDialog(List<CommunityClient.FeedbackReply> replies) {
+        if (feedbackReplyDialogVisible || replies == null || replies.isEmpty()) return;
+        feedbackReplyDialogVisible = true;
+        StringBuilder content = new StringBuilder();
+        for (CommunityClient.FeedbackReply reply : replies) {
+            if (content.length() > 0) content.append("\n\n");
+            content.append(reply.createdAt).append("\n").append(reply.message);
+        }
+        CommunityClient.markFeedbackRepliesRead(this, replies);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this).setTitle("反馈回复")
+                .setMessage(content).setPositiveButton("知道了", null).create();
+        dialog.setOnDismissListener(ignored -> {
+            feedbackReplyDialogVisible = false;
+            refreshFeedbackReplies();
+        });
+        dialog.show();
     }
 
     private void refreshPreview() {

@@ -235,15 +235,26 @@ public class MusicAppRegistryTest {
         assertEquals("", MusicStateStore.sodaTitleFromDynamicArtist("VALORANT​, Grabbitz"));
     }
 
-    @Test public void sodaLiveTitleBecomesLyricOnlyAfterCatalogsMiss() {
-        assertFalse(MusicStateStore.isSodaLiveLyricFallbackAvailable(
+    @Test public void liveMetadataTitleBecomesLyricOnlyAfterCatalogsMiss() {
+        assertFalse(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "soda", false, LrcTimeline.EMPTY, "You know I adore ya"));
-        assertTrue(MusicStateStore.isSodaLiveLyricFallbackAvailable(
+        assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "soda", true, LrcTimeline.EMPTY, "You know I adore ya"));
-        assertFalse(MusicStateStore.isSodaLiveLyricFallbackAvailable(
+        assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "qqmusic", true, LrcTimeline.EMPTY, "You know I adore ya"));
+        assertFalse(MusicStateStore.isLiveSessionLyricFallbackAvailable(
+                "netease", true, LrcTimeline.EMPTY, "You know I adore ya"));
         assertEquals("You know I adore ya",
                 LrcTimeline.liveLine("You know I adore ya").lyric);
+    }
+
+    @Test public void keepsQqMusicTitleWhenItBecomesALiveLyric() {
+        assertTrue(MusicStateStore.shouldKeepLiveLyricTrackIdentity(
+                "qqmusic", true, "Song Name", "a live lyric line", "Artist", "Artist",
+                269_000L, 269_000L, "song-mid-a", "song-mid-a"));
+        assertFalse(MusicStateStore.shouldKeepLiveLyricTrackIdentity(
+                "qqmusic", true, "Song Name", "Next Song", "Artist", "Artist",
+                269_000L, 269_000L, "song-mid-a", "song-mid-b"));
     }
 
     @Test public void netEaseDirectSongIdStillRefreshesIdentity() {

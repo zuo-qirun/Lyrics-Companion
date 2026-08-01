@@ -61,6 +61,7 @@ final class AppPreferences {
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
     static final String KEY_FEEDBACK_TICKETS = "feedback_tickets";
+    static final String KEY_FEEDBACK_READ_REPLY_IDS = "feedback_read_reply_ids";
     static final String KEY_DIAGNOSTIC_UPLOAD_ENABLED = "diagnostic_upload_enabled";
 
     private AppPreferences() {}

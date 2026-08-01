@@ -70,7 +70,7 @@ final class MusicStateStore {
         String newTitle = sodaHasCompositeIdentity ? sodaDynamicTitle : rawTitle;
         String newArtist = sodaHasCompositeIdentity
                 ? sodaStableArtist(newTitle, rawArtist) : rawArtist;
-        String incomingSodaLiveLyric = sodaHasCompositeIdentity ? rawTitle : "";
+        String incomingLiveSessionLyric = sodaHasCompositeIdentity ? rawTitle : "";
         String newMediaId = data.mediaId;
         Bitmap newAlbumArt = data.albumArt;
         String newAlbumArtUri = data.albumArtUri;
@@ -88,15 +88,15 @@ final class MusicStateStore {
         long generationForAlbumArt = -1L;
         synchronized (LOCK) {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
-            if (!sodaHasCompositeIdentity && shouldKeepSodaTrackIdentity(
+            if (!sodaHasCompositeIdentity && shouldKeepLiveLyricTrackIdentity(
                     normalizedSource, sameSource, title, newTitle,
                     artist, newArtist, durationMs, newDuration,
                     mediaId, newMediaId)) {
-                // Older Soda builds without ALBUM use TITLE as live lyric and ARTIST as
-                // title-artist. Keep one-field lyric mutations, but never suppress a complete
-                // title+artist replacement or a stable Soda track-ID change.
-                Log.i(TAG, "Ignoring Soda dynamic metadata: " + newTitle + " / " + newArtist);
-                if (!sameIdentityText(newTitle, title)) incomingSodaLiveLyric = newTitle;
+                // Some Soda and QQ Music builds replace TITLE with the current lyric. Keep
+                // one-field lyric mutations, but never suppress a complete title+artist
+                // replacement or a stable player track-ID change.
+                Log.i(TAG, "Ignoring live-lyric metadata: " + newTitle + " / " + newArtist);
+                if (!sameIdentityText(newTitle, title)) incomingLiveSessionLyric = newTitle;
                 newTitle = title;
                 if (!TextUtils.isEmpty(artist)) newArtist = artist;
                 if (!TextUtils.isEmpty(mediaId)) newMediaId = mediaId;
@@ -166,9 +166,9 @@ final class MusicStateStore {
                 generationToLoad = ++trackGeneration;
                 cancelLyricLoadLocked();
             }
-            if ("soda".equals(normalizedSource)
-                    && !TextUtils.isEmpty(incomingSodaLiveLyric)) {
-                liveSessionLyric = incomingSodaLiveLyric.trim();
+            if (usesLiveTitleMetadata(normalizedSource)
+                    && !TextUtils.isEmpty(incomingLiveSessionLyric)) {
+                liveSessionLyric = incomingLiveSessionLyric.trim();
             }
             if (changed || playbackModeChanged) {
                 Log.i(TAG, "Position sync state=" + stateValue + " advancing=" + newPlaying
@@ -247,11 +247,12 @@ final class MusicStateStore {
 
     private static MusicSnapshot snapshotLocked(long position, long lyricPosition) {
         boolean catalogLyricAvailable = !timeline.isEmpty();
-        boolean liveLyricAvailable = isSodaLiveLyricFallbackAvailable(source,
+        boolean liveLyricAvailable = isLiveSessionLyricFallbackAvailable(source,
                 lyricLoadFinished, timeline, liveSessionLyric);
         LrcTimeline.At at = liveLyricAvailable
                 ? LrcTimeline.liveLine(liveSessionLyric) : timeline.at(lyricPosition);
-        String displayedLyricSource = liveLyricAvailable ? "汽水实时歌词" : lyricSourceName;
+        String displayedLyricSource = liveLyricAvailable
+                ? liveSessionLyricSourceName(source) : lyricSourceName;
         return new MusicSnapshot(active, playing, sourceName, title, artist, albumArt, durationMs,
                 position, lyricLoadFinished, catalogLyricAvailable || liveLyricAvailable,
                 displayedLyricSource, at);
@@ -435,8 +436,23 @@ final class MusicStateStore {
                                                String currentArtist, String incomingArtist,
                                                long currentDuration, long incomingDuration,
                                                String currentMediaId, String incomingMediaId) {
-        if (!sameSource || !"soda".equals(incomingSource)
+        return shouldKeepLiveLyricTrackIdentity(incomingSource, sameSource,
+                currentTitle, incomingTitle, currentArtist, incomingArtist,
+                currentDuration, incomingDuration, currentMediaId, incomingMediaId);
+    }
+
+    static boolean shouldKeepLiveLyricTrackIdentity(String incomingSource, boolean sameSource,
+                                                     String currentTitle, String incomingTitle,
+                                                     String currentArtist, String incomingArtist,
+                                                     long currentDuration, long incomingDuration,
+                                                     String currentMediaId, String incomingMediaId) {
+        if (!sameSource || !usesLiveTitleMetadata(incomingSource)
                 || safe(currentTitle).trim().isEmpty()) return false;
+        if ("qqmusic".equals(incomingSource)) {
+            return shouldKeepQqMusicTitleAsLiveLyric(currentTitle, incomingTitle,
+                    currentArtist, incomingArtist, currentDuration, incomingDuration,
+                    currentMediaId, incomingMediaId);
+        }
         String currentTrackId = SodaLyricClient.trackId(currentMediaId);
         String incomingTrackId = SodaLyricClient.trackId(incomingMediaId);
         if (!currentTrackId.isEmpty() && !incomingTrackId.isEmpty()
@@ -451,10 +467,32 @@ final class MusicStateStore {
         if (!titleChanged && !artistChanged) return false;
         boolean durationChanged = currentDuration > 0L && incomingDuration > 0L
                 && Math.abs(currentDuration - incomingDuration) > 2_000L;
-        // Soda lyric mode mutates one identity field at a time (TITLE becomes the lyric, or
-        // ARTIST becomes title-artist/lyric). A simultaneous title+artist replacement is a real
-        // track switch even when DURATION is stale or temporarily absent.
+        // Live-lyric mode mutates one identity field at a time. A simultaneous title+artist
+        // replacement is a real track switch even when DURATION is stale or temporarily absent.
         return !(titleChanged && artistChanged || durationChanged && titleChanged);
+    }
+
+    private static boolean shouldKeepQqMusicTitleAsLiveLyric(String currentTitle,
+                                                               String incomingTitle,
+                                                               String currentArtist,
+                                                               String incomingArtist,
+                                                               long currentDuration,
+                                                               long incomingDuration,
+                                                               String currentMediaId,
+                                                               String incomingMediaId) {
+        if (!safe(currentMediaId).trim().isEmpty()
+                && !safe(incomingMediaId).trim().isEmpty()
+                && !safe(currentMediaId).equals(safe(incomingMediaId))) {
+            return false;
+        }
+        boolean titleChanged = !safe(incomingTitle).trim().isEmpty()
+                && !sameIdentityText(currentTitle, incomingTitle);
+        boolean artistChanged = !safe(currentArtist).trim().isEmpty()
+                && !safe(incomingArtist).trim().isEmpty()
+                && !sameIdentityText(currentArtist, incomingArtist);
+        boolean durationChanged = currentDuration > 0L && incomingDuration > 0L
+                && Math.abs(currentDuration - incomingDuration) > 2_000L;
+        return titleChanged && !artistChanged && !durationChanged;
     }
 
     static String sodaStableArtist(String stableTitle, String rawArtist) {
@@ -479,12 +517,20 @@ final class MusicStateStore {
         return separator < 1 ? "" : value.substring(0, separator).trim();
     }
 
-    static boolean isSodaLiveLyricFallbackAvailable(String source, boolean loadFinished,
-                                                     LrcTimeline catalogTimeline,
-                                                     String liveLyric) {
-        return "soda".equals(source) && loadFinished
+    static boolean isLiveSessionLyricFallbackAvailable(String source, boolean loadFinished,
+                                                        LrcTimeline catalogTimeline,
+                                                        String liveLyric) {
+        return usesLiveTitleMetadata(source) && loadFinished
                 && (catalogTimeline == null || catalogTimeline.isEmpty())
                 && !TextUtils.isEmpty(liveLyric);
+    }
+
+    private static boolean usesLiveTitleMetadata(String source) {
+        return "soda".equals(source) || "qqmusic".equals(source);
+    }
+
+    private static String liveSessionLyricSourceName(String source) {
+        return "qqmusic".equals(source) ? "QQ 实时歌词" : "汽水实时歌词";
     }
 
     private static boolean sameIdentityText(String left, String right) {
