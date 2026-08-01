@@ -156,9 +156,7 @@ final class LyricsPanelView extends View {
         setLayerType(usesRefinedVisualStyle() && refinedLyricBlur
                 ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext(), secondary);
-        if (blurPreview != null && blurPreview != blurSource && !blurPreview.isRecycled()) {
-            blurPreview.recycle();
-        }
+        recycleBlurPreview();
         blurPreview = null;
         blurSource = null;
         clearTextCaches();
@@ -201,7 +199,18 @@ final class LyricsPanelView extends View {
             drawBrowseIndicator(canvas, snapshot, density);
         }
         if (!secondary) drawPlaybackControls(canvas, snapshot, density);
-        postInvalidateDelayed(nextFrameDelay(snapshot, now));
+        scheduleNextFrame(nextFrameDelay(snapshot, now));
+    }
+
+    private void scheduleNextFrame(long delayMs) {
+        // A fixed 16 ms delay is not synchronized with the display. On some devices the
+        // runnable lands just after VSync, causing the first part of a lyric transition to
+        // alternate between frames. Let the compositor schedule animation frames instead.
+        if (delayMs <= 16L) {
+            postInvalidateOnAnimation();
+        } else {
+            postInvalidateDelayed(delayMs);
+        }
     }
 
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
@@ -209,11 +218,16 @@ final class LyricsPanelView extends View {
         if (compactMarqueeActive && snapshot.playing) return 16L;
         if (lyricScrollAnimationStartedMs > 0L
                 && nowElapsedMs - lyricScrollAnimationStartedMs < 500L) return 16L;
+        if (basicLyricScrollAnimationStartedMs > 0L
+                && nowElapsedMs - basicLyricScrollAnimationStartedMs < 360L) return 16L;
         if (browseUntilElapsedMs > nowElapsedMs) {
             return Math.max(16L, Math.min(250L, browseUntilElapsedMs - nowElapsedMs));
         }
         if (!snapshot.active) return 750L;
         if (!snapshot.playing) return 400L;
+        // Fluid and dynamic-gradient backgrounds are time-based.  The old 100 ms idle
+        // cadence made them visibly step at 10 fps even when no word-timed lyric was active.
+        if (hasAnimatedRefinedBackground()) return 33L;
         if (snapshot.lyrics.interlude) return 33L;
         if (snapshot.lyrics.wordTimed && snapshot.lyrics.wordDurationMs > 0L
                 && !snapshot.lyrics.currentWord.isEmpty()) {
@@ -231,6 +245,12 @@ final class LyricsPanelView extends View {
             }
         }
         return 100L;
+    }
+
+    private boolean hasAnimatedRefinedBackground() {
+        if (!usesRefinedVisualStyle()) return false;
+        return ("fluid".equals(refinedBackgroundType) && !refinedStaticFluid)
+                || ("gradient".equals(refinedBackgroundType) && refinedDynamicGradient);
     }
 
     boolean isLyricGestureRegion(float x, float y) {
@@ -1432,21 +1452,106 @@ final class LyricsPanelView extends View {
 
     private Bitmap blurredPreview(Bitmap art) {
         if (art == blurSource && blurPreview != null && !blurPreview.isRecycled()) return blurPreview;
-        if (blurPreview != null && blurPreview != blurSource && !blurPreview.isRecycled()) {
-            blurPreview.recycle();
-        }
+        recycleBlurPreview();
         blurSource = art;
-        int sample = 6 + Math.round(backgroundBlur * 0.46f);
-        int width = Math.max(2, art.getWidth() / sample);
-        int height = Math.max(2, art.getHeight() / sample);
-        blurPreview = Bitmap.createScaledBitmap(art, width, height, true);
+        // A tiny thumbnail scaled back up is fast but turns smooth cover artwork into a
+        // visible checkerboard. Keep a reasonably dense working image and blur that image
+        // once when artwork/settings change; onDraw then only samples the cached bitmap.
+        int sourceLongestSide = Math.max(art.getWidth(), art.getHeight());
+        int targetLongestSide = Math.max(144,
+                Math.min(512, Math.round(512f - backgroundBlur * 2.8f)));
+        float scale = Math.min(1f, targetLongestSide / (float) sourceLongestSide);
+        int width = Math.max(2, Math.round(art.getWidth() * scale));
+        int height = Math.max(2, Math.round(art.getHeight() * scale));
+        Bitmap working = Bitmap.createScaledBitmap(art, width, height, true);
+        int radius = Math.round(backgroundBlur * 0.12f);
+        int passes = Math.min(3, Math.max(0, Math.round(backgroundBlur / 43f)));
+        blurPreview = radius > 0 && passes > 0
+                ? boxBlur(working, radius, passes) : working;
+        if (working != blurPreview && working != art && !working.isRecycled()) {
+            working.recycle();
+        }
         return blurPreview;
     }
 
-    @Override protected void onDetachedFromWindow() {
+    private void recycleBlurPreview() {
         if (blurPreview != null && blurPreview != blurSource && !blurPreview.isRecycled()) {
             blurPreview.recycle();
         }
+    }
+
+    /**
+     * A separable box blur applied to a small cached bitmap. Repeating it produces a smooth
+     * Gaussian-like background without asking the whole View to enter a software layer.
+     */
+    private static Bitmap boxBlur(Bitmap source, int radius, int passes) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        int[] pixels = new int[width * height];
+        int[] scratch = new int[pixels.length];
+        source.getPixels(pixels, 0, width, 0, 0, width, height);
+        for (int pass = 0; pass < passes; pass++) {
+            boxBlurHorizontal(pixels, scratch, width, height, radius);
+            boxBlurVertical(scratch, pixels, width, height, radius);
+        }
+        Bitmap result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        result.setPixels(pixels, 0, width, 0, 0, width, height);
+        return result;
+    }
+
+    private static void boxBlurHorizontal(int[] source, int[] destination, int width,
+                                          int height, int radius) {
+        int window = radius * 2 + 1;
+        for (int y = 0; y < height; y++) {
+            int row = y * width;
+            long alpha = 0L, red = 0L, green = 0L, blue = 0L;
+            for (int x = -radius; x <= radius; x++) {
+                int color = source[row + Math.max(0, Math.min(width - 1, x))];
+                alpha += color >>> 24;
+                red += (color >>> 16) & 0xFF;
+                green += (color >>> 8) & 0xFF;
+                blue += color & 0xFF;
+            }
+            for (int x = 0; x < width; x++) {
+                destination[row + x] = Color.argb((int) (alpha / window),
+                        (int) (red / window), (int) (green / window), (int) (blue / window));
+                int removed = source[row + Math.max(0, x - radius)];
+                int added = source[row + Math.min(width - 1, x + radius + 1)];
+                alpha += (added >>> 24) - (removed >>> 24);
+                red += ((added >>> 16) & 0xFF) - ((removed >>> 16) & 0xFF);
+                green += ((added >>> 8) & 0xFF) - ((removed >>> 8) & 0xFF);
+                blue += (added & 0xFF) - (removed & 0xFF);
+            }
+        }
+    }
+
+    private static void boxBlurVertical(int[] source, int[] destination, int width,
+                                        int height, int radius) {
+        int window = radius * 2 + 1;
+        for (int x = 0; x < width; x++) {
+            long alpha = 0L, red = 0L, green = 0L, blue = 0L;
+            for (int y = -radius; y <= radius; y++) {
+                int color = source[Math.max(0, Math.min(height - 1, y)) * width + x];
+                alpha += color >>> 24;
+                red += (color >>> 16) & 0xFF;
+                green += (color >>> 8) & 0xFF;
+                blue += color & 0xFF;
+            }
+            for (int y = 0; y < height; y++) {
+                destination[y * width + x] = Color.argb((int) (alpha / window),
+                        (int) (red / window), (int) (green / window), (int) (blue / window));
+                int removed = source[Math.max(0, y - radius) * width + x];
+                int added = source[Math.min(height - 1, y + radius + 1) * width + x];
+                alpha += (added >>> 24) - (removed >>> 24);
+                red += ((added >>> 16) & 0xFF) - ((removed >>> 16) & 0xFF);
+                green += ((added >>> 8) & 0xFF) - ((removed >>> 8) & 0xFF);
+                blue += (added & 0xFF) - (removed & 0xFF);
+            }
+        }
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        recycleBlurPreview();
         blurPreview = null;
         blurSource = null;
         paletteSource = null;
