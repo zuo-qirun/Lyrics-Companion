@@ -27,6 +27,7 @@ final class AppPreferences {
     static final String KEY_LYRIC_SOURCE_OFFSET = "lyric_source_offset";
     static final String KEY_NEXT_LYRIC_SCALE = "next_lyric_scale";
     static final String KEY_NEXT_LYRIC_OPACITY = "next_lyric_opacity";
+    static final String KEY_LYRIC_COLOR = "lyric_color";
     static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
     static final String KEY_PLAYER_CATALOG_FALLBACK = "player_catalog_fallback";
@@ -240,6 +241,16 @@ final class AppPreferences {
     static int nextLyricOpacity(Context context, boolean secondary) {
         return Math.max(20, Math.min(100,
                 displayInt(context, secondary, KEY_NEXT_LYRIC_OPACITY, 100)));
+    }
+
+    /** Zero means that the selected overlay style keeps controlling lyric colors. */
+    static int lyricColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_LYRIC_COLOR, 0);
+    }
+
+    static void setLyricColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_LYRIC_COLOR,
+                color == 0 ? 0 : (color | 0xFF000000));
     }
 
     static boolean smoothLyricScroll(Context context, boolean secondary) {

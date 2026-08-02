@@ -49,6 +49,7 @@ final class LyricsPanelView extends View {
     private float coverScale = 1f;
     private int opacity = 88;
     private int lyricOffsetMs;
+    private int lyricColor;
     private float nextLyricScale = 0.70f;
     private int nextLyricOpacity = 100;
     private boolean smoothLyricScroll = true;
@@ -122,6 +123,7 @@ final class LyricsPanelView extends View {
         coverScale = AppPreferences.styleCoverScale(getContext(), secondary);
         opacity = AppPreferences.opacity(getContext(), secondary);
         lyricOffsetMs = AppPreferences.lyricOffsetMs(getContext(), secondary);
+        lyricColor = AppPreferences.lyricColor(getContext(), secondary);
         nextLyricScale = AppPreferences.nextLyricScale(getContext(), secondary) / 100f;
         nextLyricOpacity = AppPreferences.nextLyricOpacity(getContext(), secondary);
         smoothLyricScroll = AppPreferences.smoothLyricScroll(getContext(), secondary);
@@ -437,6 +439,11 @@ final class LyricsPanelView extends View {
     }
 
     private void drawPlaybackControls(Canvas canvas, MusicSnapshot snapshot, float density) {
+        boolean showPrevious = AppPreferences.showPreviousButton(getContext());
+        boolean showPlayPause = AppPreferences.showPlayPauseButton(getContext());
+        boolean showNext = AppPreferences.showNextButton(getContext());
+        if (!showPrevious && !showPlayPause && !showNext) return;
+
         PlaybackControlLayout layout = playbackControlLayout(density);
         int fill = snapshot.active ? 0xC92B405A : 0x8A26384E;
         int icon = snapshot.active ? 0xFFF5F9FF : 0xFF9AAABB;
@@ -465,15 +472,15 @@ final class LyricsPanelView extends View {
             primaryFill = snapshot.active ? 0xD0375A78 : fill;
         }
 
-        if (AppPreferences.showPreviousButton(getContext())) {
+        if (showPrevious) {
             drawPlaybackButton(canvas, layout.centerX - layout.spacing, layout.centerY,
                     layout.radius, fill, icon, MediaControlAction.PREVIOUS, false);
         }
-        if (AppPreferences.showPlayPauseButton(getContext())) {
+        if (showPlayPause) {
             drawPlaybackButton(canvas, layout.centerX, layout.centerY, layout.radius * 1.12f,
                     primaryFill, accent, MediaControlAction.TOGGLE_PLAY_PAUSE, snapshot.playing);
         }
-        if (AppPreferences.showNextButton(getContext())) {
+        if (showNext) {
             drawPlaybackButton(canvas, layout.centerX + layout.spacing, layout.centerY,
                     layout.radius, fill, icon, MediaControlAction.NEXT, false);
         }
@@ -614,30 +621,33 @@ final class LyricsPanelView extends View {
         float basicScrollShift = basicLyricEntryShift(snapshot.lyrics.lineStartMs,
                 32f * density * unit);
         drawCentered(canvas, snapshot.lyrics.previousLyric, y + previewShift + basicScrollShift,
-                12f * density * textScale * unit, 0xFF68778C, usableWidth, Typeface.NORMAL);
+                12f * density * textScale * unit, lyricColor(0xFF68778C), usableWidth,
+                Typeface.NORMAL);
         y += 32f * density * unit;
         if (snapshot.lyrics.interlude) {
             float dotRadius = 22f * density * textScale * unit * 0.35f;
             float dotWidth = interludeDotsWidth(dotRadius);
             drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
-                    y + previewShift + basicScrollShift - dotRadius, dotRadius, 0xFFFFCA66);
+                    y + previewShift + basicScrollShift - dotRadius, dotRadius,
+                    lyricColor(0xFFFFCA66));
         } else {
             drawKaraoke(canvas, snapshot, currentText(snapshot), width / 2f,
                     y + previewShift + basicScrollShift,
                     22f * density * textScale * unit, usableWidth, Paint.Align.CENTER,
-                    0xFFB1BCCB, 0xFFFFCA66);
+                    lyricColor(0xFFB1BCCB), lyricColor(0xFFFFCA66));
         }
         if (!snapshot.lyrics.translatedLyric.isEmpty()) {
             y += 24f * density * unit;
             drawCentered(canvas, snapshot.lyrics.translatedLyric,
                     y + previewShift + basicScrollShift,
-                    12f * density * textScale * unit, 0xFFB8C5D8, usableWidth, Typeface.NORMAL);
+                    12f * density * textScale * unit, lyricColor(0xFFB8C5D8), usableWidth,
+                    Typeface.NORMAL);
         }
         float controlReserve = secondary ? 0f : 31f * density;
         drawCentered(canvas, snapshot.lyrics.nextLyric,
                 height - 37f * density - controlReserve + previewShift,
                 nextLyricSize(22f * density * textScale * unit),
-                nextLyricColor(0xFF68778C), usableWidth, Typeface.NORMAL);
+                nextLyricColor(lyricColor(0xFF68778C)), usableWidth, Typeface.NORMAL);
         drawProgress(canvas, pad, height - 17f * density, width - pad, 3f * density,
                 snapshot, 0x354B5F78, 0xFFFFCA66);
     }
@@ -672,7 +682,7 @@ final class LyricsPanelView extends View {
         }
         if (!coverOnly) {
             drawRefinedLyrics(canvas, snapshot, density, lyricLeft, lyricWidth,
-                    primaryText, secondaryText);
+                    lyricColor(primaryText), lyricColor(secondaryText));
         }
         float progressY = refinedProgressBottom ? height - 2f * density
                 : height - 10f * density;
@@ -747,7 +757,7 @@ final class LyricsPanelView extends View {
         if (showTranslation) {
             drawRefinedText(canvas, snapshot.lyrics.translatedLyric,
                     lyricLeft + lyricWidth * 0.5f, translationBaseline, translationSize,
-                    primaryText, lyricWidth, Paint.Align.CENTER, Typeface.NORMAL, 165);
+                    lyricColor(primaryText), lyricWidth, Paint.Align.CENTER, Typeface.NORMAL, 165);
         }
         if (snapshot.lyrics.interlude) {
             compactMarqueeActive = false;
@@ -757,15 +767,15 @@ final class LyricsPanelView extends View {
             float dotWidth = interludeDotsWidth(dotRadius);
             drawInterludeDots(canvas, snapshot, lyricLeft + (lyricWidth - dotWidth) * 0.5f,
                     baseline - lyricSize * 0.72f,
-                    dotRadius, primaryText);
+                    dotRadius, lyricColor(primaryText));
         } else {
             drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot), lyricLeft,
                     baseline, lyricSize, lyricWidth, density,
-                    withAlpha(primaryText, 120), primaryText);
+                    lyricColor(withAlpha(primaryText, 120)), lyricColor(primaryText));
         }
         if (showBars) {
             drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
-                    width - pad, barsHeight, primaryText);
+                    width - pad, barsHeight, lyricColor(primaryText));
         }
         canvas.restoreToCount(save);
     }
@@ -1113,6 +1123,10 @@ final class LyricsPanelView extends View {
         return withAlpha(color, Math.round(Color.alpha(color) * nextLyricOpacity / 100f));
     }
 
+    private int lyricColor(int fallback) {
+        return lyricColor == 0 ? fallback : withAlpha(lyricColor, Color.alpha(fallback));
+    }
+
     private int effectiveLyricOffsetMs() {
         return AppPreferences.lyricOffsetMs(getContext(), secondary,
                 MusicStateStore.activeSourceId());
@@ -1320,29 +1334,32 @@ final class LyricsPanelView extends View {
         float lyricWidth = width - pad * 2f;
         if (lyricLineCount >= 3) {
             drawLeft(canvas, snapshot.lyrics.previousLyric, pad, lyricY,
-                    12f * density * textScale, 0x705A5148, lyricWidth, Typeface.BOLD);
+                    12f * density * textScale, lyricColor(0x705A5148), lyricWidth,
+                    Typeface.BOLD);
             lyricY += 25f * density;
         }
         float pipLyricSize = 20f * density * textScale * (secondary ? 1.06f : 1f);
         float currentHeight;
         if (snapshot.lyrics.interlude) {
             drawInterludeDots(canvas, snapshot, pad, lyricY - pipLyricSize * 0.55f,
-                    pipLyricSize * 0.35f, 0xFF181513);
+                    pipLyricSize * 0.35f, lyricColor(0xFF181513));
             currentHeight = pipLyricSize * 1.22f;
         } else {
             currentHeight = drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), pad,
-                    lyricY - pipLyricSize, pipLyricSize, lyricWidth, 0xFF181513, 2);
+                    lyricY - pipLyricSize, pipLyricSize, lyricWidth,
+                    lyricColor(0xFF181513), 2);
         }
         if (!snapshot.lyrics.translatedLyric.isEmpty()) {
             drawLeft(canvas, snapshot.lyrics.translatedLyric, pad,
                     lyricY - pipLyricSize + currentHeight + 14f * density,
-                    11f * density * textScale, 0xA85A5148, lyricWidth, Typeface.NORMAL);
+                    11f * density * textScale, lyricColor(0xA85A5148), lyricWidth,
+                    Typeface.NORMAL);
             lyricY += 18f * density;
         }
         if (lyricLineCount >= 2) {
             drawLeft(canvas, snapshot.lyrics.nextLyric, pad,
                     lyricY - pipLyricSize + currentHeight + 36f * density,
-                    nextLyricSize(pipLyricSize), nextLyricColor(0x985A5148), lyricWidth,
+                    nextLyricSize(pipLyricSize), nextLyricColor(lyricColor(0x985A5148)), lyricWidth,
                     Typeface.BOLD);
         }
     }
@@ -1378,21 +1395,24 @@ final class LyricsPanelView extends View {
                     break;
                 case LyricsLayoutConfig.PREVIOUS:
                     drawLeft(canvas, snapshot.lyrics.previousLyric, x, y,
-                            12f * density * textScale, 0x7FFFFFFF, maxWidth, Typeface.NORMAL);
+                            12f * density * textScale, lyricColor(0x7FFFFFFF), maxWidth,
+                            Typeface.NORMAL);
                     break;
                 case LyricsLayoutConfig.CURRENT:
                     drawKaraoke(canvas, snapshot, currentText(snapshot), x, y,
                             22f * density * textScale, maxWidth, Paint.Align.LEFT,
-                            0xFFB1BCCB, 0xFFFFCA66);
+                            lyricColor(0xFFB1BCCB), lyricColor(0xFFFFCA66));
                     break;
                 case LyricsLayoutConfig.TRANSLATION:
                     drawLeft(canvas, snapshot.lyrics.translatedLyric, x, y,
-                            11f * density * textScale, 0xB8D4DCE7, maxWidth, Typeface.NORMAL);
+                            11f * density * textScale, lyricColor(0xB8D4DCE7), maxWidth,
+                            Typeface.NORMAL);
                     break;
                 case LyricsLayoutConfig.NEXT:
                     drawLeft(canvas, snapshot.lyrics.nextLyric, x, y,
                             nextLyricSize(22f * density * textScale),
-                            nextLyricColor(0x7FFFFFFF), maxWidth, Typeface.NORMAL);
+                            nextLyricColor(lyricColor(0x7FFFFFFF)), maxWidth,
+                            Typeface.NORMAL);
                     break;
                 case LyricsLayoutConfig.PROGRESS:
                     drawProgress(canvas, x, y, Math.min(width - pad, x + width * 0.38f),

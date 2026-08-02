@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
@@ -71,6 +72,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 AppPreferences.nextLyricOpacity(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
+        addLyricColorControls(panel);
         addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
                 AppPreferences.smoothLyricScroll(this, secondary));
         addSeek(panel, "歌词显示行数", 1, 3,
@@ -103,17 +105,16 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, value));
         addCard(root, artwork);
 
-        if (secondary) {
-            LinearLayout compact = card("紧凑单行");
-            addToggle(compact, "显示封面", AppPreferences.KEY_COMPACT_SHOW_COVER,
-                    AppPreferences.compactShowCover(this, true));
-            addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
-                    AppPreferences.compactShowBars(this, true));
-            TextView note = text("仅在副屏选择“紧凑单行”样式时生效。", 12, 0xFF8392A8, false);
-            note.setPadding(0, dp(8), 0, 0);
-            compact.addView(note);
-            addCard(root, compact);
-        }
+        LinearLayout compact = card("紧凑单行");
+        addToggle(compact, "显示封面", AppPreferences.KEY_COMPACT_SHOW_COVER,
+                AppPreferences.compactShowCover(this, secondary));
+        addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
+                AppPreferences.compactShowBars(this, secondary));
+        TextView compactNote = text("仅在" + (secondary ? "副屏" : "主屏")
+                + "选择“紧凑单行”样式时生效。", 12, 0xFF8392A8, false);
+        compactNote.setPadding(0, dp(8), 0, 0);
+        compact.addView(compactNote);
+        addCard(root, compact);
 
         setContentView(scroll);
         CustomFontStore.applyToViewTree(this, scroll);
@@ -191,6 +192,109 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
             changed();
         });
         parent.addView(toggle);
+    }
+
+    private void addLyricColorControls(LinearLayout parent) {
+        TextView heading = text("歌词颜色", 14, 0xFFD7E1EE, true);
+        heading.setPadding(0, dp(16), 0, 0);
+        parent.addView(heading);
+
+        int savedColor = AppPreferences.lyricColor(this, secondary);
+        int initialColor = savedColor == 0 ? 0xFFFFCA66 : savedColor;
+        int[] rgb = {Color.red(initialColor), Color.green(initialColor), Color.blue(initialColor)};
+        MaterialSwitch manualMode = new MaterialSwitch(this);
+        manualMode.setText("手动调色");
+        manualMode.setTextColor(0xFFF1F5FA);
+        manualMode.setTextSize(14f);
+        manualMode.setGravity(Gravity.CENTER_VERTICAL);
+        manualMode.setPadding(0, dp(6), 0, 0);
+        manualMode.setChecked(savedColor != 0);
+        parent.addView(manualMode);
+
+        TextView automaticNote = text("自动模式会跟随所选歌词样式的配色。", 12,
+                0xFF8392A8, false);
+        automaticNote.setPadding(0, 0, 0, dp(4));
+        automaticNote.setVisibility(savedColor == 0 ? View.VISIBLE : View.GONE);
+        parent.addView(automaticNote);
+
+        LinearLayout manualControls = new LinearLayout(this);
+        manualControls.setOrientation(LinearLayout.VERTICAL);
+        manualControls.setVisibility(savedColor == 0 ? View.GONE : View.VISIBLE);
+        TextView state = text(colorLabel(initialColor), 12, 0xFF8392A8, false);
+        LinearLayout stateRow = new LinearLayout(this);
+        stateRow.setGravity(Gravity.CENTER_VERTICAL);
+        stateRow.addView(state, new LinearLayout.LayoutParams(0, -2, 1f));
+        View swatch = new View(this);
+        LinearLayout.LayoutParams swatchParams = new LinearLayout.LayoutParams(dp(34), dp(22));
+        swatchParams.leftMargin = dp(10);
+        stateRow.addView(swatch, swatchParams);
+        updateColorSwatch(swatch, initialColor);
+        manualControls.addView(stateRow);
+        ColorChangeListener listener = () -> {
+            int color = Color.rgb(rgb[0], rgb[1], rgb[2]);
+            AppPreferences.setLyricColor(this, secondary, color);
+            state.setText(colorLabel(color));
+            updateColorSwatch(swatch, color);
+            changed();
+        };
+        addColorSeek(manualControls, "红", rgb, 0, listener);
+        addColorSeek(manualControls, "绿", rgb, 1, listener);
+        addColorSeek(manualControls, "蓝", rgb, 2, listener);
+        parent.addView(manualControls);
+
+        manualMode.setOnCheckedChangeListener((button, enabled) -> {
+            manualControls.setVisibility(enabled ? View.VISIBLE : View.GONE);
+            automaticNote.setVisibility(enabled ? View.GONE : View.VISIBLE);
+            if (enabled) {
+                listener.onColorChanged();
+            } else {
+                AppPreferences.setLyricColor(this, secondary, 0);
+                changed();
+            }
+        });
+    }
+
+    private void addColorSeek(LinearLayout parent, String title, int[] rgb, int channel,
+                              ColorChangeListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(6), 0, 0);
+        row.addView(text(title, 13, 0xFFD7E1EE, false),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView value = text(Integer.toString(rgb[channel]), 13, 0xFF6EE7F2, true);
+        row.addView(value);
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(255);
+        seek.setProgress(rgb[channel]);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                value.setText(Integer.toString(progress));
+                if (!fromUser) return;
+                rgb[channel] = progress;
+                listener.onColorChanged();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(32)));
+    }
+
+    private void updateColorSwatch(View swatch, int color) {
+        MaterialShapeDrawable shape = new MaterialShapeDrawable();
+        shape.setFillColor(android.content.res.ColorStateList.valueOf(color));
+        shape.setStroke(dp(1), android.content.res.ColorStateList.valueOf(0xFF6B7C94));
+        shape.setCornerSize(dp(8));
+        swatch.setBackground(shape);
+    }
+
+    private static String colorLabel(int color) {
+        return String.format(java.util.Locale.ROOT, "当前：#%02X%02X%02X",
+                Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private void addSourceCorrection(LinearLayout parent) {
@@ -287,4 +391,5 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     }
 
     private interface IntConsumer { void accept(int value); }
+    private interface ColorChangeListener { void onColorChanged(); }
 }
