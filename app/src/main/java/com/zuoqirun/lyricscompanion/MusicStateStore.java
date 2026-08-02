@@ -92,9 +92,9 @@ final class MusicStateStore {
                     normalizedSource, sameSource, title, newTitle,
                     artist, newArtist, durationMs, newDuration,
                     mediaId, newMediaId)) {
-                // Some Soda and QQ Music builds replace TITLE with the current lyric. Keep
-                // one-field lyric mutations, but never suppress a complete title+artist
-                // replacement or a stable player track-ID change.
+                // Some players replace TITLE with the current lyric. Keep a one-field lyric
+                // mutation, but never suppress a complete title+artist replacement or a
+                // stable player track-ID change.
                 Log.i(TAG, "Ignoring live-lyric metadata: " + newTitle + " / " + newArtist);
                 if (!sameIdentityText(newTitle, title)) incomingLiveSessionLyric = newTitle;
                 newTitle = title;
@@ -454,8 +454,8 @@ final class MusicStateStore {
                                                      String currentMediaId, String incomingMediaId) {
         if (!sameSource || !usesLiveTitleMetadata(incomingSource)
                 || safe(currentTitle).trim().isEmpty()) return false;
-        if ("qqmusic".equals(incomingSource)) {
-            return shouldKeepQqMusicTitleAsLiveLyric(currentTitle, incomingTitle,
+        if (!"soda".equals(incomingSource)) {
+            return shouldKeepTitleAsLiveLyric(currentTitle, incomingTitle,
                     currentArtist, incomingArtist, currentDuration, incomingDuration,
                     currentMediaId, incomingMediaId);
         }
@@ -478,14 +478,11 @@ final class MusicStateStore {
         return !(titleChanged && artistChanged || durationChanged && titleChanged);
     }
 
-    private static boolean shouldKeepQqMusicTitleAsLiveLyric(String currentTitle,
-                                                               String incomingTitle,
-                                                               String currentArtist,
-                                                               String incomingArtist,
-                                                               long currentDuration,
-                                                               long incomingDuration,
-                                                               String currentMediaId,
-                                                               String incomingMediaId) {
+    /** Conservative generic rule: only TITLE changes while all track identity evidence holds. */
+    private static boolean shouldKeepTitleAsLiveLyric(String currentTitle, String incomingTitle,
+                                                       String currentArtist, String incomingArtist,
+                                                       long currentDuration, long incomingDuration,
+                                                       String currentMediaId, String incomingMediaId) {
         if (!safe(currentMediaId).trim().isEmpty()
                 && !safe(incomingMediaId).trim().isEmpty()
                 && !safe(currentMediaId).equals(safe(incomingMediaId))) {
@@ -532,11 +529,18 @@ final class MusicStateStore {
     }
 
     private static boolean usesLiveTitleMetadata(String source) {
-        return "soda".equals(source) || "qqmusic".equals(source);
+        // Any MediaSession publisher may use title as its current lyric. The track-identity
+        // checks above are intentionally source-neutral so this remains safe for unknown apps.
+        return !TextUtils.isEmpty(source);
     }
 
     private static String liveSessionLyricSourceName(String source) {
-        return "qqmusic".equals(source) ? "QQ 实时歌词" : "汽水实时歌词";
+        if ("qqmusic".equals(source)) return "QQ 实时歌词";
+        if ("soda".equals(source)) return "汽水实时歌词";
+        if ("kugou".equals(source)) return "酷狗实时歌词";
+        if ("kuwo".equals(source)) return "酷我实时歌词";
+        if ("netease".equals(source)) return "网易云实时歌词";
+        return "播放器实时歌词";
     }
 
     private static boolean sameIdentityText(String left, String right) {

@@ -242,8 +242,10 @@ public class MusicAppRegistryTest {
                 "soda", true, LrcTimeline.EMPTY, "You know I adore ya"));
         assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "qqmusic", true, LrcTimeline.EMPTY, "You know I adore ya"));
-        assertFalse(MusicStateStore.isLiveSessionLyricFallbackAvailable(
+        assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "netease", true, LrcTimeline.EMPTY, "You know I adore ya"));
+        assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
+                "media", true, LrcTimeline.EMPTY, "You know I adore ya"));
         assertEquals("You know I adore ya",
                 LrcTimeline.liveLine("You know I adore ya").lyric);
     }
@@ -255,6 +257,17 @@ public class MusicAppRegistryTest {
         assertFalse(MusicStateStore.shouldKeepLiveLyricTrackIdentity(
                 "qqmusic", true, "Song Name", "Next Song", "Artist", "Artist",
                 269_000L, 269_000L, "song-mid-a", "song-mid-b"));
+    }
+
+    @Test public void allPlayersKeepTitleOnlyLiveLyricUpdates() {
+        for (String source : Arrays.asList("netease", "qqmusic", "kugou", "kuwo", "soda", "media")) {
+            assertTrue(source, MusicStateStore.shouldKeepLiveLyricTrackIdentity(
+                    source, true, "Song Name", "a current lyric line", "Artist", "Artist",
+                    269_000L, 269_000L, "track-a", "track-a"));
+            assertFalse(source, MusicStateStore.shouldKeepLiveLyricTrackIdentity(
+                    source, true, "Song Name", "Next Song", "Artist", "Next Artist",
+                    269_000L, 269_000L, "track-a", "track-b"));
+        }
     }
 
     @Test public void netEaseDirectSongIdStillRefreshesIdentity() {
