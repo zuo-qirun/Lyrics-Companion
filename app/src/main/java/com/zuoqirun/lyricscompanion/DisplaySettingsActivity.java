@@ -106,7 +106,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         addCard(root, artwork);
 
         LinearLayout compact = card("紧凑单行");
-        addToggle(compact, "显示封面", AppPreferences.KEY_COMPACT_SHOW_COVER,
+        addToggle(compact, "显示封面、歌名和歌手", AppPreferences.KEY_COMPACT_SHOW_COVER,
                 AppPreferences.compactShowCover(this, secondary));
         addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
                 AppPreferences.compactShowBars(this, secondary));

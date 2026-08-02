@@ -714,14 +714,27 @@ final class LyricsPanelView extends View {
         float barsTop = showBars ? height - pad * 0.42f - barsHeight : height - pad;
         float coverLeft = width - pad;
         if (showCover) {
-            float coverSize = Math.min(barsTop - pad * 0.62f,
+            float coverTop = pad * 0.62f;
+            // Reserve the area below the cover for the title and artist. This keeps the
+            // compact layout readable even at its minimum allowed height.
+            float titleSize = Math.max(8f * density, Math.min(10.5f * density, height * 0.10f));
+            float artistSize = Math.max(7f * density, Math.min(8.5f * density, height * 0.08f));
+            float metadataHeight = titleSize + artistSize + 5f * density;
+            float coverSize = Math.min(barsTop - coverTop - metadataHeight,
                     Math.min(width * 0.23f, 58f * density));
             coverSize = Math.max(30f * density, coverSize);
             coverLeft = width - pad - coverSize;
-            coverRect.set(coverLeft, pad * 0.62f, coverLeft + coverSize,
-                    pad * 0.62f + coverSize);
+            coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
             drawCover(canvas, snapshot.albumArt, coverRect, 10f * density,
                     mix(accent, Color.DKGRAY, 0.55f));
+            float titleY = coverRect.bottom + 2f * density + titleSize;
+            float artistY = titleY + artistSize + 3f * density;
+            drawRefinedText(canvas, snapshot.active ? snapshot.title : "等待音乐",
+                    coverRect.centerX(), titleY, titleSize, primaryText, coverRect.width(),
+                    Paint.Align.CENTER, Typeface.BOLD, 255);
+            drawRefinedText(canvas, snapshot.artist, coverRect.centerX(), artistY, artistSize,
+                    withAlpha(primaryText, 175), coverRect.width(), Paint.Align.CENTER,
+                    Typeface.NORMAL, 175);
         }
 
         float lyricLeft = pad;
