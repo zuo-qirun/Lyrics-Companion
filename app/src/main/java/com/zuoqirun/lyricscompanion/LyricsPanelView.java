@@ -109,6 +109,10 @@ final class LyricsPanelView extends View {
     private long compactMarqueeElapsedMs;
     private long compactMarqueeLastFrameMs;
     private boolean compactMarqueeActive;
+    private final SpectrumMath.BarTracker compactSpectrumBars =
+            new SpectrumMath.BarTracker(SpectrumMath.BAND_COUNT);
+    private final float[] compactVirtualSpectrum = new float[SpectrumMath.BAND_COUNT];
+    private boolean compactSpectrumAnimating;
 
     LyricsPanelView(Context context) { this(context, false); }
 
@@ -167,6 +171,7 @@ final class LyricsPanelView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        compactSpectrumAnimating = false;
         float density = getResources().getDisplayMetrics().density;
         float width = getWidth();
         float height = getHeight();
@@ -217,6 +222,7 @@ final class LyricsPanelView extends View {
 
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
         if (browsingLyrics || browseSettling) return 16L;
+        if (compactSpectrumAnimating) return 16L;
         if (compactMarqueeActive && snapshot.playing) return 16L;
         if (lyricScrollAnimationStartedMs > 0L
                 && nowElapsedMs - lyricScrollAnimationStartedMs < 500L) return 16L;
@@ -710,7 +716,8 @@ final class LyricsPanelView extends View {
         float pad = Math.max(7f * density, width * 0.028f);
         boolean showCover = AppPreferences.compactShowCover(getContext(), secondary);
         boolean showBars = AppPreferences.compactShowBars(getContext(), secondary);
-        float barsHeight = showBars ? Math.max(4f * density, height * 0.052f) : 0f;
+        float barsHeight = showBars ? Math.min(height * 0.28f,
+                Math.max(22f * density, height * 0.20f)) : 0f;
         float barsTop = showBars ? height - pad * 0.42f - barsHeight : height - pad;
         float coverLeft = width - pad;
         if (showCover) {
@@ -793,30 +800,89 @@ final class LyricsPanelView extends View {
         canvas.restoreToCount(save);
     }
 
-    /** Decorative playback bars are driven by elapsed playback progress, never audio samples. */
+    /** Draws real FFT bands when permitted, otherwise the user-selected virtual or static mode. */
     private void drawCompactPlaybackBars(Canvas canvas, MusicSnapshot snapshot, float left,
                                          float top, float right, float height, int color) {
         if (right <= left || height <= 0f) return;
         float width = right - left;
-        int count = Math.max(16, Math.min(40, Math.round(width / Math.max(5f, height * 1.2f))));
+        int count = SpectrumMath.BAND_COUNT;
         float slot = width / count;
-        float barWidth = Math.max(1f, slot * 0.48f);
+        float barWidth = Math.max(1f, slot * 0.58f);
+        boolean useRealSpectrum = AppPreferences.compactUseRealSpectrum(getContext(), secondary);
+        AudioSpectrumSource.Frame frame = AudioSpectrumSource.latestFrame();
+        boolean realSpectrumLive = useRealSpectrum && frame.live;
+        boolean virtualSpectrum = !useRealSpectrum;
+        long now = SystemClock.elapsedRealtime();
         float progress = snapshot.durationMs > 0L
                 ? clamp(snapshot.positionMs / (float) snapshot.durationMs) : 0f;
-        float phase = snapshot.playing ? SystemClock.elapsedRealtime() / 260f : 0f;
+        float[] targets = null;
+        if (realSpectrumLive) {
+            targets = frame.levels;
+        } else if (virtualSpectrum) {
+            long step = now / 180L;
+            float stepProgress = (now % 180L) / 180f;
+            stepProgress = stepProgress * stepProgress * (3f - 2f * stepProgress);
+            for (int i = 0; i < count; i++) {
+                float normalized = (i + 0.5f) / count;
+                float pulse;
+                if (snapshot.playing) {
+                    float from = virtualPulse(i, step);
+                    float to = virtualPulse(i, step + 1L);
+                    pulse = from + (to - from) * stepProgress;
+                } else {
+                    pulse = 0.42f + 0.58f * (float) Math.abs(Math.sin(i * 0.73f));
+                }
+                float shape = 0.34f + 0.66f * (float) Math.sin(normalized * Math.PI);
+                compactVirtualSpectrum[i] = pulse * shape;
+            }
+            targets = compactVirtualSpectrum;
+        }
+        if (targets == null) {
+            compactSpectrumBars.reset();
+        } else {
+            compactSpectrumBars.update(targets, now);
+        }
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(null);
         for (int i = 0; i < count; i++) {
-            float normalized = (i + 0.5f) / count;
-            float pulse = 0.42f + 0.58f * (float) Math.abs(Math.sin(i * 0.73f + phase));
-            float shape = 0.36f + 0.64f * (float) Math.sin(normalized * Math.PI);
-            float barHeight = Math.max(1f, height * pulse * shape);
-            int alpha = normalized <= progress ? 220 : 72;
+            float level = targets == null ? 0.10f : compactSpectrumBars.barAt(i);
+            float barHeight = Math.max(1f, height * level);
+            float segmentStart = i / (float) count;
+            float segmentFill = clamp((progress - segmentStart) * count);
+            int alpha = Math.round(72f + (220f - 72f) * segmentFill);
+            if (targets == null) alpha = Math.min(alpha, 76);
             paint.setColor(withAlpha(color, alpha));
             float x = left + i * slot + (slot - barWidth) * 0.5f;
             progressRect.set(x, top + height - barHeight, x + barWidth, top + height);
             canvas.drawRoundRect(progressRect, barWidth * 0.5f, barWidth * 0.5f, paint);
         }
+        float density = getResources().getDisplayMetrics().density;
+        float trackHeight = Math.max(1.5f * density, height * 0.035f);
+        // Keep the continuous progress indicator against the card edge instead of sharing the
+        // spectrum baseline, so its position stays visually stable while bars fluctuate.
+        float trackBottom = getHeight() - 1f;
+        float trackTop = trackBottom - trackHeight;
+        paint.setColor(withAlpha(color, 42));
+        workRect.set(left, trackTop, right, trackBottom);
+        canvas.drawRoundRect(workRect, trackHeight * 0.5f, trackHeight * 0.5f, paint);
+        paint.setColor(withAlpha(color, 235));
+        workRect.set(left, trackTop, left + width * progress, trackBottom);
+        canvas.drawRoundRect(workRect, trackHeight * 0.5f, trackHeight * 0.5f, paint);
+        compactSpectrumAnimating = (realSpectrumLive
+                && (snapshot.playing || compactSpectrumBars.hasVisibleBar()))
+                || (virtualSpectrum && snapshot.playing);
+    }
+
+    /** Deterministic noise keeps virtual bars lively without frame-to-frame jitter. */
+    private static float virtualPulse(int band, long step) {
+        long value = (step + 1L) * 0x9E3779B97F4A7C15L + (band + 11L) * 0xBF58476D1CE4E5B9L;
+        value ^= value >>> 30;
+        value *= 0xBF58476D1CE4E5B9L;
+        value ^= value >>> 27;
+        value *= 0x94D049BB133111EBL;
+        value ^= value >>> 31;
+        float unit = (value >>> 40) / (float) 0xFFFFFF;
+        return 0.24f + 0.76f * unit;
     }
 
     /**

@@ -1,8 +1,11 @@
 package com.zuoqirun.lyricscompanion;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.AdapterView;
@@ -26,6 +29,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
 
     private boolean secondary;
     private LyricsPanelView preview;
+    private TextView spectrumStatus;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -110,6 +114,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 AppPreferences.compactShowCover(this, secondary));
         addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
                 AppPreferences.compactShowBars(this, secondary));
+        addRealSpectrumToggle(compact);
+        spectrumStatus = text(spectrumStatusText(), 12, 0xFF8392A8, false);
+        spectrumStatus.setPadding(0, dp(5), 0, 0);
+        compact.addView(spectrumStatus);
         TextView compactNote = text("仅在" + (secondary ? "副屏" : "主屏")
                 + "选择“紧凑单行”样式时生效。", 12, 0xFF8392A8, false);
         compactNote.setPadding(0, dp(8), 0, 0);
@@ -123,6 +131,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         LyricsDisplayService.setSettingsVisible(this, true);
+        updateSpectrumStatus();
     }
 
     @Override protected void onPause() {
@@ -192,6 +201,48 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
             changed();
         });
         parent.addView(toggle);
+    }
+
+    private void addRealSpectrumToggle(LinearLayout parent) {
+        MaterialSwitch toggle = new MaterialSwitch(this);
+        toggle.setText("真实音频律动（关闭为虚拟律动）");
+        toggle.setTextColor(0xFFF1F5FA);
+        toggle.setTextSize(14f);
+        toggle.setGravity(Gravity.CENTER_VERTICAL);
+        toggle.setPadding(0, dp(10), 0, 0);
+        toggle.setChecked(AppPreferences.compactUseRealSpectrum(this, secondary));
+        toggle.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.putDisplayBoolean(this, secondary,
+                    AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM, checked);
+            if (checked) requestSpectrumPermissionIfNeeded();
+            changed();
+            updateSpectrumStatus();
+        });
+        parent.addView(toggle);
+    }
+
+    private void requestSpectrumPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 23 || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) return;
+        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2418);
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                                      int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 2418) {
+            changed();
+            updateSpectrumStatus();
+        }
+    }
+
+    private String spectrumStatusText() {
+        return AudioSpectrumSource.status(this,
+                AppPreferences.compactUseRealSpectrum(this, secondary));
+    }
+
+    private void updateSpectrumStatus() {
+        if (spectrumStatus != null) spectrumStatus.setText(spectrumStatusText());
     }
 
     private void addLyricColorControls(LinearLayout parent) {
@@ -366,6 +417,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     private void changed() {
         preview.reloadStyle();
         AppPreferences.changed(this);
+        AudioSpectrumSource.sync(this);
         LyricsDisplayService.setSettingsVisible(this, true);
     }
 

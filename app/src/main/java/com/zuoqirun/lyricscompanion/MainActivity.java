@@ -49,6 +49,7 @@ import java.util.concurrent.Executors;
 @SuppressLint("SetTextI18n")
 public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CUSTOM_FONT = 2417;
+    private static final int REQUEST_RECORD_AUDIO = 2418;
     private static final String UPDATE_MANIFEST_URL =
             "https://lyrics-companion.zuoqirun.top/update.json";
     private static final String UPDATE_HISTORY_URL =
@@ -241,7 +242,9 @@ public final class MainActivity extends AppCompatActivity {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
             if (checked && !canDrawOverlays()) openOverlayPermission();
+            if (checked) requestSpectrumPermissionIfNeeded(false);
             AppPreferences.changed(this);
+            AudioSpectrumSource.sync(this);
             LyricsDisplayService.setSettingsVisible(this, true);
         });
         outputCard.addView(mainOverlaySwitch);
@@ -250,10 +253,19 @@ public final class MainActivity extends AppCompatActivity {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, checked).apply();
             if (checked && !canDrawOverlays()) openOverlayPermission();
+            if (checked) requestSpectrumPermissionIfNeeded(true);
             AppPreferences.changed(this);
+            AudioSpectrumSource.sync(this);
             LyricsDisplayService.setSettingsVisible(this, true);
         });
         outputCard.addView(secondaryOverlaySwitch);
+        MaterialSwitch returnToPlayer = toggle("轻触悬浮窗返回播放器",
+                "关闭时打开歌词伴侣；无法打开播放器时会自动回到歌词伴侣");
+        returnToPlayer.setChecked(AppPreferences.tapOverlayReturnsToPlayer(this));
+        returnToPlayer.setOnCheckedChangeListener((button, checked) -> AppPreferences.get(this)
+                .edit().putBoolean(AppPreferences.KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, checked)
+                .apply());
+        outputCard.addView(returnToPlayer);
 
         TextView displayLabel = text("投屏屏幕", 13, 0xFF93A4B9, true);
         displayLabel.setPadding(0, dp(14), 0, dp(5));
@@ -494,6 +506,26 @@ public final class MainActivity extends AppCompatActivity {
         mainOverlaySwitch.setChecked(AppPreferences.mainEnabled(this));
         secondaryOverlaySwitch.setChecked(AppPreferences.secondaryEnabled(this));
         bindingUi = false;
+    }
+
+    private void requestSpectrumPermissionIfNeeded(boolean secondary) {
+        if (!"compact".equals(AppPreferences.overlayStyle(this, secondary))
+                || !AppPreferences.compactShowBars(this, secondary)
+                || !AppPreferences.compactUseRealSpectrum(this, secondary)
+                || Build.VERSION.SDK_INT < 23
+                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) return;
+        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                                      int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_RECORD_AUDIO) {
+            AudioSpectrumSource.sync(this);
+            LyricsDisplayService.startOrRefresh(this);
+            refreshPreview();
+        }
     }
 
     private void refreshStatus() {

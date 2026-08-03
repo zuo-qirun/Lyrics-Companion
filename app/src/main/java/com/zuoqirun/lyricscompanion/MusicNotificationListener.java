@@ -3,6 +3,7 @@ package com.zuoqirun.lyricscompanion;
 import android.annotation.TargetApi;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.media.RemoteController;
@@ -43,6 +44,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static volatile long lastComponentRecoveryElapsedMs;
     private static volatile boolean legacyRebindInProgress;
     private static volatile MusicNotificationListener activeInstance;
+    private static volatile String activePlayerPackageName = "";
 
     private final MusicSessionReader.Callback readerCallback = new MusicSessionReader.Callback() {
         @Override public void onReadSuccess(int sessionCount) {
@@ -60,6 +62,7 @@ public final class MusicNotificationListener extends NotificationListenerService
         @Override public void onSession(String packageName, String applicationLabel,
                                         MusicPlaybackData data) {
             lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
+            activePlayerPackageName = packageName == null ? "" : packageName;
             MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, applicationLabel);
             MusicStateStore.update(MusicNotificationListener.this,
                     app.sourceId, app.displayName, data);
@@ -68,6 +71,7 @@ public final class MusicNotificationListener extends NotificationListenerService
         @Override public void onNoSession() {
             long now = SystemClock.elapsedRealtime();
             if (shouldClearAfterEmpty(lastNonEmptySessionElapsedMs, now)) {
+                activePlayerPackageName = "";
                 MusicStateStore.clear();
             }
         }
@@ -205,6 +209,21 @@ public final class MusicNotificationListener extends NotificationListenerService
         stopListening();
         if (activeInstance == this) activeInstance = null;
         super.onDestroy();
+    }
+
+    static boolean openActivePlayer(Context context) {
+        String packageName = activePlayerPackageName;
+        if (packageName == null || packageName.trim().isEmpty()) return false;
+        try {
+            Intent launch = context.getPackageManager().getLaunchIntentForPackage(packageName);
+            if (launch == null) return false;
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            context.startActivity(launch);
+            return true;
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to reopen active player " + packageName, error);
+            return false;
+        }
     }
 
     static void requestPlaybackControl(Context context, MediaControlAction action) {

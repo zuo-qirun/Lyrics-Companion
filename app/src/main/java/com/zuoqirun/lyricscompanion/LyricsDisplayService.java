@@ -101,6 +101,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public void onCreate() {
         super.onCreate();
         MusicStateStore.initialize(this);
+        AudioSpectrumSource.sync(this);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
@@ -121,6 +122,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         if (ACTION_SETTINGS_VISIBILITY.equals(action)) {
             settingsVisible = intent.getBooleanExtra(EXTRA_VISIBLE, false);
+            AudioSpectrumSource.sync(this);
             if (settingsVisible) dismissMain();
             else rebuildAll();
             return START_STICKY;
@@ -136,6 +138,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
         dismissSecondary();
+        AudioSpectrumSource.release();
         super.onDestroy();
     }
 
@@ -144,6 +147,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public void onDisplayChanged(int displayId) { rebuildSecondary(); }
 
     private void rebuildAll() {
+        AudioSpectrumSource.sync(this);
         DiagnosticLog.record(this, "Overlay", "rebuild main=" + AppPreferences.mainEnabled(this)
                 + " secondary=" + AppPreferences.secondaryEnabled(this)
                 + " permission=" + canDrawOverlays());
@@ -315,7 +319,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                                 MusicNotificationListener.requestPlaybackControl(
                                         LyricsDisplayService.this, playbackControl);
                             } else if (openOnTap) {
-                                openMainActivity();
+                                if (!AppPreferences.tapOverlayReturnsToPlayer(
+                                        LyricsDisplayService.this)
+                                        || !MusicNotificationListener.openActivePlayer(
+                                        LyricsDisplayService.this)) {
+                                    openMainActivity();
+                                }
                             }
                         }
                         playbackControl = null;

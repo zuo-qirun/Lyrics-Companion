@@ -60,6 +60,8 @@ final class AppPreferences {
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
     static final String KEY_COMPACT_SHOW_COVER = "compact_show_cover";
     static final String KEY_COMPACT_SHOW_BARS = "compact_show_bars";
+    static final String KEY_COMPACT_USE_REAL_SPECTRUM = "compact_use_real_spectrum";
+    static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
     static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
     static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
     static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
@@ -461,6 +463,14 @@ final class AppPreferences {
 
     static boolean compactShowBars(Context context, boolean secondary) {
         return displayBoolean(context, secondary, KEY_COMPACT_SHOW_BARS, true);
+    }
+
+    static boolean compactUseRealSpectrum(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_COMPACT_USE_REAL_SPECTRUM, true);
+    }
+
+    static boolean tapOverlayReturnsToPlayer(Context context) {
+        return get(context).getBoolean(KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, false);
     }
 
     private static int defaultPanelWidthDp(String style) {
