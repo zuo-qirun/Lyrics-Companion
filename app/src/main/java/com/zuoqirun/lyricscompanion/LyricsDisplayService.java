@@ -29,6 +29,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private static final String TAG = "LyricsDisplay";
     private static final String CHANNEL_ID = "lyrics_display";
     private static final int NOTIFICATION_ID = 41;
+    private static final long NOTIFICATION_POLL_MS = 500L;
     private static final String ACTION_REFRESH =
             "com.zuoqirun.lyricscompanion.action.REFRESH";
     private static final String ACTION_SECONDARY_POSITION =
@@ -49,17 +50,25 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager.LayoutParams secondaryParams;
     private LyricsPanelView secondaryPanel;
     private boolean settingsVisible;
+    private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
+    private final Handler notificationHandler = new Handler(Looper.getMainLooper());
     private final Runnable communityHeartbeat = new Runnable() {
         @Override public void run() {
             CommunityClient.heartbeatAsync(getApplicationContext(), null);
             communityHandler.postDelayed(this, 60_000L);
         }
     };
+    private final Runnable notificationRefresh = new Runnable() {
+        @Override public void run() {
+            refreshPlaybackNotification();
+            notificationHandler.postDelayed(this, NOTIFICATION_POLL_MS);
+        }
+    };
 
     static void startOrRefresh(Context context) {
         Intent intent = new Intent(context, LyricsDisplayService.class).setAction(ACTION_REFRESH);
-        if (!AppPreferences.mainEnabled(context) && !AppPreferences.secondaryEnabled(context)) {
+        if (!hasServiceWork(context)) {
             context.stopService(intent);
             return;
         }
@@ -88,7 +97,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private static void startCommand(Context context, Intent intent) {
-        if (!AppPreferences.mainEnabled(context) && !AppPreferences.secondaryEnabled(context)) return;
+        if (!hasServiceWork(context)) return;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent);
             else context.startService(intent);
@@ -111,6 +120,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         AudioSpectrumSource.sync(this);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
+        notificationHandler.post(notificationRefresh);
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         if (displayManager != null) displayManager.registerDisplayListener(this, null);
         communityHandler.post(communityHeartbeat);
@@ -119,6 +129,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? "" : intent.getAction();
+        refreshPlaybackNotification();
         Log.i(TAG, "Command=" + action + " main=" + AppPreferences.mainEnabled(this)
                 + " secondary=" + AppPreferences.secondaryEnabled(this)
                 + " settingsVisible=" + settingsVisible);
@@ -146,6 +157,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 + " secondaryAttached="
                 + (secondaryPanel != null && secondaryPanel.getParent() != null));
         communityHandler.removeCallbacks(communityHeartbeat);
+        notificationHandler.removeCallbacks(notificationRefresh);
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
         dismissSecondary();
@@ -175,7 +187,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 + " secondary=" + AppPreferences.secondaryEnabled(this)
                 + " settingsVisible=" + settingsVisible
                 + " overlayPermission=" + canDrawOverlays());
-        if (!AppPreferences.mainEnabled(this) && !AppPreferences.secondaryEnabled(this)) {
+        if (!hasServiceWork(this)) {
             stopSelf();
             return;
         }
@@ -446,7 +458,44 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (manager != null) manager.createNotificationChannel(channel);
     }
 
+    private static boolean hasServiceWork(Context context) {
+        return AppPreferences.mainEnabled(context) || AppPreferences.secondaryEnabled(context)
+                || AppPreferences.notificationLyrics(context);
+    }
+
+    private void refreshPlaybackNotification() {
+        MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
+        boolean showLyrics = AppPreferences.notificationLyrics(this);
+        String lyric = showLyrics ? notificationLyric(snapshot) : "正在同步播放器与歌词时间轴";
+        String translation = showLyrics ? notificationTranslation(snapshot) : "";
+        String title = showLyrics && snapshot.active && !snapshot.title.trim().isEmpty()
+                ? snapshot.title : getString(R.string.service_notification_title);
+        String subtext = showLyrics && snapshot.active
+                ? joinMetadata(snapshot.artist, snapshot.lyricSourceName) : "";
+        String signature = showLyrics + "|" + title + "|" + lyric + "|" + translation + "|"
+                + subtext + "|" + snapshot.playing + "|"
+                + AppPreferences.lockscreenLyrics(this);
+        if (signature.equals(lastNotificationSignature)) return;
+        lastNotificationSignature = signature;
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager != null) manager.notify(NOTIFICATION_ID,
+                createNotification(title, lyric, translation, subtext));
+    }
+
     private Notification createNotification() {
+        MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
+        boolean showLyrics = AppPreferences.notificationLyrics(this);
+        String title = showLyrics && snapshot.active && !snapshot.title.trim().isEmpty()
+                ? snapshot.title : getString(R.string.service_notification_title);
+        String lyric = showLyrics ? notificationLyric(snapshot) : "正在同步播放器与歌词时间轴";
+        String translation = showLyrics ? notificationTranslation(snapshot) : "";
+        String subtext = showLyrics && snapshot.active
+                ? joinMetadata(snapshot.artist, snapshot.lyricSourceName) : "";
+        return createNotification(title, lyric, translation, subtext);
+    }
+
+    private Notification createNotification(String title, String lyric, String translation,
+                                            String subtext) {
         Intent open = new Intent(this, MainActivity.class);
         int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
@@ -456,12 +505,58 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
         builder.setSmallIcon(Build.VERSION.SDK_INT >= 21
                         ? R.drawable.ic_launcher : android.R.drawable.ic_media_play)
-                .setContentTitle(getString(R.string.service_notification_title))
-                .setContentText("正在同步播放器与歌词时间轴")
+                .setContentTitle(title)
+                .setContentText(lyric)
                 .setContentIntent(contentIntent)
                 .setOngoing(true);
+        if (!subtext.isEmpty()) builder.setSubText(subtext);
+        builder.setStyle(new Notification.BigTextStyle().bigText(
+                translation.isEmpty() ? lyric : lyric + "\n" + translation));
+        if (Build.VERSION.SDK_INT >= 21) {
+            boolean publicLyrics = AppPreferences.lockscreenLyrics(this);
+            builder.setVisibility(publicLyrics ? Notification.VISIBILITY_PUBLIC
+                    : Notification.VISIBILITY_PRIVATE);
+            if (!publicLyrics) {
+                Notification.Builder redacted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ? new Notification.Builder(this, CHANNEL_ID)
+                        : new Notification.Builder(this);
+                redacted.setSmallIcon(Build.VERSION.SDK_INT >= 21
+                                ? R.drawable.ic_launcher : android.R.drawable.ic_media_play)
+                        .setContentTitle(getString(R.string.service_notification_title))
+                        .setContentText("歌词同步服务正在运行")
+                        .setContentIntent(contentIntent)
+                        .setOngoing(true)
+                        .setVisibility(Notification.VISIBILITY_PUBLIC);
+                builder.setPublicVersion(redacted.build());
+            }
+        }
         if (Build.VERSION.SDK_INT >= 21) builder.setCategory(Notification.CATEGORY_SERVICE);
         return builder.build();
+    }
+
+    private static String notificationLyric(MusicSnapshot snapshot) {
+        if (!snapshot.active) return "等待播放器";
+        if (snapshot.lyricAvailable && snapshot.lyrics != null
+                && !snapshot.lyrics.lyric.trim().isEmpty()) return snapshot.lyrics.lyric.trim();
+        if (!snapshot.lyricLoaded) return "正在匹配歌词";
+        if (!snapshot.lyricAvailable) return "未匹配到歌词";
+        return "等待下一行歌词";
+    }
+
+    private static String notificationTranslation(MusicSnapshot snapshot) {
+        if (!snapshot.lyricAvailable || snapshot.lyrics == null) return "";
+        String translation = snapshot.lyrics.translatedLyric == null
+                ? "" : snapshot.lyrics.translatedLyric.trim();
+        String lyric = snapshot.lyrics.lyric == null ? "" : snapshot.lyrics.lyric.trim();
+        return translation.isEmpty() || translation.equals(lyric) ? "" : translation;
+    }
+
+    private static String joinMetadata(String artist, String source) {
+        String left = artist == null ? "" : artist.trim();
+        String right = source == null ? "" : source.trim();
+        if (left.isEmpty()) return right;
+        if (right.isEmpty()) return left;
+        return left + " · " + right;
     }
 
     private static Point displaySize(Display display) {

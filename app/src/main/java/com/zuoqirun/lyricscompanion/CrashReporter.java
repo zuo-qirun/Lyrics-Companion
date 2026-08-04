@@ -199,7 +199,9 @@ final class CrashReporter {
                 + "\nsecondaryBlur=" + AppPreferences.styleBlur(context, true)
                 + "\nsecondaryDim=" + AppPreferences.styleDim(context, true)
                 + "\nsecondaryLyricOffsetMs=" + AppPreferences.lyricOffsetMs(context, true)
-                + "\ncustomFont=" + !AppPreferences.customFontFile(context).isEmpty();
+                + "\ncustomFont=" + !AppPreferences.customFontFile(context).isEmpty()
+                + "\nnotificationLyrics=" + AppPreferences.notificationLyrics(context)
+                + "\nlockscreenLyrics=" + AppPreferences.lockscreenLyrics(context);
     }
 
     /** Includes enough state to diagnose player/lyric failures without uploading lyric text. */

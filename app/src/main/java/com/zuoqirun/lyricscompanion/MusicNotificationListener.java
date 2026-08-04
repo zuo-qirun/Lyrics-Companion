@@ -174,7 +174,8 @@ public final class MusicNotificationListener extends NotificationListenerService
                 + " using " + backendName);
         handler.removeCallbacks(sessionPoll);
         handler.postDelayed(sessionPoll, SESSION_POLL_MS);
-        if (AppPreferences.mainEnabled(this) || AppPreferences.secondaryEnabled(this)) {
+        if (AppPreferences.mainEnabled(this) || AppPreferences.secondaryEnabled(this)
+                || AppPreferences.notificationLyrics(this)) {
             LyricsDisplayService.startOrRefresh(this);
         }
     }

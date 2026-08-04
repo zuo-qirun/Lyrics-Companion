@@ -298,6 +298,27 @@ public final class MainActivity extends AppCompatActivity {
                 .apply());
         outputCard.addView(returnToPlayer);
 
+        MaterialSwitch notificationLyrics = toggle("通知栏显示歌词",
+                "通知标题显示歌曲，正文显示当前歌词，展开后显示翻译；默认关闭");
+        notificationLyrics.setChecked(AppPreferences.notificationLyrics(this));
+        outputCard.addView(notificationLyrics);
+        MaterialSwitch lockscreenLyrics = toggle("锁屏显示歌词",
+                "允许在锁屏通知中显示歌曲、歌手和歌词；关闭时使用隐私占位内容");
+        lockscreenLyrics.setChecked(AppPreferences.lockscreenLyrics(this));
+        updateLockscreenLyricsEnabled(lockscreenLyrics, notificationLyrics.isChecked());
+        outputCard.addView(lockscreenLyrics);
+        notificationLyrics.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_NOTIFICATION_LYRICS, checked).apply();
+            updateLockscreenLyricsEnabled(lockscreenLyrics, checked);
+            AppPreferences.changed(this);
+        });
+        lockscreenLyrics.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_LOCKSCREEN_LYRICS, checked).apply();
+            AppPreferences.changed(this);
+        });
+
         TextView displayLabel = text("投屏屏幕", 13, 0xFF93A4B9, true);
         displayLabel.setPadding(0, dp(14), 0, dp(5));
         outputCard.addView(displayLabel);
@@ -560,6 +581,11 @@ public final class MainActivity extends AppCompatActivity {
 
     private static void updatePlayerCatalogFallbackEnabled(MaterialSwitch view,
                                                             boolean enabled) {
+        view.setEnabled(enabled);
+        view.setAlpha(enabled ? 1f : 0.55f);
+    }
+
+    private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {
         view.setEnabled(enabled);
         view.setAlpha(enabled ? 1f : 0.55f);
     }

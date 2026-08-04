@@ -65,6 +65,8 @@ final class AppPreferences {
     static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
     static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
     static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
+    static final String KEY_NOTIFICATION_LYRICS = "notification_lyrics";
+    static final String KEY_LOCKSCREEN_LYRICS = "lockscreen_lyrics";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
     static final String KEY_FEEDBACK_TICKETS = "feedback_tickets";
@@ -473,6 +475,14 @@ final class AppPreferences {
 
     static boolean tapOverlayReturnsToPlayer(Context context) {
         return get(context).getBoolean(KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, false);
+    }
+
+    static boolean notificationLyrics(Context context) {
+        return get(context).getBoolean(KEY_NOTIFICATION_LYRICS, false);
+    }
+
+    static boolean lockscreenLyrics(Context context) {
+        return get(context).getBoolean(KEY_LOCKSCREEN_LYRICS, false);
     }
 
     private static int defaultPanelWidthDp(String style) {
