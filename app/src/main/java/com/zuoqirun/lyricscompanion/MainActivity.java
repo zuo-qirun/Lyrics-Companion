@@ -124,6 +124,7 @@ public final class MainActivity extends AppCompatActivity {
         CustomFontStore.applyToViewTree(this, getWindow().getDecorView());
         MusicStateStore.initialize(this);
         requestNotificationPermissionIfNeeded();
+        handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
         handler.postDelayed(() -> checkForUpdates(false), 2_000L);
     }
 
@@ -167,6 +168,28 @@ public final class MainActivity extends AppCompatActivity {
             Toast.makeText(this, error.getMessage() == null ? "导入字体失败" : error.getMessage(),
                     Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void showCommunityAnnouncementIfNeeded() {
+        if (isFinishing() || isDestroyed() || AppPreferences.get(this).getBoolean(
+                AppPreferences.KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED, false)) {
+            return;
+        }
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("公告")
+                .setMessage("歌词伴侣反馈交流群\n1049772727")
+                .setNegativeButton("关闭", null)
+                .setPositiveButton("关闭并不再提示", (ignoredDialog, which) -> AppPreferences.get(this)
+                        .edit().putBoolean(AppPreferences.KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED,
+                                true).apply())
+                .create();
+        dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, Color.BLACK));
+        dialog.show();
+    }
+
+    private static void setDialogTitleColor(AlertDialog dialog, int color) {
+        TextView title = dialog.findViewById(androidx.appcompat.R.id.alertTitle);
+        if (title != null) title.setTextColor(color);
     }
 
     private View buildContent() {
@@ -1007,13 +1030,15 @@ public final class MainActivity extends AppCompatActivity {
                     if (isFinishing() || isDestroyed()) return;
                     if (info.hasUpdate()) {
                         updateStatus.setText("发现新版本 " + info.remoteVersionName);
-                        new MaterialAlertDialogBuilder(this)
+                        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                                 .setTitle("发现 Lyrics Companion 更新")
                                 .setMessage(info.detailText())
                                 .setNegativeButton("稍后", null)
                                 .setPositiveButton("下载并安装",
-                                        (dialog, which) -> installUpdate(info))
-                                .show();
+                                        (ignoredDialog, which) -> installUpdate(info))
+                                .create();
+                        dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, Color.BLACK));
+                        dialog.show();
                     } else if (manual) {
                         updateStatus.setText("已是最新版本\n" + localVersionText());
                     }

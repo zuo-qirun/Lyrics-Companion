@@ -70,6 +70,8 @@ final class AppPreferences {
     static final String KEY_FEEDBACK_TICKETS = "feedback_tickets";
     static final String KEY_FEEDBACK_READ_REPLY_IDS = "feedback_read_reply_ids";
     static final String KEY_DIAGNOSTIC_UPLOAD_ENABLED = "diagnostic_upload_enabled";
+    static final String KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED =
+            "community_announcement_dismissed";
 
     private AppPreferences() {}
 
