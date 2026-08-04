@@ -53,6 +53,8 @@ final class AppUpdater {
         if (!context.getPackageName().equals(packageName)) {
             throw new IllegalStateException("更新包名不匹配: " + packageName);
         }
+        int localVersionCode = localVersionCode(context);
+        int remoteVersionCode = manifest.optInt("versionCode", -1);
         String apkUrl = resolveUrl(manifestUrl, manifest.optString("apkUrl", ""));
         String changelog = changelogText(manifest);
         String changelogUrl = resolveUrl(manifestUrl,
@@ -63,8 +65,16 @@ final class AppUpdater {
                 if (!remote.isEmpty()) changelog = remote;
             } catch (Throwable ignored) { }
         }
-        return new UpdateInfo(localVersionCode(context), localVersionName(context),
-                manifest.optInt("versionCode", -1), manifest.optString("versionName", ""),
+        String historyUrl = resolveUrl(manifestUrl, manifest.optString("historyUrl", ""));
+        if (!TextUtils.isEmpty(historyUrl)) {
+            try {
+                JSONObject history = new JSONObject(readText(historyUrl));
+                changelog = changelogBetween(localVersionCode, remoteVersionCode,
+                        history.optJSONArray("versions"), changelog);
+            } catch (Throwable ignored) { }
+        }
+        return new UpdateInfo(localVersionCode, localVersionName(context),
+                remoteVersionCode, manifest.optString("versionName", ""),
                 apkUrl, manifest.optString("sha256", ""), manifest.optLong("size", -1L),
                 manifest.optBoolean("force", false), changelog);
     }
@@ -303,6 +313,45 @@ final class AppUpdater {
             if (!entry.isEmpty()) value.append("- ").append(entry).append('\n');
         }
         return value.toString().trim();
+    }
+
+    static String changelogBetween(int localVersionCode, int remoteVersionCode,
+                                   JSONArray versions, String fallback) {
+        if (versions == null || versions.length() == 0) return fallback == null ? "" : fallback;
+        StringBuilder value = new StringBuilder("# 更新日志\n\n");
+        int included = 0;
+        for (int index = 0; index < versions.length(); index++) {
+            JSONObject version = versions.optJSONObject(index);
+            if (version == null) continue;
+            int versionCode = version.optInt("versionCode", -1);
+            if (versionCode <= localVersionCode || versionCode > remoteVersionCode) continue;
+            String versionName = version.optString("versionName", "").trim();
+            value.append("## ").append(versionName.isEmpty() ? "版本" : versionName)
+                    .append(" (").append(versionCode).append(")\n\n");
+            appendChangelogEntries(value, version.opt("changelog"));
+            value.append('\n');
+            included++;
+        }
+        return included == 0 ? (fallback == null ? "" : fallback) : value.toString().trim();
+    }
+
+    private static void appendChangelogEntries(StringBuilder target, Object raw) {
+        if (raw instanceof JSONArray) {
+            JSONArray entries = (JSONArray) raw;
+            for (int index = 0; index < entries.length(); index++) {
+                appendChangelogEntry(target, entries.optString(index, ""));
+            }
+        } else if (raw != null) {
+            appendChangelogEntry(target, String.valueOf(raw));
+        }
+    }
+
+    private static void appendChangelogEntry(StringBuilder target, String entry) {
+        String text = entry == null ? "" : entry.trim();
+        if (text.isEmpty()) return;
+        if (text.startsWith("#") || text.startsWith("-") || text.startsWith("*")
+                || text.startsWith("`")) target.append(text).append('\n');
+        else target.append("- ").append(text).append('\n');
     }
 
     static String safeMessage(Throwable error) {

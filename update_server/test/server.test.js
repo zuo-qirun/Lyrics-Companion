@@ -62,6 +62,10 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
     const online = await fetch(`http://127.0.0.1:${port}/api/online`);
     assert.equal((await online.json()).online, 2);
 
+    const update = await fetch(`http://127.0.0.1:${port}/update.json`);
+    const updateManifest = await update.json();
+    assert.match(updateManifest.historyUrl, /\/versions\.json$/);
+
     const feedback = await post("/api/feedback", {
       clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       appVersion: "test", message: "本地接口集成测试反馈", contact: "",

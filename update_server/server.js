@@ -152,6 +152,7 @@ function readManifest(req, github) {
     manifest.changelogUrl = new URL("/CHANGELOG.md", `${baseUrl(req)}/`).toString();
     manifest.changelogText = fs.readFileSync(changelog, "utf8").trim();
   }
+  manifest.historyUrl = new URL("/versions.json", `${baseUrl(req)}/`).toString();
   delete manifest.apkPath;
   delete manifest.githubApkUrl;
   delete manifest.githubChangelogUrl;

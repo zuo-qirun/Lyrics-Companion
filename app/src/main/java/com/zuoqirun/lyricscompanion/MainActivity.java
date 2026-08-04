@@ -19,6 +19,7 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.text.method.LinkMovementMethod;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
@@ -1096,15 +1097,7 @@ public final class MainActivity extends AppCompatActivity {
                     if (isFinishing() || isDestroyed()) return;
                     if (info.hasUpdate()) {
                         updateStatus.setText("发现新版本 " + info.remoteVersionName);
-                        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                                .setTitle("发现 Lyrics Companion 更新")
-                                .setMessage(info.detailText())
-                                .setNegativeButton("稍后", null)
-                                .setPositiveButton("下载并安装",
-                                        (ignoredDialog, which) -> installUpdate(info))
-                                .create();
-                        dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, Color.BLACK));
-                        dialog.show();
+                        showUpdateDialog(info);
                     } else if (manual) {
                         updateStatus.setText("已是最新版本\n" + localVersionText());
                     }
@@ -1119,6 +1112,29 @@ public final class MainActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    private void showUpdateDialog(AppUpdater.UpdateInfo info) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        TextView changelog = text("", 14, 0xFF102033, false);
+        changelog.setLineSpacing(0f, 1.18f);
+        changelog.setMovementMethod(LinkMovementMethod.getInstance());
+        changelog.setLinkTextColor(0xFF006D77);
+        changelog.setText(MarkdownRenderer.render(info.detailText()));
+        changelog.setTextIsSelectable(true);
+        scroll.addView(changelog, new ScrollView.LayoutParams(-1, -2));
+        int maxHeight = Math.round(getResources().getDisplayMetrics().heightPixels * 0.58f);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, maxHeight);
+        scroll.setLayoutParams(scrollParams);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("发现 Lyrics Companion 更新")
+                .setView(scroll)
+                .setNegativeButton("稍后", null)
+                .setPositiveButton("下载并安装", (ignoredDialog, which) -> installUpdate(info))
+                .create();
+        dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, Color.BLACK));
+        dialog.show();
     }
 
     private void installUpdate(AppUpdater.UpdateInfo info) {
