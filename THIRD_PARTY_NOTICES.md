@@ -42,6 +42,14 @@ The warm compact style visually references `Lukoning/PiPWindow`, a plugin for `s
 
 PiPWindow is licensed under GPL-3.0. Project names and screenshots remain the property of their respective authors.
 
+## Apple Music-like Lyrics
+
+The Apple Music-like Lyrics style is an independent Android Canvas implementation inspired by
+`amll-dev/applemusic-like-lyrics`. It does not bundle AMLL JavaScript, CSS, or runtime code.
+
+The reference project is licensed under AGPL-3.0. Project names and screenshots remain the
+property of their respective authors.
+
 ## NetEase Cloud Music service
 
 Track search and lyric responses are obtained from public NetEase Cloud Music web endpoints. NetEase names, services, content and trademarks remain the property of their respective owners. Availability is not guaranteed.

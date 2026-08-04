@@ -13,6 +13,8 @@ final class AppPreferences {
     static final String KEY_PANEL_HEIGHT_DP = "panel_height_dp";
     static final String KEY_COMPACT_PANEL_WIDTH_DP = "compact_panel_width_dp";
     static final String KEY_COMPACT_PANEL_HEIGHT_DP = "compact_panel_height_dp";
+    static final String KEY_AMLL_PANEL_WIDTH_DP = "amll_panel_width_dp";
+    static final String KEY_AMLL_PANEL_HEIGHT_DP = "amll_panel_height_dp";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
     static final String KEY_MAIN_OVERLAY_STYLE = "main_overlay_style";
     static final String KEY_SECONDARY_OVERLAY_STYLE = "secondary_overlay_style";
@@ -183,7 +185,8 @@ final class AppPreferences {
     }
 
     static int minimumPanelWidthDp(Context context, boolean secondary) {
-        return "compact".equals(overlayStyle(context, secondary)) ? 220 : 240;
+        String style = overlayStyle(context, secondary);
+        return "compact".equals(style) ? 220 : "amll".equals(style) ? 320 : 240;
     }
 
     static int minimumPanelHeightDp(Context context) {
@@ -193,7 +196,8 @@ final class AppPreferences {
     static int minimumPanelHeightDp(Context context, boolean secondary) {
         // Leave a dedicated bottom row for main-display transport controls while keeping
         // the lyric lines readable on both displays.
-        return "compact".equals(overlayStyle(context, secondary)) ? 72 : 176;
+        String style = overlayStyle(context, secondary);
+        return "compact".equals(style) ? 72 : "amll".equals(style) ? 210 : 176;
     }
 
     static void setPanelWidthDp(Context context, int value) {
@@ -297,7 +301,8 @@ final class AppPreferences {
 
     private static String normalizeOverlayStyle(String style) {
         if ("default".equals(style) || "refined".equals(style)
-                || "compact".equals(style) || "pip".equals(style) || "custom".equals(style)) {
+                || "compact".equals(style) || "pip".equals(style)
+                || "custom".equals(style) || "amll".equals(style)) {
             return style;
         }
         return "refined";
@@ -488,6 +493,7 @@ final class AppPreferences {
     private static int defaultPanelWidthDp(String style) {
         if ("refined".equals(style)) return 560;
         if ("compact".equals(style)) return 320;
+        if ("amll".equals(style)) return 620;
         if ("pip".equals(style)) return 440;
         if ("custom".equals(style)) return 460;
         return 390;
@@ -498,17 +504,22 @@ final class AppPreferences {
         // This leaves room for the optional translation and the compact playback bars while
         // remaining a small horizontal overlay.
         if ("compact".equals(style)) return 104;
+        if ("amll".equals(style)) return 350;
         if ("pip".equals(style)) return 220;
         if ("custom".equals(style)) return 260;
         return 226;
     }
 
     private static String panelWidthKey(String style) {
-        return "compact".equals(style) ? KEY_COMPACT_PANEL_WIDTH_DP : KEY_PANEL_WIDTH_DP;
+        if ("compact".equals(style)) return KEY_COMPACT_PANEL_WIDTH_DP;
+        if ("amll".equals(style)) return KEY_AMLL_PANEL_WIDTH_DP;
+        return KEY_PANEL_WIDTH_DP;
     }
 
     private static String panelHeightKey(String style) {
-        return "compact".equals(style) ? KEY_COMPACT_PANEL_HEIGHT_DP : KEY_PANEL_HEIGHT_DP;
+        if ("compact".equals(style)) return KEY_COMPACT_PANEL_HEIGHT_DP;
+        if ("amll".equals(style)) return KEY_AMLL_PANEL_HEIGHT_DP;
+        return KEY_PANEL_HEIGHT_DP;
     }
 
     static void changed(Context context) {

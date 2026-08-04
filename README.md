@@ -10,7 +10,7 @@
 - 可自动识别播放器词库，也可手动指定网易云、QQ、酷狗、酷我或汽水；手动词库无结果时可选择是否回退到播放器同源词库。
 - 切换播放器或曲目时每 600ms 重新选择活跃会话，降低旧会话、旧歌词残留概率。
 - 通知监听服务会记录系统媒体读取健康状态，并在主界面或悬浮窗服务启动时自动请求重连；短暂空会话保留当前歌词 5 秒，避免系统控制中心刷新时闪空。
-- 默认、Refined Now Playing、PiPWindow 和自定义布局四种悬浮窗风格。
+- 歌词伴侣经典、Refined Now Playing、Apple Music-like Lyrics、紧凑单行、PiPWindow 和自定义布局六种悬浮窗风格。
 - 可视化布局编辑器：在模拟渲染区拖动内容块，拖入备选区即可隐藏。
 - 横屏宽度达到 600dp 时，主设置页与 Refined 设置自动切换为双列；布局编辑器同步切换为左右拖拽区域。
 - AMap Companion 同款手感的副屏位置摇杆，以及窗口整体大小、字号、封面、背景和同步参数。
@@ -100,4 +100,4 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 ## 许可证与来源
 
-本项目以 [GNU General Public License v3.0](LICENSE) 开源发布。歌词解析和媒体状态代码基于同一作者的 `Amap-for-ESP32` 项目衍生，并由版权所有者授权在本项目中以 GPL-3.0 发布。副屏与摇杆来自同一作者的 [zuo-qirun/amap-companion](https://github.com/zuo-qirun/amap-companion) 设计；两套新增视觉风格分别参考 [Refined Now Playing](https://github.com/solstice23/refined-now-playing-netease) 与 [PiPWindow](https://github.com/Lukoning/PiPWindow)，具体边界见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目以 [GNU General Public License v3.0](LICENSE) 开源发布。歌词解析和媒体状态代码基于同一作者的 `Amap-for-ESP32` 项目衍生，并由版权所有者授权在本项目中以 GPL-3.0 发布。副屏与摇杆来自同一作者的 [zuo-qirun/amap-companion](https://github.com/zuo-qirun/amap-companion) 设计；新增视觉风格参考 [Refined Now Playing](https://github.com/solstice23/refined-now-playing-netease)、[PiPWindow](https://github.com/Lukoning/PiPWindow) 与 [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)，具体边界见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -104,6 +104,9 @@ final class LyricsPanelView extends View {
     private int lyricScrollDirection;
     private long lastBasicLineStartMs = Long.MIN_VALUE;
     private long basicLyricScrollAnimationStartedMs;
+    private long lastAmllLineStartMs = Long.MIN_VALUE;
+    private long amllScrollAnimationStartedMs;
+    private int amllScrollDirection;
     private Typeface customTypeface;
     private String compactMarqueeText = "";
     private long compactMarqueeElapsedMs;
@@ -159,7 +162,8 @@ final class LyricsPanelView extends View {
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext(), secondary);
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext(), secondary);
         customTypeface = CustomFontStore.load(getContext());
-        setLayerType(usesRefinedVisualStyle() && refinedLyricBlur
+        setLayerType((usesRefinedVisualStyle() && refinedLyricBlur)
+                        || "amll".equals(overlayStyle)
                 ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext(), secondary);
         recycleBlurPreview();
@@ -191,7 +195,9 @@ final class LyricsPanelView extends View {
                 ? MusicStateStore.snapshotForLyricBrowse(lyricOffsetMs, browsePositionMs)
                 : MusicStateStore.snapshot(lyricOffsetMs);
 
-        if ("refined".equals(overlayStyle)) {
+        if ("amll".equals(overlayStyle)) {
+            drawAmll(canvas, snapshot, density);
+        } else if ("refined".equals(overlayStyle)) {
             drawRefined(canvas, snapshot, density);
         } else if ("compact".equals(overlayStyle)) {
             drawCompact(canvas, snapshot, density);
@@ -228,11 +234,14 @@ final class LyricsPanelView extends View {
                 && nowElapsedMs - lyricScrollAnimationStartedMs < 500L) return 16L;
         if (basicLyricScrollAnimationStartedMs > 0L
                 && nowElapsedMs - basicLyricScrollAnimationStartedMs < 360L) return 16L;
+        if (amllScrollAnimationStartedMs > 0L
+                && nowElapsedMs - amllScrollAnimationStartedMs < 620L) return 16L;
         if (browseUntilElapsedMs > nowElapsedMs) {
             return Math.max(16L, Math.min(250L, browseUntilElapsedMs - nowElapsedMs));
         }
         if (!snapshot.active) return 750L;
         if (!snapshot.playing) return 400L;
+        if ("amll".equals(overlayStyle)) return 33L;
         // Fluid and dynamic-gradient backgrounds are time-based.  The old 100 ms idle
         // cadence made them visibly step at 10 fps even when no word-timed lyric was active.
         if (hasAnimatedRefinedBackground()) return 33L;
@@ -266,6 +275,10 @@ final class LyricsPanelView extends View {
         if (playbackControlAt(x, y) != null) return false;
         MusicSnapshot snapshot = MusicStateStore.snapshot(effectiveLyricOffsetMs());
         if (!snapshot.lyricAvailable) return false;
+        if ("amll".equals(overlayStyle)) {
+            boolean wide = getWidth() >= getHeight() * 1.35f;
+            return !wide || x >= getWidth() * 0.43f;
+        }
         if ("refined".equals(overlayStyle)) {
             return !"cover".equals(refinedDisplayMode)
                     && ("lyrics".equals(refinedDisplayMode) || x >= getWidth() * 0.46f);
@@ -419,7 +432,8 @@ final class LyricsPanelView extends View {
     }
 
     private float browseStepPx() {
-        if ("refined".equals(overlayStyle) && lastRefinedBrowseStepPx > 1f) {
+        if (("refined".equals(overlayStyle) || "amll".equals(overlayStyle))
+                && lastRefinedBrowseStepPx > 1f) {
             return lastRefinedBrowseStepPx;
         }
         return 34f * getResources().getDisplayMetrics().density;
@@ -476,6 +490,11 @@ final class LyricsPanelView extends View {
         } else if ("custom".equals(overlayStyle)) {
             fill = snapshot.active ? 0xA31B3048 : 0x641B3048;
             primaryFill = snapshot.active ? 0xD0375A78 : fill;
+        } else if ("amll".equals(overlayStyle)) {
+            fill = snapshot.active ? 0x3DFFFFFF : 0x1FFFFFFF;
+            icon = snapshot.active ? 0xF2FFFFFF : 0x88FFFFFF;
+            accent = 0xFFFFFFFF;
+            primaryFill = snapshot.active ? 0x66FFFFFF : fill;
         }
 
         if (showPrevious) {
@@ -566,6 +585,11 @@ final class LyricsPanelView extends View {
             spacing = radius * 2.7f;
             centerX = width - (spacing + radius + 14f * density);
             centerY = height - radius - 12f * density;
+        } else if ("amll".equals(overlayStyle)) {
+            radius = Math.max(9f * density, Math.min(14f * density, height * 0.07f));
+            spacing = radius * 2.75f;
+            centerX = width >= height * 1.35f ? width * 0.22f : width * 0.5f;
+            centerY = height - radius - 11f * density;
         }
         float horizontalInset = spacing + radius * 1.18f;
         centerX = Math.max(horizontalInset, Math.min(width - horizontalInset, centerX));
@@ -695,6 +719,248 @@ final class LyricsPanelView extends View {
         drawProgress(canvas, pad, progressY, width - pad, 2f * density,
                 snapshot, withAlpha(primaryText, 48), withAlpha(primaryText, 225));
         canvas.restoreToCount(contentSave);
+    }
+
+    /** Immersive native interpretation of Apple Music-like Lyrics for wide and narrow panels. */
+    private void drawAmll(Canvas canvas, MusicSnapshot snapshot, float density) {
+        float width = getWidth();
+        float height = getHeight();
+        updatePalette(snapshot.albumArt);
+        drawAmllBackground(canvas, snapshot.albumArt, snapshot.playing);
+
+        int contentSave = canvas.save();
+        float panelRadius = Math.min(width, height) * 0.075f;
+        clipPath.reset();
+        clipPath.addRoundRect(panelRect, panelRadius, panelRadius, Path.Direction.CW);
+        canvas.clipPath(clipPath);
+
+        float pad = Math.max(14f * density, width * 0.032f);
+        boolean wide = width >= height * 1.35f && width >= 420f * density;
+        float lyricLeft;
+        float lyricWidth;
+        float currentY;
+        if (wide) {
+            float leftWidth = width * 0.43f;
+            drawAmllSongInfo(canvas, snapshot, density, leftWidth, pad);
+            lyricLeft = Math.max(width * 0.48f, leftWidth + pad);
+            lyricWidth = Math.max(1f, width - lyricLeft - pad);
+            currentY = height * 0.37f;
+        } else {
+            float titleSize = Math.max(10f * density, Math.min(14f * density, height * 0.055f));
+            drawAmllSingleLine(canvas, snapshot.active ? snapshot.title : "等待播放",
+                    pad, pad + titleSize, titleSize, 0xEFFFFFFF,
+                    width - pad * 2f, Typeface.BOLD, 239);
+            drawAmllSingleLine(canvas, snapshot.artist, pad,
+                    pad + titleSize * 2.18f, titleSize * 0.72f, 0x99FFFFFF,
+                    width - pad * 2f, Typeface.NORMAL, 153);
+            lyricLeft = pad;
+            lyricWidth = Math.max(1f, width - pad * 2f);
+            currentY = Math.max(height * 0.39f, pad + titleSize * 3.4f);
+        }
+        drawAmllLyrics(canvas, snapshot, density, lyricLeft, lyricWidth, currentY,
+                height - (secondary ? 10f : 42f) * density);
+
+        float progressLeft = wide ? pad : lyricLeft;
+        float progressRight = wide ? width * 0.40f : width - pad;
+        drawProgress(canvas, progressLeft, height - 3f * density, progressRight,
+                1.5f * density, snapshot, 0x28FFFFFF, 0xD9FFFFFF);
+        canvas.restoreToCount(contentSave);
+    }
+
+    private void drawAmllSongInfo(Canvas canvas, MusicSnapshot snapshot, float density,
+                                  float columnWidth, float pad) {
+        float availableHeight = getHeight() - (secondary ? 28f : 70f) * density;
+        float coverSize = Math.min(columnWidth - pad * 2.2f, availableHeight * 0.62f)
+                * Math.max(0.72f, Math.min(1.22f, coverScale));
+        coverSize = Math.max(62f * density, coverSize);
+        float left = (columnWidth - coverSize) * 0.5f;
+        float top = Math.max(pad, getHeight() * 0.075f);
+        coverRect.set(left, top, left + coverSize, top + coverSize);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x4D000000);
+        paint.setShadowLayer(18f * density, 0f, 8f * density, 0x8C000000);
+        canvas.drawRoundRect(coverRect, 12f * density, 12f * density, paint);
+        paint.clearShadowLayer();
+        drawCover(canvas, snapshot.albumArt, coverRect, 12f * density, palette[0]);
+
+        float titleSize = Math.max(11f * density, Math.min(16f * density,
+                getHeight() * 0.048f));
+        float textLeft = Math.max(pad, left);
+        float textWidth = Math.min(columnWidth - textLeft - pad, coverSize);
+        float y = coverRect.bottom + titleSize * 1.45f;
+        drawAmllSingleLine(canvas, snapshot.active ? snapshot.title : "等待播放",
+                textLeft, y, titleSize, 0xF2FFFFFF, textWidth,
+                Typeface.BOLD, 242);
+        y += titleSize * 1.25f;
+        drawAmllSingleLine(canvas, snapshot.artist, textLeft, y, titleSize * 0.72f,
+                0xA8FFFFFF, textWidth, Typeface.NORMAL, 168);
+        y += titleSize * 1.05f;
+        drawAmllSingleLine(canvas, snapshot.sourceName + sourceSuffix(snapshot), textLeft, y,
+                titleSize * 0.58f, 0x75FFFFFF, textWidth, Typeface.NORMAL, 117);
+    }
+
+    private void drawAmllLyrics(Canvas canvas, MusicSnapshot snapshot, float density,
+                                float left, float width, float currentY, float bottom) {
+        float fontSize = Math.max(22f * density, Math.min(39f * density,
+                Math.min(width * 0.105f, getHeight() * 0.13f))) * textScale;
+        if (snapshot.lyrics.nearbyLines.isEmpty()) {
+            drawAmllWrappedKaraoke(canvas, snapshot, currentText(snapshot), left,
+                    currentY - fontSize + browseVisualOffsetPx, fontSize, width, 3,
+                    lyricColor(0xFFFFFFFF));
+            return;
+        }
+
+        List<LrcTimeline.NearbyLine> lines = snapshot.lyrics.nearbyLines;
+        ensureRefinedLineCapacity(lines.size());
+        int current = 0;
+        float translationSize = Math.max(10f * density, fontSize * 0.50f);
+        for (int i = 0; i < lines.size(); i++) {
+            LrcTimeline.NearbyLine line = lines.get(i);
+            if (line.offset == 0) current = i;
+            if (line.interlude) {
+                refinedLineHeights[i] = fontSize * 0.92f;
+            } else {
+                refinedLineHeights[i] = wrappedTextHeight(line.text, fontSize, width, 3);
+                if (!line.translated.isEmpty()) {
+                    refinedLineHeights[i] += fontSize * 0.12f
+                            + wrappedTextHeight(line.translated, translationSize, width, 2);
+                }
+            }
+        }
+        float gap = fontSize * 0.42f;
+        lastRefinedBrowseStepPx = Math.max(1f, refinedLineHeights[current] + gap);
+        refinedLineTops[current] = currentY - Math.min(fontSize, refinedLineHeights[current] * 0.42f);
+        for (int i = current + 1; i < lines.size(); i++) {
+            refinedLineTops[i] = refinedLineTops[i - 1] + refinedLineHeights[i - 1] + gap;
+        }
+        for (int i = current - 1; i >= 0; i--) {
+            refinedLineTops[i] = refinedLineTops[i + 1] - refinedLineHeights[i] - gap;
+        }
+
+        boolean previewing = manualPreviewActive();
+        float scrollShift = animatedAmllScrollShift(snapshot.lyrics.lineStartMs,
+                refinedLineHeights[current] + gap) + browseVisualOffsetPx;
+        for (int i = 0; i < lines.size(); i++) {
+            LrcTimeline.NearbyLine line = lines.get(i);
+            int offset = line.offset;
+            if (Math.abs(offset) > 3) continue;
+            float top = refinedLineTops[i] + scrollShift;
+            float centerY = top + refinedLineHeights[i] * 0.5f;
+            float edgeFade = clamp(Math.min((centerY + fontSize) / Math.max(1f, currentY),
+                    (bottom - centerY + fontSize) / Math.max(1f, bottom - currentY)) * 1.7f);
+            float opacityValue = AmllStyleMotion.lineOpacity(offset, snapshot.playing, previewing)
+                    * edgeFade;
+            if (opacityValue <= 0.01f || centerY < -fontSize || top > bottom + fontSize) continue;
+
+            float scale = AmllStyleMotion.lineScale(offset);
+            int save = canvas.save();
+            canvas.scale(scale, scale, left, centerY);
+            float blur = AmllStyleMotion.lineBlur(offset, snapshot.playing, previewing);
+            BlurMaskFilter lineMask = null;
+            if (blur > 0.01f) {
+                lineMask = new BlurMaskFilter(blur * density, BlurMaskFilter.Blur.NORMAL);
+                paint.setMaskFilter(lineMask);
+            }
+            int lineColor = lyricColor(withAlpha(0xFFFFFFFF,
+                    Math.round(opacityValue * 255f)));
+            if (line.interlude) {
+                drawInterludeDots(canvas, snapshot, left, top + fontSize * 0.24f,
+                        fontSize * 0.105f, lineColor);
+            } else if (offset == 0) {
+                drawAmllWrappedKaraoke(canvas, snapshot, currentText(snapshot), left, top,
+                        fontSize, width, 3, lyricColor(0xFFFFFFFF));
+            } else {
+                drawWrappedText(canvas, line.text, left, top, fontSize, lineColor,
+                        width, Typeface.BOLD, 3);
+            }
+            if (!line.interlude && !line.translated.isEmpty()) {
+                float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
+                if (lineMask != null) paint.setMaskFilter(lineMask);
+                int translationAlpha = Math.round(opacityValue
+                        * (offset == 0 ? 108f : 82f));
+                drawWrappedText(canvas, line.translated, left,
+                        top + originalHeight + fontSize * 0.12f, translationSize,
+                        lyricColor(withAlpha(0xFFFFFFFF, translationAlpha)), width,
+                        Typeface.NORMAL, 2);
+            }
+            paint.setMaskFilter(null);
+            canvas.restoreToCount(save);
+        }
+    }
+
+    private float animatedAmllScrollShift(long lineStartMs, float stepHeight) {
+        if (lineStartMs < 0L || !smoothLyricScroll) return 0f;
+        if (manualPreviewActive()) {
+            lastAmllLineStartMs = lineStartMs;
+            amllScrollAnimationStartedMs = 0L;
+            amllScrollDirection = 0;
+            return 0f;
+        }
+        if (lastAmllLineStartMs == Long.MIN_VALUE) {
+            lastAmllLineStartMs = lineStartMs;
+            return 0f;
+        }
+        if (lineStartMs != lastAmllLineStartMs) {
+            amllScrollDirection = lineStartMs > lastAmllLineStartMs ? 1 : -1;
+            lastAmllLineStartMs = lineStartMs;
+            amllScrollAnimationStartedMs = SystemClock.elapsedRealtime();
+        }
+        long elapsed = SystemClock.elapsedRealtime() - amllScrollAnimationStartedMs;
+        return amllScrollDirection * stepHeight
+                * AmllStyleMotion.scrollRemainder(elapsed, 620L);
+    }
+
+    private void drawAmllBackground(Canvas canvas, Bitmap art, boolean playing) {
+        int alphaLayer = saveLayerAlphaCompat(canvas, panelRect,
+                Math.round(clamp(opacity / 100f) * 255f));
+        int save = canvas.save();
+        float radius = Math.min(getWidth(), getHeight()) * 0.075f;
+        clipPath.reset();
+        clipPath.addRoundRect(panelRect, radius, radius, Path.Direction.CW);
+        canvas.clipPath(clipPath);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setAlpha(255);
+        paint.setColor(mix(palette[0], Color.BLACK, 0.76f));
+        canvas.drawRect(panelRect, paint);
+        if (art != null && !art.isRecycled()) {
+            drawBitmapCrop(canvas, blurredPreview(art), panelRect, 225);
+        }
+
+        float phase = playing ? (SystemClock.elapsedRealtime() % 100_000L) / 100_000f : 0.18f;
+        float gradientRadius = Math.max(getWidth(), getHeight()) * 0.78f;
+        for (int i = 0; i < 3; i++) {
+            double angle = phase * Math.PI * 2d + i * Math.PI * 2d / 3d;
+            float cx = getWidth() * (0.5f + 0.42f * (float) Math.cos(angle));
+            float cy = getHeight() * (0.5f + 0.36f * (float) Math.sin(angle));
+            paint.setShader(new RadialGradient(cx, cy, gradientRadius,
+                    withAlpha(palette[i], 92), withAlpha(palette[i], 0),
+                    Shader.TileMode.CLAMP));
+            canvas.drawRect(panelRect, paint);
+        }
+        paint.setShader(null);
+        int dim = Math.max(105, Math.round(clamp(backgroundDim / 100f) * 210f));
+        paint.setColor(Color.argb(dim, 0, 0, 0));
+        canvas.drawRect(panelRect, paint);
+        paint.setShader(new LinearGradient(0f, 0f, 0f, getHeight(),
+                new int[]{0x33000000, 0x00000000, 0x70000000},
+                new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(panelRect, paint);
+        paint.setShader(null);
+        canvas.restoreToCount(save);
+        canvas.restoreToCount(alphaLayer);
+        paint.setAlpha(255);
+    }
+
+    private void drawAmllSingleLine(Canvas canvas, String value, float x, float baseline,
+                                    float requestedSize, int color, float maxWidth,
+                                    int style, int alpha) {
+        if (value == null || value.isEmpty()) return;
+        float size = fitSize(value, requestedSize, maxWidth, style);
+        setTextPaint(size, style);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setColor(withAlpha(color, alpha));
+        canvas.drawText(ellipsize(value.replace('\n', ' '), maxWidth), x, baseline, paint);
     }
 
     /** A small horizontal media strip: lyric-led, with cover artwork as a side anchor. */
@@ -1829,10 +2095,72 @@ final class LyricsPanelView extends View {
         return chunks.size() * lineHeight;
     }
 
+    private float drawAmllWrappedKaraoke(Canvas canvas, MusicSnapshot snapshot, String value,
+                                         float x, float top, float size, float maxWidth,
+                                         int maxLines, int activeColor) {
+        if (value == null || value.isEmpty()) return 0f;
+        setTextPaint(size, Typeface.BOLD);
+        List<WrappedChunk> chunks = wrapText(value.replace('\n', ' '), maxWidth, maxLines);
+        float lineHeight = size * 1.22f;
+        LrcTimeline.At at = snapshot.lyrics;
+        int completedEnd;
+        int activeEnd;
+        if (!snapshot.lyricAvailable || at.lyric.isEmpty() || !at.wordTimed) {
+            completedEnd = value.length();
+            activeEnd = completedEnd;
+        } else {
+            int revealed = LrcTimeline.revealedCodePointCount(
+                    at.currentWord, at.wordProgressPermille);
+            int currentEnd = at.currentWord.offsetByCodePoints(0, revealed);
+            completedEnd = Math.min(value.length(), at.completedLyric.length());
+            activeEnd = Math.min(value.length(), completedEnd + currentEnd);
+        }
+        float progress = at.wordProgressPermille / 1000f;
+        float lift = AmllStyleMotion.wordLift(progress) * size;
+        paint.setTextAlign(Paint.Align.LEFT);
+        for (int i = 0; i < chunks.size(); i++) {
+            WrappedChunk chunk = chunks.get(i);
+            float baseline = top + size + i * lineHeight;
+            paint.setColor(withAlpha(activeColor, 76));
+            canvas.drawText(chunk.text, x, baseline, paint);
+            drawAmllHighlightRange(canvas, chunk, x, baseline, size,
+                    0, completedEnd, activeColor, 235, 0f, false);
+            drawAmllHighlightRange(canvas, chunk, x, baseline, size,
+                    completedEnd, activeEnd, activeColor, 255, lift, true);
+        }
+        return chunks.size() * lineHeight;
+    }
+
+    private void drawAmllHighlightRange(Canvas canvas, WrappedChunk chunk, float x,
+                                        float baseline, float size, int rangeStart,
+                                        int rangeEnd, int color, int alpha, float lift,
+                                        boolean glow) {
+        int localStart = Math.max(0, Math.min(chunk.text.length(), rangeStart - chunk.start));
+        int localEnd = Math.max(0, Math.min(chunk.text.length(), rangeEnd - chunk.start));
+        if (localEnd <= localStart) return;
+        float startWidth = localStart == 0 ? 0f
+                : paint.measureText(chunk.text.substring(0, localStart));
+        float endWidth = localEnd >= chunk.text.length() ? paint.measureText(chunk.text)
+                : paint.measureText(chunk.text.substring(0, localEnd));
+        int save = canvas.save();
+        canvas.clipRect(x + startWidth - 1f, baseline - size * 1.45f,
+                x + endWidth + 1f, baseline + size * 0.38f);
+        paint.setColor(withAlpha(color, alpha));
+        if (glow) {
+            paint.setShadowLayer(Math.max(2f, size * 0.18f), 0f, -lift * 0.25f,
+                    withAlpha(color, 118));
+        }
+        canvas.drawText(chunk.text, x, baseline - lift, paint);
+        paint.clearShadowLayer();
+        canvas.restoreToCount(save);
+    }
+
     private float drawWrappedText(Canvas canvas, String value, float x, float top, float size,
                                   int color, float maxWidth, int style, int maxLines) {
         if (value == null || value.isEmpty()) return 0f;
+        android.graphics.MaskFilter maskFilter = paint.getMaskFilter();
         setTextPaint(size, style);
+        paint.setMaskFilter(maskFilter);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setColor(color);
         List<WrappedChunk> chunks = wrapText(value.replace('\n', ' '), maxWidth, maxLines);

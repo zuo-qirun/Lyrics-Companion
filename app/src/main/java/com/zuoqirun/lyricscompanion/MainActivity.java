@@ -61,6 +61,8 @@ public final class MainActivity extends AppCompatActivity {
             "https://github.com/solstice23/refined-now-playing-netease";
     private static final String PIPWINDOW_REPOSITORY_URL =
             "https://github.com/Lukoning/PiPWindow";
+    private static final String AMLL_REPOSITORY_URL =
+            "https://github.com/amll-dev/applemusic-like-lyrics";
     private static final String THIRD_PARTY_NOTICES_URL =
             SOURCE_REPOSITORY_URL + "/blob/main/THIRD_PARTY_NOTICES.md";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
@@ -386,7 +388,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout openSourceCard = card();
         openSourceCard.addView(sectionLabel("开源与致谢"));
         TextView openSourceSummary = text(
-                "歌词伴侣基于 GPL-3.0 开源。Refined Now Playing 与 PiPWindow 样式参考了对应开源项目，并以原生 Android 方式重新实现。",
+                "歌词伴侣基于 GPL-3.0 开源。Refined Now Playing、PiPWindow 与 Apple Music-like Lyrics 样式参考了对应开源项目，并以原生 Android 方式重新实现。",
                 13, 0xFFD8E1EE, false);
         openSourceSummary.setLineSpacing(0f, 1.2f);
         openSourceSummary.setPadding(0, dp(9), 0, dp(10));
@@ -407,6 +409,11 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams pipWindowParams = new LinearLayout.LayoutParams(-1, dp(48));
         pipWindowParams.topMargin = dp(6);
         openSourceCard.addView(pipWindowRepository, pipWindowParams);
+        MaterialButton amllRepository = button("Apple Music-like Lyrics · AGPL-3.0", false);
+        amllRepository.setOnClickListener(v -> openUrl(AMLL_REPOSITORY_URL));
+        LinearLayout.LayoutParams amllParams = new LinearLayout.LayoutParams(-1, dp(48));
+        amllParams.topMargin = dp(6);
+        openSourceCard.addView(amllRepository, amllParams);
         MaterialButton notices = button("第三方开源声明", false);
         notices.setOnClickListener(v -> openUrl(THIRD_PARTY_NOTICES_URL));
         LinearLayout.LayoutParams noticesParams = new LinearLayout.LayoutParams(-1, dp(48));
@@ -479,8 +486,8 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"Refined Now Playing", "歌词伴侣经典样式", "紧凑单行", "PiPWindow"};
-        String[] values = {"refined", "default", "compact", "pip"};
+        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑单行", "PiPWindow"};
+        String[] values = {"refined", "amll", "default", "compact", "pip"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
                 android.R.layout.simple_spinner_dropdown_item, labels) {
@@ -516,7 +523,7 @@ public final class MainActivity extends AppCompatActivity {
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
         TextView help = text(secondary
                         ? "副屏可独立选择样式。"
-                        : "Refined Now Playing 为原 Refined 双栏样式；经典样式保留原歌词伴侣默认布局。",
+                        : "Refined、Apple Music-like Lyrics 和 PiPWindow 均为独立样式；经典样式保留原歌词伴侣默认布局。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
