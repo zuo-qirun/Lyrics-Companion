@@ -122,6 +122,10 @@ final class LrcTimeline {
         return lines.isEmpty();
     }
 
+    int lineCount() {
+        return lines.size();
+    }
+
     boolean containsLyricText(String value) {
         String normalized = normalizeLyricText(value);
         if (normalized.isEmpty()) return false;

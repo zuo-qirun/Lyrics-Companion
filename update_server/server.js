@@ -30,6 +30,7 @@ const feedbackIntervalMs = Math.max(10_000,
   Number(process.env.FEEDBACK_INTERVAL_MS || 60_000));
 const diagnosticIntervalMs = Math.max(10_000,
   Number(process.env.DIAGNOSTIC_INTERVAL_MS || 60_000));
+const diagnosticRequestMaxBytes = 4 * 1024 * 1024;
 const onlineTracker = new OnlineTracker(onlineTtlMs);
 const feedbackStore = new FeedbackStore(feedbackPath, feedbackIntervalMs, feedbackRepliesPath);
 const diagnosticStore = new DiagnosticStore(diagnosticsPath, diagnosticIntervalMs);
@@ -252,7 +253,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && (url.pathname === "/api/diagnostics"
         || url.pathname === "/api/diagnostics/crash")) {
       let body;
-      try { body = await readJson(req, 48 * 1024); }
+      try { body = await readJson(req, diagnosticRequestMaxBytes); }
       catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
       try {
         body.kind = url.pathname.endsWith("/crash") ? "crash" : body.kind;

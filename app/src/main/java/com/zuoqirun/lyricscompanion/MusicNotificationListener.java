@@ -34,6 +34,8 @@ public final class MusicNotificationListener extends NotificationListenerService
     private boolean connected;
     private int legacyConnectAttempts;
     private long lastNonEmptySessionElapsedMs;
+    private int lastLoggedSessionCount = -1;
+    private String lastLoggedSessionError = "";
     private static volatile boolean listenerConnected;
     private static volatile long lastSuccessfulSessionReadElapsedMs;
     private static volatile int lastSessionCount;
@@ -52,17 +54,34 @@ public final class MusicNotificationListener extends NotificationListenerService
             lastSessionCount = Math.max(0, sessionCount);
             lastSessionError = "";
             reconnectStartedElapsedMs = 0L;
+            if (lastLoggedSessionCount != lastSessionCount) {
+                lastLoggedSessionCount = lastSessionCount;
+                DiagnosticLog.record(MusicNotificationListener.this, "MediaSession",
+                        "read success sessions=" + lastSessionCount + " backend=" + backendName);
+            }
+            lastLoggedSessionError = "";
         }
 
         @Override public void onReadError(String message, Throwable error) {
             lastSessionError = message + (error == null ? "" : ": " + safeMessage(error));
             Log.w(TAG, message, error);
+            if (!lastSessionError.equals(lastLoggedSessionError)) {
+                lastLoggedSessionError = lastSessionError;
+                DiagnosticLog.record(MusicNotificationListener.this, "MediaSession",
+                        "read error=" + lastSessionError);
+            }
         }
 
         @Override public void onSession(String packageName, String applicationLabel,
                                         MusicPlaybackData data) {
             lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
-            activePlayerPackageName = packageName == null ? "" : packageName;
+            String nextPackage = packageName == null ? "" : packageName;
+            if (!nextPackage.equals(activePlayerPackageName)) {
+                DiagnosticLog.record(MusicNotificationListener.this, "MediaSession",
+                        "active player changed package=" + nextPackage
+                                + " label=" + applicationLabel);
+            }
+            activePlayerPackageName = nextPackage;
             MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, applicationLabel);
             MusicStateStore.update(MusicNotificationListener.this,
                     app.sourceId, app.displayName, data);
@@ -71,6 +90,10 @@ public final class MusicNotificationListener extends NotificationListenerService
         @Override public void onNoSession() {
             long now = SystemClock.elapsedRealtime();
             if (shouldClearAfterEmpty(lastNonEmptySessionElapsedMs, now)) {
+                if (!activePlayerPackageName.isEmpty()) {
+                    DiagnosticLog.record(MusicNotificationListener.this, "MediaSession",
+                            "no usable session after graceMs=" + EMPTY_SESSION_GRACE_MS);
+                }
                 activePlayerPackageName = "";
                 MusicStateStore.clear();
             }
@@ -105,6 +128,8 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     @Override public void onCreate() {
         super.onCreate();
+        DiagnosticLog.record(this, "MediaSession", "listener service created api="
+                + Build.VERSION.SDK_INT + " access=" + hasNotificationAccess(this));
         activeInstance = this;
         MusicStateStore.initialize(this);
         lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
@@ -143,6 +168,8 @@ public final class MusicNotificationListener extends NotificationListenerService
         }
         connected = true;
         listenerConnected = true;
+        DiagnosticLog.record(this, "MediaSession", "listener connected backend="
+                + backendName + " api=" + Build.VERSION.SDK_INT);
         Log.i(TAG, "Notification listener connected on API " + Build.VERSION.SDK_INT
                 + " using " + backendName);
         handler.removeCallbacks(sessionPoll);
@@ -153,6 +180,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     @Override public void onListenerDisconnected() {
+        DiagnosticLog.record(this, "MediaSession", "system disconnected listener");
         stopListening();
         // API 24+ tells us that the system side has disconnected. Retry from this lifecycle
         // callback instead of racing the initial bind when the permission screen closes.
@@ -205,6 +233,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     @Override public void onDestroy() {
+        DiagnosticLog.record(this, "MediaSession", "listener service destroyed");
         handler.removeCallbacks(reconnectAfterSystemDisconnect);
         stopListening();
         if (activeInstance == this) activeInstance = null;
@@ -235,13 +264,18 @@ public final class MusicNotificationListener extends NotificationListenerService
     private void dispatchPlaybackControl(MediaControlAction action) {
         if (!connected || sessionReader == null) {
             lastSessionError = "播放器控制不可用：通知读取服务未连接";
+            DiagnosticLog.record(this, "MediaControl", "action=" + action
+                    + " result=listener_unavailable");
             return;
         }
         sessionReader.refresh();
         if (!sessionReader.dispatchControl(action)) {
             lastSessionError = "播放器未提供可用的控制会话";
+            DiagnosticLog.record(this, "MediaControl", "action=" + action
+                    + " result=no_controllable_session");
             return;
         }
+        DiagnosticLog.record(this, "MediaControl", "action=" + action + " result=dispatched");
         handler.postDelayed(() -> {
             if (connected && sessionReader != null) sessionReader.refresh();
         }, 180L);
@@ -337,6 +371,10 @@ public final class MusicNotificationListener extends NotificationListenerService
         return backendName;
     }
 
+    static String getActivePlayerPackageName() {
+        return activePlayerPackageName;
+    }
+
     static boolean hasNotificationAccess(Context context) {
         if (context == null) return false;
         String enabled = Settings.Secure.getString(context.getContentResolver(),
@@ -365,6 +403,9 @@ public final class MusicNotificationListener extends NotificationListenerService
         lastReconnectRequestElapsedMs = now;
         Context appContext = context.getApplicationContext();
         ComponentName component = new ComponentName(appContext, MusicNotificationListener.class);
+        DiagnosticLog.record(appContext, "MediaSession", "reconnect requested api="
+                + Build.VERSION.SDK_INT + " unhealthyForMs="
+                + Math.max(0L, now - reconnectStartedElapsedMs));
         try {
             if (Build.VERSION.SDK_INT >= 24) {
                 boolean shouldRecoverComponent = now - reconnectStartedElapsedMs
@@ -396,6 +437,8 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static void requestLegacyRebind(Context context, ComponentName component) {
         if (legacyRebindInProgress) return;
         legacyRebindInProgress = true;
+        DiagnosticLog.record(context, "MediaSession", "component recovery started component="
+                + component.flattenToShortString());
         PackageManager manager = context.getPackageManager();
         try {
             manager.setComponentEnabledSetting(component,

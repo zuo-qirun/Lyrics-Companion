@@ -238,7 +238,7 @@ final class CommunityClient {
             connection = HttpCompat.open(API_BASE + path);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(5_000);
-            connection.setReadTimeout(7_000);
+            connection.setReadTimeout(path.startsWith("/diagnostics") ? 30_000 : 7_000);
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(encoded.length);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");

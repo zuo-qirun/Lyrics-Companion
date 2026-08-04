@@ -6,6 +6,7 @@ const path = require("path");
 
 const CLIENT_ID_PATTERN = /^[a-f0-9-]{16,64}$/i;
 const TICKET_LIMIT = 20;
+const DIAGNOSTIC_DETAILS_LIMIT = 1_200_000;
 
 function normalizeClientId(value) {
   const id = String(value || "").trim();
@@ -26,7 +27,7 @@ function normalizeDiagnostic(value) {
   return {
     kind: source.kind === "crash" ? "crash" : "snapshot",
     summary: String(source.summary || "").trim().slice(0, 500),
-    details: String(source.details || "").trim().slice(0, 12_000),
+    details: String(source.details || "").trim().slice(0, DIAGNOSTIC_DETAILS_LIMIT),
     appVersion: String(source.appVersion || "").trim().slice(0, 80),
   };
 }
@@ -123,7 +124,7 @@ class FeedbackStore extends RateLimitedStore {
     return {...this.publicFeedback(entry), replyToken};
   }
 
-  list(limit = 100) {
+  list(limit = 20) {
     const replies = this.repliesByFeedback();
     return readJsonLines(this.filePath).slice(-Math.max(1, Math.min(500, Number(limit) || 100))).reverse()
       .map((entry) => ({...this.publicFeedback(entry), replies: replies.get(entry.id) || []}));
@@ -176,7 +177,8 @@ class DiagnosticStore extends RateLimitedStore {
   }
 
   list(limit = 100) {
-    return readJsonLines(this.filePath).slice(-Math.max(1, Math.min(500, Number(limit) || 100))).reverse();
+    return readJsonLines(this.filePath).slice(
+      -Math.max(1, Math.min(50, Number(limit) || 20))).reverse();
   }
 }
 

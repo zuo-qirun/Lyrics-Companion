@@ -54,6 +54,14 @@ public final class MainActivity extends AppCompatActivity {
             "https://lyrics-companion.zuoqirun.top/update.json";
     private static final String UPDATE_HISTORY_URL =
             "https://lyrics-companion.zuoqirun.top/versions";
+    private static final String SOURCE_REPOSITORY_URL =
+            "https://github.com/zuo-qirun/Lyrics-Companion";
+    private static final String REFINED_REPOSITORY_URL =
+            "https://github.com/solstice23/refined-now-playing-netease";
+    private static final String PIPWINDOW_REPOSITORY_URL =
+            "https://github.com/Lukoning/PiPWindow";
+    private static final String THIRD_PARTY_NOTICES_URL =
+            SOURCE_REPOSITORY_URL + "/blob/main/THIRD_PARTY_NOTICES.md";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final long LISTENER_HEALTH_MAX_AGE_MS = 3_000L;
     private static final long LISTENER_INITIAL_RECONNECT_DELAY_MS = 2_500L;
@@ -353,6 +361,36 @@ public final class MainActivity extends AppCompatActivity {
         updateButtons.addView(versionHistory, historyParams);
         updateCard.addView(updateButtons);
 
+        LinearLayout openSourceCard = card();
+        openSourceCard.addView(sectionLabel("开源与致谢"));
+        TextView openSourceSummary = text(
+                "歌词伴侣基于 GPL-3.0 开源。Refined Now Playing 与 PiPWindow 样式参考了对应开源项目，并以原生 Android 方式重新实现。",
+                13, 0xFFD8E1EE, false);
+        openSourceSummary.setLineSpacing(0f, 1.2f);
+        openSourceSummary.setPadding(0, dp(9), 0, dp(10));
+        openSourceCard.addView(openSourceSummary);
+
+        MaterialButton sourceRepository = button("歌词伴侣源码 · GPL-3.0", true);
+        sourceRepository.setOnClickListener(v -> openUrl(SOURCE_REPOSITORY_URL));
+        openSourceCard.addView(sourceRepository, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        TextView referenceLabel = text("样式参考项目", 12, 0xFF93A4B9, true);
+        referenceLabel.setPadding(0, dp(13), 0, dp(5));
+        openSourceCard.addView(referenceLabel);
+        MaterialButton refinedRepository = button("Refined Now Playing · MIT", false);
+        refinedRepository.setOnClickListener(v -> openUrl(REFINED_REPOSITORY_URL));
+        openSourceCard.addView(refinedRepository, new LinearLayout.LayoutParams(-1, dp(48)));
+        MaterialButton pipWindowRepository = button("PiPWindow · GPL-3.0", false);
+        pipWindowRepository.setOnClickListener(v -> openUrl(PIPWINDOW_REPOSITORY_URL));
+        LinearLayout.LayoutParams pipWindowParams = new LinearLayout.LayoutParams(-1, dp(48));
+        pipWindowParams.topMargin = dp(6);
+        openSourceCard.addView(pipWindowRepository, pipWindowParams);
+        MaterialButton notices = button("第三方开源声明", false);
+        notices.setOnClickListener(v -> openUrl(THIRD_PARTY_NOTICES_URL));
+        LinearLayout.LayoutParams noticesParams = new LinearLayout.LayoutParams(-1, dp(48));
+        noticesParams.topMargin = dp(6);
+        openSourceCard.addView(notices, noticesParams);
+
         LinearLayout communityCard = card();
         communityCard.addView(sectionLabel("社区与反馈"));
         onlineStatus = text("当前在线：正在连接…", 14, 0xFFD8E1EE, true);
@@ -392,6 +430,7 @@ public final class MainActivity extends AppCompatActivity {
             rightColumn.addView(lyricCard, cardMargins());
             rightColumn.addView(communityCard, cardMargins());
             rightColumn.addView(updateCard, cardMargins());
+            rightColumn.addView(openSourceCard, cardMargins());
             rightColumn.addView(outputCard, cardMargins());
             rightColumn.addView(stateCard, cardMargins());
             root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
@@ -401,6 +440,7 @@ public final class MainActivity extends AppCompatActivity {
             root.addView(lyricCard, cardMargins());
             root.addView(communityCard, cardMargins());
             root.addView(updateCard, cardMargins());
+            root.addView(openSourceCard, cardMargins());
             root.addView(outputCard, cardMargins());
             root.addView(styleCard, cardMargins());
             root.addView(stateCard, cardMargins());
@@ -691,7 +731,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void addSupportControls(LinearLayout parent) {
         MaterialSwitch crashUpload = toggle("自动上传闪退诊断",
-                "仅上传本应用的异常堆栈、播放链路状态和悬浮窗状态；默认关闭");
+                "包含设备型号、系统与权限、曲目元数据、播放/歌词/显示状态及最近事件；不含歌词正文、通知正文或设备唯一标识；默认关闭");
         crashUpload.setChecked(AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false));
         crashUpload.setOnCheckedChangeListener((button, checked) -> {
@@ -1082,7 +1122,7 @@ public final class MainActivity extends AppCompatActivity {
     private void openUrl(String address) {
         try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(address))); }
         catch (Throwable error) {
-            if (updateStatus != null) updateStatus.setText("无法打开链接：" + address);
+            Toast.makeText(this, "无法打开链接：" + address, Toast.LENGTH_LONG).show();
         }
     }
 

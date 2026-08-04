@@ -71,6 +71,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             }
         } catch (Throwable error) {
             Log.w(TAG, "Unable to start display service", error);
+            DiagnosticLog.record(context, "Overlay", "service start failed="
+                    + error.getClass().getSimpleName() + ": " + error.getMessage());
         }
     }
 
@@ -92,6 +94,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             else context.startService(intent);
         } catch (Throwable error) {
             Log.w(TAG, "Unable to deliver display command", error);
+            DiagnosticLog.record(context, "Overlay", "command delivery failed action="
+                    + intent.getAction() + " error=" + error.getClass().getSimpleName()
+                    + ": " + error.getMessage());
         }
     }
 
@@ -100,6 +105,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @SuppressLint("ForegroundServiceType")
     @Override public void onCreate() {
         super.onCreate();
+        DiagnosticLog.record(this, "Overlay", "display service created api="
+                + Build.VERSION.SDK_INT);
         MusicStateStore.initialize(this);
         AudioSpectrumSource.sync(this);
         createNotificationChannel();
@@ -134,6 +141,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public void onDestroy() {
+        DiagnosticLog.record(this, "Overlay", "display service destroyed mainAttached="
+                + (mainPanel != null && mainPanel.getParent() != null)
+                + " secondaryAttached="
+                + (secondaryPanel != null && secondaryPanel.getParent() != null));
         communityHandler.removeCallbacks(communityHeartbeat);
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
@@ -142,9 +153,18 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         super.onDestroy();
     }
 
-    @Override public void onDisplayAdded(int displayId) { rebuildSecondary(); }
-    @Override public void onDisplayRemoved(int displayId) { rebuildSecondary(); }
-    @Override public void onDisplayChanged(int displayId) { rebuildSecondary(); }
+    @Override public void onDisplayAdded(int displayId) {
+        DiagnosticLog.record(this, "Display", "added id=" + displayId);
+        rebuildSecondary();
+    }
+    @Override public void onDisplayRemoved(int displayId) {
+        DiagnosticLog.record(this, "Display", "removed id=" + displayId);
+        rebuildSecondary();
+    }
+    @Override public void onDisplayChanged(int displayId) {
+        DiagnosticLog.record(this, "Display", "changed id=" + displayId);
+        rebuildSecondary();
+    }
 
     private void rebuildAll() {
         AudioSpectrumSource.sync(this);
@@ -195,7 +215,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 AppPreferences.KEY_MAIN_X, AppPreferences.KEY_MAIN_Y, true);
         try {
             mainWindowManager.addView(mainPanel, mainParams);
-            DiagnosticLog.record(this, "Overlay", "main attached");
+            DiagnosticLog.record(this, "Overlay", "main attached position=" + mainParams.x
+                    + "," + mainParams.y + " sizePx=" + width + "x" + height
+                    + " screenPx=" + screen.x + "x" + screen.y + " style="
+                    + AppPreferences.overlayStyle(this, false));
             Log.i(TAG, "Main overlay attached at " + mainParams.x + "," + mainParams.y
                     + " size=" + width + "x" + height);
         } catch (Throwable error) {
@@ -209,6 +232,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private void showSecondary() {
         Display display = findSecondaryDisplay();
         if (display == null) {
+            DiagnosticLog.record(this, "Display", "secondary enabled but unavailable preferredId="
+                    + AppPreferences.displayId(this) + " detected="
+                    + (displayManager == null ? -1 : displayManager.getDisplays().length));
             Log.i(TAG, "Secondary overlay enabled, but no secondary display is connected");
             return;
         }
@@ -242,9 +268,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             attachDrag(secondaryPanel, secondaryWindowManager, secondaryParams, screen,
                     AppPreferences.KEY_SECONDARY_X, AppPreferences.KEY_SECONDARY_Y, false);
             secondaryWindowManager.addView(secondaryPanel, secondaryParams);
+            DiagnosticLog.record(this, "Display", "secondary attached id="
+                    + display.getDisplayId() + " name=" + display.getName() + " position="
+                    + secondaryParams.x + "," + secondaryParams.y + " sizePx=" + width + "x"
+                    + height + " screenPx=" + screen.x + "x" + screen.y + " style="
+                    + AppPreferences.overlayStyle(this, true));
             Log.i(TAG, "Lyrics shown on display " + display.getDisplayId()
                     + " (" + display.getName() + ")");
         } catch (Throwable error) {
+            DiagnosticLog.record(this, "Display", "secondary attach failed="
+                    + error.getClass().getSimpleName() + ": " + error.getMessage());
             Log.e(TAG, "Unable to add secondary overlay", error);
             dismissSecondary();
         }

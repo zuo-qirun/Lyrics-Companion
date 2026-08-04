@@ -1,10 +1,19 @@
 package com.zuoqirun.lyricscompanion;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.graphics.Point;
+import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.os.Process;
+import android.os.StatFs;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Log;
+import android.util.DisplayMetrics;
+import android.view.Display;
 
 import org.json.JSONObject;
 
@@ -13,13 +22,15 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.TimeZone;
 
 /** Persists the last fatal exception locally; network work is deliberately deferred until restart. */
 final class CrashReporter {
     private static final String TAG = "CrashReporter";
     private static final String DIRECTORY = "diagnostics";
     private static final String PENDING_CRASH = "pending-crash.json";
-    private static final int MAX_STACK_CHARS = 12_000;
+    private static final int MAX_STACK_CHARS = 64_000;
     private static boolean installed;
 
     private CrashReporter() {}
@@ -91,15 +102,107 @@ final class CrashReporter {
     }
 
     private static String deviceDetails(Context context) {
-        return "android=" + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")"
+        Runtime runtime = Runtime.getRuntime();
+        File files = context.getFilesDir();
+        StatFs storage = new StatFs(files.getAbsolutePath());
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        return "app=" + appVersion(context)
+                + "\npackage=" + context.getPackageName()
+                + "\nandroid=" + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")"
+                + "\nsecurityPatch=" + (Build.VERSION.SDK_INT >= 23
+                ? safe(Build.VERSION.SECURITY_PATCH) : "unavailable")
                 + "\nmanufacturer=" + safe(Build.MANUFACTURER)
                 + "\nmodel=" + safe(Build.MODEL)
-                + "\nmainOverlay=" + AppPreferences.mainEnabled(context)
-                + "\nsecondaryOverlay=" + AppPreferences.secondaryEnabled(context)
+                + "\ndevice=" + safe(Build.DEVICE)
+                + "\nproduct=" + safe(Build.PRODUCT)
+                + "\nabis=" + (Build.VERSION.SDK_INT >= 21
+                ? java.util.Arrays.toString(Build.SUPPORTED_ABIS) : safe(Build.CPU_ABI))
+                + "\nlocale=" + Locale.getDefault()
+                + "\ntimeZone=" + TimeZone.getDefault().getID()
+                + "\nprocessUptimeMs=" + SystemClock.elapsedRealtime()
+                + "\nmemoryUsedBytes=" + (runtime.totalMemory() - runtime.freeMemory())
+                + "\nmemoryFreeBytes=" + runtime.freeMemory()
+                + "\nmemoryTotalBytes=" + runtime.totalMemory()
+                + "\nmemoryMaxBytes=" + runtime.maxMemory()
+                + "\nfilesAvailableBytes=" + storage.getAvailableBytes()
+                + "\ndensity=" + metrics.density + " (" + metrics.densityDpi + " dpi)"
+                + "\nfontScale=" + context.getResources().getConfiguration().fontScale
+                + "\n\nPermissions:\n" + permissionDetails(context)
+                + "\n\nDisplays:\n" + displayDetails(context)
+                + "\n\nDisplay preferences:\n" + preferenceDetails(context)
                 + "\n\nPlayback pipeline:\n" + playbackDetails(context);
     }
 
-    /** Includes enough state to diagnose player/lyric failures without uploading song text. */
+    private static String appVersion(Context context) {
+        try {
+            PackageInfo info = context.getPackageManager().getPackageInfo(
+                    context.getPackageName(), 0);
+            long code = Build.VERSION.SDK_INT >= 28
+                    ? info.getLongVersionCode() : info.versionCode;
+            return safe(info.versionName) + " (" + code + ")";
+        } catch (Throwable error) {
+            return "unknown: " + error.getClass().getSimpleName();
+        }
+    }
+
+    private static String permissionDetails(Context context) {
+        boolean overlay = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(context);
+        boolean recordAudio = Build.VERSION.SDK_INT < 23 || context.checkSelfPermission(
+                Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        boolean notifications = Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+        boolean installPackages = Build.VERSION.SDK_INT < 26
+                || context.getPackageManager().canRequestPackageInstalls();
+        return "notificationAccess=" + MusicNotificationListener.hasNotificationAccess(context)
+                + "\noverlay=" + overlay
+                + "\nrecordAudio=" + recordAudio
+                + "\npostNotifications=" + notifications
+                + "\ninstallPackages=" + installPackages;
+    }
+
+    private static String displayDetails(Context context) {
+        DisplayManager manager = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+        if (manager == null) return "displayManager=unavailable";
+        StringBuilder result = new StringBuilder();
+        Display[] displays = manager.getDisplays();
+        result.append("count=").append(displays.length);
+        for (Display display : displays) {
+            Point size = new Point();
+            display.getRealSize(size);
+            result.append("\nid=").append(display.getDisplayId())
+                    .append(" name=").append(display.getName())
+                    .append(" sizePx=").append(size.x).append('x').append(size.y)
+                    .append(" rotation=").append(display.getRotation())
+                    .append(" refreshHz=").append(display.getRefreshRate());
+            if (Build.VERSION.SDK_INT >= 20) result.append(" state=").append(display.getState());
+        }
+        return result.toString();
+    }
+
+    private static String preferenceDetails(Context context) {
+        return "mainEnabled=" + AppPreferences.mainEnabled(context)
+                + "\nmainStyle=" + AppPreferences.overlayStyle(context, false)
+                + "\nmainPanelDp=" + AppPreferences.panelWidthDp(context, false)
+                + "x" + AppPreferences.panelHeightDp(context, false)
+                + "\nmainTextScale=" + AppPreferences.textScale(context, false)
+                + "\nmainOpacity=" + AppPreferences.opacity(context, false)
+                + "\nmainBlur=" + AppPreferences.styleBlur(context, false)
+                + "\nmainDim=" + AppPreferences.styleDim(context, false)
+                + "\nmainLyricOffsetMs=" + AppPreferences.lyricOffsetMs(context, false)
+                + "\nsecondaryEnabled=" + AppPreferences.secondaryEnabled(context)
+                + "\nsecondaryDisplayId=" + AppPreferences.displayId(context)
+                + "\nsecondaryStyle=" + AppPreferences.overlayStyle(context, true)
+                + "\nsecondaryPanelDp=" + AppPreferences.panelWidthDp(context, true)
+                + "x" + AppPreferences.panelHeightDp(context, true)
+                + "\nsecondaryTextScale=" + AppPreferences.textScale(context, true)
+                + "\nsecondaryOpacity=" + AppPreferences.opacity(context, true)
+                + "\nsecondaryBlur=" + AppPreferences.styleBlur(context, true)
+                + "\nsecondaryDim=" + AppPreferences.styleDim(context, true)
+                + "\nsecondaryLyricOffsetMs=" + AppPreferences.lyricOffsetMs(context, true)
+                + "\ncustomFont=" + !AppPreferences.customFontFile(context).isEmpty();
+    }
+
+    /** Includes enough state to diagnose player/lyric failures without uploading lyric text. */
     private static String playbackDetails(Context context) {
         MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(context));
         long lastReadElapsedMs = MusicNotificationListener.getLastSuccessfulSessionReadElapsedMs();
@@ -119,26 +222,30 @@ final class CrashReporter {
                 + "\nlistenerConnected=" + MusicNotificationListener.isListenerConnected()
                 + "\nlistenerHealthy=" + MusicNotificationListener.isHealthy(3_000L)
                 + "\nbackend=" + backend
+                + "\nactivePlayerPackage="
+                + singleLine(MusicNotificationListener.getActivePlayerPackageName(), 200)
                 + "\nsessionCount=" + MusicNotificationListener.getLastSessionCount()
                 + "\nlastSessionReadAgeMs=" + readAgeMs
                 + "\nlastSessionError=" + singleLine(MusicNotificationListener.getLastSessionError(), 500)
                 + "\nplayerActive=" + snapshot.active
                 + "\nplayerSource=" + singleLine(snapshot.sourceName, 120)
+                + "\ntrackTitle=" + singleLine(snapshot.title, 300)
+                + "\ntrackArtist=" + singleLine(snapshot.artist, 300)
                 + "\nplaying=" + snapshot.playing
                 + "\npositionMs=" + snapshot.positionMs
                 + "\ndurationMs=" + snapshot.durationMs
                 + "\nlyricState=" + lyricState
                 + "\nlyricProvider=" + singleLine(snapshot.lyricSourceName, 120)
                 + "\nlyricTiming=" + timing
+                + "\ncurrentLineChars=" + codePointCount(snapshot.lyrics.lyric)
+                + "\ntranslationChars=" + codePointCount(snapshot.lyrics.translatedLyric)
+                + "\nnextLineChars=" + codePointCount(snapshot.lyrics.nextLyric)
+                + "\nlineStartMs=" + snapshot.lyrics.lineStartMs
+                + "\nlineDurationMs=" + snapshot.lyrics.lineDurationMs
                 + "\nlyricOffsetMs=" + AppPreferences.lyricOffsetMs(context)
                 + "\nlyricCatalog=" + AppPreferences.lyricCatalog(context)
                 + "\nplayerCatalogFallback=" + AppPreferences.playerCatalogFallback(context)
-                + "\nmainStyle=" + AppPreferences.overlayStyle(context, false)
-                + "\nmainPanelDp=" + AppPreferences.panelWidthDp(context, false)
-                + "x" + AppPreferences.panelHeightDp(context, false)
-                + "\nsecondaryStyle=" + AppPreferences.overlayStyle(context, true)
-                + "\nsecondaryPanelDp=" + AppPreferences.panelWidthDp(context, true)
-                + "x" + AppPreferences.panelHeightDp(context, true);
+                + "\n\nMusic state internals:\n" + MusicStateStore.diagnosticDetails();
     }
 
     private static void writePending(Context context, JSONObject report) throws Exception {
@@ -165,5 +272,8 @@ final class CrashReporter {
     private static String trim(String value, int maximum) {
         String text = value == null ? "" : value;
         return text.length() <= maximum ? text : text.substring(0, maximum);
+    }
+    private static int codePointCount(String value) {
+        return value == null ? 0 : value.codePointCount(0, value.length());
     }
 }

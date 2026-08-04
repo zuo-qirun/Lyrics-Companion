@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const {FeedbackStore, OnlineTracker, normalizeFeedback} = require("../community");
+const {FeedbackStore, OnlineTracker, normalizeDiagnostic, normalizeFeedback} = require("../community");
 
 const first = "11111111-1111-4111-8111-111111111111";
 const second = "22222222-2222-4222-8222-222222222222";
@@ -40,4 +40,14 @@ test("feedback normalization does not retain unrelated fields", () => {
   assert.deepEqual(normalizeFeedback({message: " 建议内容 ", contact: " test@example.com ",
     appVersion: "v1", hardwareId: "should-not-be-kept"}),
   {message: "建议内容", contact: "test@example.com", appVersion: "v1"});
+});
+
+test("diagnostic normalization keeps a large bounded report and drops unrelated fields", () => {
+  const details = "x".repeat(1_300_000);
+  const normalized = normalizeDiagnostic({kind: "crash", summary: " failure ", details,
+    appVersion: "v1", adminToken: "must-not-be-kept"});
+  assert.equal(normalized.kind, "crash");
+  assert.equal(normalized.summary, "failure");
+  assert.equal(normalized.details.length, 1_200_000);
+  assert.equal(normalized.adminToken, undefined);
 });

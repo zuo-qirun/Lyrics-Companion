@@ -85,11 +85,14 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
     const replies = await post("/api/feedback/replies", {tickets: [{id: ticket.id, token: ticket.replyToken}]});
     assert.equal((await replies.json()).replies[0].message, "已收到，正在排查。");
 
+    const largeDetails = `stack trace\n${"x".repeat(200_000)}`;
     const diagnostic = await post("/api/diagnostics/crash", {clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      appVersion: "test", summary: "IllegalStateException", details: "stack trace"});
+      appVersion: "test", summary: "IllegalStateException", details: largeDetails});
     assert.equal(diagnostic.status, 201);
     const diagnostics = await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics`, {headers: adminHeaders});
-    assert.equal((await diagnostics.json()).diagnostics[0].kind, "crash");
+    const diagnosticItems = (await diagnostics.json()).diagnostics;
+    assert.equal(diagnosticItems[0].kind, "crash");
+    assert.equal(diagnosticItems[0].details.length, largeDetails.length);
   } finally {
     if (child.exitCode === null) {
       child.kill();

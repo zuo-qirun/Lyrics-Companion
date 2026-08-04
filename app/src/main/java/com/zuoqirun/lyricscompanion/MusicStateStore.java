@@ -86,6 +86,9 @@ final class MusicStateStore {
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
+        boolean trackChangedForLog = false;
+        boolean playbackChangedForLog = false;
+        String playbackStateForLog = "";
         synchronized (LOCK) {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
             if (!sodaHasCompositeIdentity && shouldKeepLiveLyricTrackIdentity(
@@ -141,6 +144,12 @@ final class MusicStateStore {
                 positionTimeToStore = now;
             }
             boolean playbackModeChanged = playing != newPlaying;
+            trackChangedForLog = changed;
+            playbackChangedForLog = playbackModeChanged;
+            playbackStateForLog = "state=" + stateValue + " statePresent=" + statePresent
+                    + " active=" + newActive + " playing=" + newPlaying
+                    + " speed=" + effectiveSpeed + " positionMs=" + positionToStore
+                    + " durationMs=" + newDuration;
             active = newActive;
             playing = newPlaying;
             source = normalizedSource;
@@ -186,6 +195,15 @@ final class MusicStateStore {
                 generationForAlbumArt = trackGeneration;
             }
         }
+        if (trackChangedForLog) {
+            DiagnosticLog.record(context, "Playback", "track changed source="
+                    + normalizedSource + " app=" + normalizedSourceName + " title=" + newTitle
+                    + " artist=" + newArtist + " mediaId=" + newMediaId + " "
+                    + playbackStateForLog + " albumArt=" + (newAlbumArt != null)
+                    + " albumArtUri=" + !TextUtils.isEmpty(newAlbumArtUri));
+        } else if (playbackChangedForLog) {
+            DiagnosticLog.record(context, "Playback", "mode changed " + playbackStateForLog);
+        }
         if (generationToLoad >= 0L && !TextUtils.isEmpty(newTitle)) {
             scheduleLyricLoad(generationToLoad, normalizedSource, newMediaId,
                     newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback);
@@ -199,7 +217,9 @@ final class MusicStateStore {
     }
 
     static void clear() {
+        boolean hadState;
         synchronized (LOCK) {
+            hadState = active || !TextUtils.isEmpty(title);
             active = false;
             playing = false;
             source = "media";
@@ -222,6 +242,9 @@ final class MusicStateStore {
             liveSessionLyric = "";
             trackGeneration++;
             cancelLyricLoadLocked();
+        }
+        if (hadState && appContext != null) {
+            DiagnosticLog.record(appContext, "Playback", "state cleared: no usable session");
         }
     }
 
@@ -291,6 +314,9 @@ final class MusicStateStore {
             generation = ++trackGeneration;
             cancelLyricLoadLocked();
         }
+        DiagnosticLog.record(context, "Lyrics", "manual reload generation=" + generation
+                + " source=" + requestedSource + " selected=" + selectedCatalog
+                + " playerFallback=" + playerCatalogFallback + " title=" + requestedTitle);
         scheduleLyricLoad(generation, requestedSource, requestedMediaId, requestedTitle,
                 requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback);
     }
@@ -309,6 +335,28 @@ final class MusicStateStore {
                 + "\n" + lyricState;
     }
 
+    static String diagnosticDetails() {
+        synchronized (LOCK) {
+            long updatedAgeMs = positionUpdatedAtElapsedMs <= 0L ? -1L
+                    : Math.max(0L, SystemClock.elapsedRealtime() - positionUpdatedAtElapsedMs);
+            return "trackGeneration=" + trackGeneration
+                    + "\nsourceId=" + source
+                    + "\nmediaIdPresent=" + !TextUtils.isEmpty(mediaId)
+                    + "\nalbumArtLoaded=" + (albumArt != null)
+                    + "\nalbumArtUriPresent=" + !TextUtils.isEmpty(albumArtUri)
+                    + "\nloadingAlbumArt=" + !TextUtils.isEmpty(loadingAlbumArtUri)
+                    + "\nbasePositionMs=" + basePositionMs
+                    + "\nlastReportedPositionMs=" + lastReportedPositionMs
+                    + "\npositionUpdateAgeMs=" + updatedAgeMs
+                    + "\nplaybackSpeed=" + playbackSpeed
+                    + "\nlyricLoadFinished=" + lyricLoadFinished
+                    + "\nlyricLineCount=" + timeline.lineCount()
+                    + "\nlyricLoadTaskActive=" + (lyricLoadTask != null
+                    && !lyricLoadTask.isDone())
+                    + "\nliveSessionLyricPresent=" + !TextUtils.isEmpty(liveSessionLyric);
+        }
+    }
+
     private static void scheduleLyricLoad(long generation, String requestedSource,
                                           String requestedMediaId,
                                           String requestedTitle, String requestedArtist,
@@ -317,21 +365,37 @@ final class MusicStateStore {
         synchronized (LOCK) {
             if (generation != trackGeneration) return;
             lyricLoadTask = LYRIC_EXECUTOR.submit(() -> {
+                long startedAt = SystemClock.elapsedRealtime();
+                DiagnosticLog.record(appContext, "Lyrics", "load task started generation="
+                        + generation + " source=" + requestedSource + " title=" + requestedTitle);
                 try {
                     MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
                             selectedCatalog, playerCatalogFallback, requestedMediaId,
                             requestedTitle, requestedArtist, requestedDuration);
                     synchronized (LOCK) {
-                        if (generation != trackGeneration) return;
+                        if (generation != trackGeneration) {
+                            DiagnosticLog.record(appContext, "Lyrics", "load result discarded generation="
+                                    + generation + " currentGeneration=" + trackGeneration);
+                            return;
+                        }
                         timeline = result.timeline;
                         lyricSourceName = result.sourceName;
                         lyricLoadFinished = true;
                     }
+                    DiagnosticLog.record(appContext, "Lyrics", "load task finished generation="
+                            + generation + " provider=" + result.providerId + " lines="
+                            + result.timeline.lineCount() + " elapsedMs="
+                            + (SystemClock.elapsedRealtime() - startedAt));
                 } catch (Throwable error) {
                     Log.w(TAG, "Unable to load lyric for " + requestedTitle, error);
                     synchronized (LOCK) {
                         if (generation == trackGeneration) lyricLoadFinished = true;
                     }
+                    DiagnosticLog.record(appContext, "Lyrics", "load task failed generation="
+                            + generation + " elapsedMs="
+                            + (SystemClock.elapsedRealtime() - startedAt) + " error="
+                            + error.getClass().getSimpleName() + ": "
+                            + (error.getMessage() == null ? "" : error.getMessage()));
                 }
             });
         }

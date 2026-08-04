@@ -1,6 +1,7 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.content.Context;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -15,8 +16,10 @@ final class MultiSourceLyricClient {
     private final KugouLyricClient kugou;
     private final KuwoLyricClient kuwo;
     private final SodaLyricClient soda;
+    private final Context appContext;
 
     MultiSourceLyricClient(Context context) {
+        appContext = context.getApplicationContext();
         netease = new NetEaseLyricClient(context);
         qq = new QQMusicLyricClient(context);
         kugou = new KugouLyricClient(context);
@@ -27,6 +30,11 @@ final class MultiSourceLyricClient {
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
                 String mediaId, String title, String artist, long durationMs) throws Exception {
         CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback);
+        DiagnosticLog.record(appContext, "Lyrics", "lookup start source=" + currentSource
+                + " selected=" + selectedCatalog + " playerFallback=" + playerCatalogFallback
+                + " providers=" + plan.providers + " title=" + title + " artist=" + artist
+                + " durationMs=" + durationMs + " directMediaId="
+                + (!directMediaId(currentSource, currentSource, mediaId).isEmpty()));
         for (String provider : plan.providers) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             Log.i(TAG, "Trying catalog " + provider + ": " + title + " / " + artist);
@@ -41,6 +49,7 @@ final class MultiSourceLyricClient {
 
     private Result tryProvider(String provider, String mediaId, String title, String artist,
                                long durationMs) {
+        long startedAt = SystemClock.elapsedRealtime();
         try {
             LrcTimeline timeline;
             String label;
@@ -70,10 +79,23 @@ final class MultiSourceLyricClient {
             }
             if (!timeline.isEmpty()) {
                 Log.i(TAG, "Lyric matched from " + label + ": " + title + " / " + artist);
+                DiagnosticLog.record(appContext, "Lyrics", "provider=" + provider
+                        + " result=matched lines=" + timeline.lineCount()
+                        + " elapsedMs=" + (SystemClock.elapsedRealtime() - startedAt)
+                        + " directMediaId=" + !mediaId.isEmpty());
                 return new Result(timeline, label, provider);
             }
+            DiagnosticLog.record(appContext, "Lyrics", "provider=" + provider
+                    + " result=empty elapsedMs="
+                    + (SystemClock.elapsedRealtime() - startedAt)
+                    + " directMediaId=" + !mediaId.isEmpty());
         } catch (Throwable error) {
             Log.d(TAG, provider + " lyric lookup failed for " + title, error);
+            DiagnosticLog.record(appContext, "Lyrics", "provider=" + provider
+                    + " result=error elapsedMs="
+                    + (SystemClock.elapsedRealtime() - startedAt)
+                    + " error=" + error.getClass().getSimpleName() + ": "
+                    + (error.getMessage() == null ? "" : error.getMessage()));
         }
         return Result.EMPTY;
     }
