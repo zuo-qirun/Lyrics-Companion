@@ -1126,6 +1126,7 @@ public final class MainActivity extends AppCompatActivity {
         scroll.setFillViewport(true);
         TextView changelog = text("", 14, 0xFF102033, false);
         changelog.setLineSpacing(0f, 1.18f);
+        changelog.setPadding(dp(14), dp(10), dp(14), dp(14));
         changelog.setMovementMethod(LinkMovementMethod.getInstance());
         changelog.setLinkTextColor(0xFF006D77);
         changelog.setText(MarkdownRenderer.render(info.detailText()));

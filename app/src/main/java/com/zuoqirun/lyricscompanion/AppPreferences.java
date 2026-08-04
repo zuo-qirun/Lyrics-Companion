@@ -186,7 +186,7 @@ final class AppPreferences {
 
     static int minimumPanelWidthDp(Context context, boolean secondary) {
         String style = overlayStyle(context, secondary);
-        return "compact".equals(style) ? 220 : "amll".equals(style) ? 320 : 240;
+        return "compact".equals(style) ? 220 : "amll".equals(style) ? 360 : 240;
     }
 
     static int minimumPanelHeightDp(Context context) {
