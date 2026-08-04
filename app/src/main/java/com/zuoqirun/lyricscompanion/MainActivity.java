@@ -691,7 +691,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void addSupportControls(LinearLayout parent) {
         MaterialSwitch crashUpload = toggle("自动上传闪退诊断",
-                "仅上传本应用的异常堆栈、系统版本和悬浮窗状态；默认关闭");
+                "仅上传本应用的异常堆栈、播放链路状态和悬浮窗状态；默认关闭");
         crashUpload.setChecked(AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false));
         crashUpload.setOnCheckedChangeListener((button, checked) -> {

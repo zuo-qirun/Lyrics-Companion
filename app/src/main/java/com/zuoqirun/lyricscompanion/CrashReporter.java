@@ -3,6 +3,7 @@ package com.zuoqirun.lyricscompanion;
 import android.content.Context;
 import android.os.Build;
 import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -94,7 +95,50 @@ final class CrashReporter {
                 + "\nmanufacturer=" + safe(Build.MANUFACTURER)
                 + "\nmodel=" + safe(Build.MODEL)
                 + "\nmainOverlay=" + AppPreferences.mainEnabled(context)
-                + "\nsecondaryOverlay=" + AppPreferences.secondaryEnabled(context);
+                + "\nsecondaryOverlay=" + AppPreferences.secondaryEnabled(context)
+                + "\n\nPlayback pipeline:\n" + playbackDetails(context);
+    }
+
+    /** Includes enough state to diagnose player/lyric failures without uploading song text. */
+    private static String playbackDetails(Context context) {
+        MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(context));
+        long lastReadElapsedMs = MusicNotificationListener.getLastSuccessfulSessionReadElapsedMs();
+        long readAgeMs = lastReadElapsedMs <= 0L ? -1L
+                : Math.max(0L, SystemClock.elapsedRealtime() - lastReadElapsedMs);
+        String backend = MusicNotificationListener.getBackendName();
+        if (backend == null || backend.trim().isEmpty()) {
+            backend = Build.VERSION.SDK_INT >= 21 ? "MediaSession" : "RemoteController";
+        }
+        String lyricState = !snapshot.active ? "no_active_player"
+                : !snapshot.lyricLoaded ? "loading"
+                : !snapshot.lyricAvailable ? "no_match" : "ready";
+        String timing = !snapshot.lyricAvailable ? "none"
+                : snapshot.lyrics.wordTimed ? "word_timed"
+                : snapshot.lyrics.lineStartMs >= 0L ? "line_timed" : "untimed_or_live";
+        return "notificationAccess=" + MusicNotificationListener.hasNotificationAccess(context)
+                + "\nlistenerConnected=" + MusicNotificationListener.isListenerConnected()
+                + "\nlistenerHealthy=" + MusicNotificationListener.isHealthy(3_000L)
+                + "\nbackend=" + backend
+                + "\nsessionCount=" + MusicNotificationListener.getLastSessionCount()
+                + "\nlastSessionReadAgeMs=" + readAgeMs
+                + "\nlastSessionError=" + singleLine(MusicNotificationListener.getLastSessionError(), 500)
+                + "\nplayerActive=" + snapshot.active
+                + "\nplayerSource=" + singleLine(snapshot.sourceName, 120)
+                + "\nplaying=" + snapshot.playing
+                + "\npositionMs=" + snapshot.positionMs
+                + "\ndurationMs=" + snapshot.durationMs
+                + "\nlyricState=" + lyricState
+                + "\nlyricProvider=" + singleLine(snapshot.lyricSourceName, 120)
+                + "\nlyricTiming=" + timing
+                + "\nlyricOffsetMs=" + AppPreferences.lyricOffsetMs(context)
+                + "\nlyricCatalog=" + AppPreferences.lyricCatalog(context)
+                + "\nplayerCatalogFallback=" + AppPreferences.playerCatalogFallback(context)
+                + "\nmainStyle=" + AppPreferences.overlayStyle(context, false)
+                + "\nmainPanelDp=" + AppPreferences.panelWidthDp(context, false)
+                + "x" + AppPreferences.panelHeightDp(context, false)
+                + "\nsecondaryStyle=" + AppPreferences.overlayStyle(context, true)
+                + "\nsecondaryPanelDp=" + AppPreferences.panelWidthDp(context, true)
+                + "x" + AppPreferences.panelHeightDp(context, true);
     }
 
     private static void writePending(Context context, JSONObject report) throws Exception {
@@ -115,6 +159,9 @@ final class CrashReporter {
     }
 
     private static String safe(String value) { return value == null ? "unknown" : value; }
+    private static String singleLine(String value, int maximum) {
+        return trim(value == null ? "" : value.replace('\n', ' ').replace('\r', ' '), maximum);
+    }
     private static String trim(String value, int maximum) {
         String text = value == null ? "" : value;
         return text.length() <= maximum ? text : text.substring(0, maximum);
