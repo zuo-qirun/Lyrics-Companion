@@ -99,7 +99,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
 
         LinearLayout lyric = card("歌词");
         addSeek(lyric, "字体大小", AppPreferences.KEY_REFINED_LYRIC_FONT_SIZE,
-                16, 64, AppPreferences.refinedLyricFontSize(this, secondary), " sp");
+                16, 96, AppPreferences.refinedLyricFontSize(this, secondary), " sp");
         addToggle(lyric, "加粗首行", AppPreferences.KEY_REFINED_ORIGINAL_BOLD,
                 AppPreferences.refinedOriginalBold(this, secondary));
         addToggle(lyric, "显示翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
@@ -277,6 +277,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         if (preview != null) preview.reloadStyle();
         AppPreferences.changed(this);
         LyricsDisplayService.setSettingsVisible(this, true);
+        if (secondary) LyricsDisplayService.refreshSecondary(this);
     }
 
     private TextView styleSpinner(TextView view) {

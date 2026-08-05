@@ -33,7 +33,6 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -271,7 +270,8 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("显示位置"));
-        mainOverlaySwitch = toggle("主屏悬浮窗", "离开设置页后显示；可拖动，轻触可返回设置");
+        mainOverlaySwitch = toggle("主屏悬浮窗",
+                "离开设置页后显示；可拖动，轻触返回设置，静止长按强制关闭");
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
@@ -349,6 +349,12 @@ public final class MainActivity extends AppCompatActivity {
         styleCard.addView(sectionLabel("主屏 / 副屏样式"));
         addStyleSelector(styleCard, "主屏悬浮窗样式", false);
         addStyleSelector(styleCard, "副屏歌词样式", true);
+        MaterialButton fullscreenLyrics = button("全屏展示主屏样式", true);
+        fullscreenLyrics.setOnClickListener(v -> startActivity(
+                new Intent(this, FullscreenLyricsActivity.class)));
+        LinearLayout.LayoutParams fullscreenParams = new LinearLayout.LayoutParams(-1, dp(50));
+        fullscreenParams.topMargin = dp(10);
+        styleCard.addView(fullscreenLyrics, fullscreenParams);
         mainRefinedSettingsButton = button("主屏 Refined Now Playing 详细设置", false);
         mainRefinedSettingsButton.setOnClickListener(v -> {
             startActivity(new Intent(this, RefinedSettingsActivity.class));
@@ -363,6 +369,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         styleCard.addView(secondaryRefinedSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
         updateRefinedSettingsVisibility();
+        addThemeSelector(styleCard);
         addGlobalFontControls(styleCard);
         addDisplaySettingsLaunchers(styleCard);
         addPlaybackControlToggles(styleCard);
@@ -719,6 +726,49 @@ public final class MainActivity extends AppCompatActivity {
         addPlaybackControlToggle(parent, "显示下一首按键",
                 AppPreferences.KEY_SHOW_NEXT_BUTTON,
                 AppPreferences.showNextButton(this));
+    }
+
+    private void addThemeSelector(LinearLayout parent) {
+        TextView label = sectionLabel("\u6b4c\u8bcd\u663c\u591c\u4e3b\u9898");
+        label.setPadding(0, dp(16), 0, dp(4));
+        parent.addView(label);
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        String[] labels = {"\u8ddf\u968f\u7cfb\u7edf", "\u767d\u5929", "\u591c\u665a"};
+        String[] values = {"auto", "light", "dark"};
+        spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
+        spinner.setAdapter(new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels) {
+            @Override public View getView(int position, View convertView,
+                                          ViewGroup parentView) {
+                TextView view = (TextView) super.getView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                  ViewGroup parentView) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+        });
+        String current = AppPreferences.themeMode(this);
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(current)) {
+                spinner.setSelection(i, false);
+                break;
+            }
+        }
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                  View view, int position, long id) {
+                if (values[position].equals(AppPreferences.themeMode(MainActivity.this))) return;
+                AppPreferences.setThemeMode(MainActivity.this, values[position]);
+                refreshPreview();
+                AppPreferences.changed(MainActivity.this);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
     }
 
     private void addDisplaySettingsLaunchers(LinearLayout parent) {

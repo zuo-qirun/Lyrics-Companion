@@ -20,8 +20,10 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 
 /** Owns independent overlay windows on the default display and a selected secondary display. */
@@ -34,6 +36,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             "com.zuoqirun.lyricscompanion.action.REFRESH";
     private static final String ACTION_SECONDARY_POSITION =
             "com.zuoqirun.lyricscompanion.action.SECONDARY_POSITION";
+    private static final String ACTION_REFRESH_SECONDARY =
+            "com.zuoqirun.lyricscompanion.action.REFRESH_SECONDARY";
     private static final String ACTION_SETTINGS_VISIBILITY =
             "com.zuoqirun.lyricscompanion.action.SETTINGS_VISIBILITY";
     private static final String EXTRA_VISIBLE = "visible";
@@ -91,6 +95,11 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 .putExtra(EXTRA_DX, dx).putExtra(EXTRA_DY, dy));
     }
 
+    static void refreshSecondary(Context context) {
+        startCommand(context, new Intent(context, LyricsDisplayService.class)
+                .setAction(ACTION_REFRESH_SECONDARY));
+    }
+
     static void setSettingsVisible(Context context, boolean visible) {
         startCommand(context, new Intent(context, LyricsDisplayService.class)
                 .setAction(ACTION_SETTINGS_VISIBILITY).putExtra(EXTRA_VISIBLE, visible));
@@ -136,6 +145,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (ACTION_SECONDARY_POSITION.equals(action)) {
             applySecondaryDelta(intent.getIntExtra(EXTRA_DX, 0),
                     intent.getIntExtra(EXTRA_DY, 0));
+            return START_STICKY;
+        }
+        if (ACTION_REFRESH_SECONDARY.equals(action)) {
+            rebuildSecondary();
             return START_STICKY;
         }
         if (ACTION_SETTINGS_VISIBILITY.equals(action)) {
@@ -211,12 +224,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         mainWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (mainWindowManager == null) return;
         Point screen = displaySize(mainWindowManager.getDefaultDisplay());
-        int width = Math.min(dp(this, AppPreferences.panelWidthDp(this)),
-                Math.max(dp(this, AppPreferences.minimumPanelWidthDp(this)),
-                        screen.x - dp(this, 24)));
-        int height = Math.min(dp(this, AppPreferences.panelHeightDp(this)),
-                Math.max(dp(this, AppPreferences.minimumPanelHeightDp(this)),
-                        screen.y - dp(this, 24)));
+        int width = Math.min(dp(this, AppPreferences.panelWidthDp(this)), screen.x);
+        int height = Math.min(dp(this, AppPreferences.panelHeightDp(this)), screen.y);
         mainPanel = new LyricsPanelView(this, false);
         mainParams = overlayParams(width, height);
         mainParams.x = clamp(AppPreferences.get(this).getInt(AppPreferences.KEY_MAIN_X, dp(this, 18)),
@@ -256,13 +265,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             secondaryWindowManager = (WindowManager) secondaryContext.getSystemService(WINDOW_SERVICE);
             if (secondaryWindowManager == null) return;
             Point screen = displaySize(display);
-            int margin = dp(secondaryContext, 20);
             int width = Math.min(dp(secondaryContext, AppPreferences.panelWidthDp(this, true)),
-                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelWidthDp(this, true)),
-                            screen.x - margin * 2));
+                    screen.x);
             int height = Math.min(dp(secondaryContext, AppPreferences.panelHeightDp(this, true)),
-                    Math.max(dp(secondaryContext, AppPreferences.minimumPanelHeightDp(this, true)),
-                            screen.y - margin * 2));
+                    screen.y);
             secondaryPanel = new LyricsPanelView(secondaryContext, true);
             secondaryParams = overlayParams(width, height);
             int defaultX = Math.max(0, (screen.x - width) / 2);
@@ -312,22 +318,67 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private void attachDrag(View view, WindowManager manager, WindowManager.LayoutParams params,
                             Point screen, String xKey, String yKey, boolean openOnTap) {
+        final int touchSlop = ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
         view.setOnTouchListener(new View.OnTouchListener() {
+            final Handler longPressHandler = new Handler(Looper.getMainLooper());
             float downRawX;
             float downRawY;
             int downX;
             int downY;
             boolean moved;
+            boolean longPressReady;
             boolean lyricGesture;
             MediaControlAction playbackControl;
+            View pressedView;
+            final Runnable forceClose = new Runnable() {
+                @Override public void run() {
+                    if (pressedView == null || moved) return;
+                    longPressReady = true;
+                    pressedView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                }
+            };
 
             @Override public boolean onTouch(View v, MotionEvent event) {
+                boolean confirmLongPress = false;
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    pressedView = v;
+                    downRawX = event.getRawX();
+                    downRawY = event.getRawY();
+                    downX = params.x;
+                    downY = params.y;
+                    moved = false;
+                    longPressReady = false;
                     playbackControl = v instanceof LyricsPanelView
                             ? ((LyricsPanelView) v).playbackControlAt(event.getX(), event.getY())
                             : null;
                     lyricGesture = playbackControl == null && v instanceof LyricsPanelView
                             && ((LyricsPanelView) v).isLyricGestureRegion(event.getX(), event.getY());
+                    longPressHandler.removeCallbacks(forceClose);
+                    longPressHandler.postDelayed(forceClose,
+                            ViewConfiguration.getLongPressTimeout());
+                } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                    float dx = event.getRawX() - downRawX;
+                    float dy = event.getRawY() - downRawY;
+                    if (dx * dx + dy * dy > touchSlop * touchSlop) {
+                        moved = true;
+                        longPressReady = false;
+                        longPressHandler.removeCallbacks(forceClose);
+                    }
+                } else if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN
+                        || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                    moved = true;
+                    longPressReady = false;
+                    longPressHandler.removeCallbacks(forceClose);
+                    pressedView = null;
+                } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    longPressHandler.removeCallbacks(forceClose);
+                    confirmLongPress = longPressReady && !moved;
+                    longPressReady = false;
+                    pressedView = null;
+                }
+                if (confirmLongPress) {
+                    forceCloseOverlay(openOnTap);
+                    return true;
                 }
                 if (lyricGesture) {
                     boolean finished = event.getActionMasked() == MotionEvent.ACTION_UP
@@ -337,17 +388,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 }
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        downRawX = event.getRawX();
-                        downRawY = event.getRawY();
-                        downX = params.x;
-                        downY = params.y;
-                        moved = false;
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float dx = event.getRawX() - downRawX;
                         float dy = event.getRawY() - downRawY;
-                        if (Math.abs(dx) > dp(v.getContext(), 4)
-                                || Math.abs(dy) > dp(v.getContext(), 4)) moved = true;
                         params.x = clamp(downX + Math.round(dx), 0,
                                 Math.max(0, screen.x - params.width));
                         params.y = clamp(downY + Math.round(dy), 0,
@@ -382,6 +426,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 }
             }
         });
+    }
+
+    private void forceCloseOverlay(boolean mainOverlay) {
+        String key = mainOverlay ? AppPreferences.KEY_MAIN_OVERLAY
+                : AppPreferences.KEY_SECONDARY_OVERLAY;
+        AppPreferences.get(this).edit().putBoolean(key, false).apply();
+        if (mainOverlay) dismissMain();
+        else dismissSecondary();
+        DiagnosticLog.record(this, "Overlay", "long press closed "
+                + (mainOverlay ? "main" : "secondary"));
+        openMainActivity();
     }
 
     private WindowManager.LayoutParams overlayParams(int width, int height) {

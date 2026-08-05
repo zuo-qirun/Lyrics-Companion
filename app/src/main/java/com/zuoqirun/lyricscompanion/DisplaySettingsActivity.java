@@ -4,8 +4,11 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Point;
+import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.Build;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.AdapterView;
@@ -58,17 +61,26 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         root.addView(preview, previewParams);
 
         LinearLayout panel = card("悬浮窗尺寸与文字");
-        addSeek(panel, "悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this, secondary), 900,
+        Point screenDp = targetScreenSizeDp();
+        int maximumWidth = Math.max(AppPreferences.minimumPanelWidthDp(this, secondary), screenDp.x);
+        int maximumHeight = Math.max(AppPreferences.minimumPanelHeightDp(this, secondary), screenDp.y);
+        addSeek(panel, "悬浮窗宽度", AppPreferences.minimumPanelWidthDp(this, secondary),
+                maximumWidth,
                 AppPreferences.panelWidthDp(this, secondary), " dp",
                 value -> AppPreferences.setPanelWidthDp(this, secondary, value));
-        addSeek(panel, "悬浮窗高度", AppPreferences.minimumPanelHeightDp(this, secondary), 600,
+        addSeek(panel, "悬浮窗高度", AppPreferences.minimumPanelHeightDp(this, secondary),
+                maximumHeight,
                 AppPreferences.panelHeightDp(this, secondary), " dp",
                 value -> AppPreferences.setPanelHeightDp(this, secondary, value));
-        addSeek(panel, "字号", 75, 150,
+        addSeek(panel, "字号", 75, 220,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_TEXT_SCALE, value));
-        addSeek(panel, "下一句字号", 45, 120,
+        addSeek(panel, "歌名与歌手字号", 60, 180,
+                AppPreferences.titleScale(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_TITLE_SCALE, value));
+        addSeek(panel, "下一句字号", 45, 160,
                 AppPreferences.nextLyricScale(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_NEXT_LYRIC_SCALE, value));
@@ -119,7 +131,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         spectrumStatus.setPadding(0, dp(5), 0, 0);
         compact.addView(spectrumStatus);
         TextView compactNote = text("仅在" + (secondary ? "副屏" : "主屏")
-                + "选择“紧凑单行”样式时生效。", 12, 0xFF8392A8, false);
+                + "选择“紧凑单行”样式时生效；内容会随窗口尺寸自动缩放，也可在上方单独调整。",
+                12, 0xFF8392A8, false);
         compactNote.setPadding(0, dp(8), 0, 0);
         compact.addView(compactNote);
         addCard(root, compact);
@@ -137,6 +150,36 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     @Override protected void onPause() {
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
+    }
+
+    private Point targetScreenSizeDp() {
+        Display display = targetDisplay();
+        Point pixels = new Point();
+        if (display != null) display.getRealSize(pixels);
+        android.content.Context displayContext = display == null ? this : createDisplayContext(display);
+        float density = Math.max(0.1f,
+                displayContext.getResources().getDisplayMetrics().density);
+        return new Point(Math.max(1, Math.round(pixels.x / density)),
+                Math.max(1, Math.round(pixels.y / density)));
+    }
+
+    private Display targetDisplay() {
+        DisplayManager manager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        if (!secondary || manager == null) return getWindowManager().getDefaultDisplay();
+        int preferredId = AppPreferences.displayId(this);
+        if (preferredId >= 0) {
+            Display preferred = manager.getDisplay(preferredId);
+            if (preferred != null && preferred.getDisplayId() != Display.DEFAULT_DISPLAY) {
+                return preferred;
+            }
+        }
+        for (Display display : manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
+            if (display != null && display.getDisplayId() != Display.DEFAULT_DISPLAY) return display;
+        }
+        for (Display display : manager.getDisplays()) {
+            if (display != null && display.getDisplayId() != Display.DEFAULT_DISPLAY) return display;
+        }
+        return getWindowManager().getDefaultDisplay();
     }
 
     private LinearLayout card(String title) {
@@ -419,6 +462,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         AppPreferences.changed(this);
         AudioSpectrumSource.sync(this);
         LyricsDisplayService.setSettingsVisible(this, true);
+        if (secondary) LyricsDisplayService.refreshSecondary(this);
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {

@@ -55,6 +55,9 @@
             android:name=".DisplaySettingsActivity"
             android:exported="false" />
         <activity
+            android:name=".FullscreenLyricsActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

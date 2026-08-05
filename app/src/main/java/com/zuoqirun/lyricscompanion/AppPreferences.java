@@ -24,6 +24,8 @@ final class AppPreferences {
     static final String KEY_STYLE_LYRIC_LINES = "style_lyric_lines";
     static final String KEY_COMPONENT_LAYOUT = "component_layout";
     static final String KEY_TEXT_SCALE = "text_scale";
+    static final String KEY_TITLE_SCALE = "title_scale";
+    static final String KEY_THEME_MODE = "theme_mode";
     static final String KEY_OPACITY = "opacity";
     static final String KEY_LYRIC_OFFSET = "lyric_offset";
     static final String KEY_LYRIC_SOURCE_OFFSET = "lyric_source_offset";
@@ -156,6 +158,21 @@ final class AppPreferences {
         return displayInt(context, secondary, KEY_TEXT_SCALE, 100) / 100f;
     }
 
+    static int titleScale(Context context, boolean secondary) {
+        return Math.max(60, Math.min(180,
+                displayInt(context, secondary, KEY_TITLE_SCALE, 100)));
+    }
+
+    static String themeMode(Context context) {
+        String value = get(context).getString(KEY_THEME_MODE, "auto");
+        return "light".equals(value) || "dark".equals(value) ? value : "auto";
+    }
+
+    static void setThemeMode(Context context, String value) {
+        String normalized = "light".equals(value) || "dark".equals(value) ? value : "auto";
+        get(context).edit().putString(KEY_THEME_MODE, normalized).apply();
+    }
+
     static float panelScale(Context context) {
         return get(context).getInt(KEY_PANEL_SCALE, 100) / 100f;
     }
@@ -166,8 +183,8 @@ final class AppPreferences {
 
     static int panelWidthDp(Context context, boolean secondary) {
         String style = overlayStyle(context, secondary);
-        return Math.max(minimumPanelWidthDp(context, secondary), Math.min(900,
-                displayInt(context, secondary, panelWidthKey(style), defaultPanelWidthDp(style))));
+        return Math.max(minimumPanelWidthDp(context, secondary),
+                displayInt(context, secondary, panelWidthKey(style), defaultPanelWidthDp(style)));
     }
 
     static int panelHeightDp(Context context) {
@@ -176,8 +193,8 @@ final class AppPreferences {
 
     static int panelHeightDp(Context context, boolean secondary) {
         String style = overlayStyle(context, secondary);
-        return Math.max(minimumPanelHeightDp(context, secondary), Math.min(600,
-                displayInt(context, secondary, panelHeightKey(style), defaultPanelHeightDp(style))));
+        return Math.max(minimumPanelHeightDp(context, secondary),
+                displayInt(context, secondary, panelHeightKey(style), defaultPanelHeightDp(style)));
     }
 
     static int minimumPanelWidthDp(Context context) {
@@ -244,7 +261,7 @@ final class AppPreferences {
     }
 
     static int nextLyricScale(Context context, boolean secondary) {
-        return Math.max(45, Math.min(120,
+        return Math.max(45, Math.min(160,
                 displayInt(context, secondary, KEY_NEXT_LYRIC_SCALE, 70)));
     }
 
@@ -395,7 +412,7 @@ final class AppPreferences {
 
     static int refinedLyricFontSize(Context context) { return refinedLyricFontSize(context, false); }
     static int refinedLyricFontSize(Context context, boolean secondary) {
-        return Math.max(16, Math.min(64,
+        return Math.max(16, Math.min(96,
                 displayInt(context, secondary, KEY_REFINED_LYRIC_FONT_SIZE, 16)));
     }
 
