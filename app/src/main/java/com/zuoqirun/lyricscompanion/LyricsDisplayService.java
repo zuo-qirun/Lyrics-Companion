@@ -540,6 +540,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (manager == null || panel == null || params == null || panel.getParent() == null) return;
         int touchFlag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         params.flags = enabled ? params.flags | touchFlag : params.flags & ~touchFlag;
+        // Android 12 blocks touches through opaque, non-touchable overlays as untrusted input.
+        params.alpha = enabled ? touchThroughWindowAlpha() : 1f;
         try {
             manager.updateViewLayout(panel, params);
             AppPreferences.get(this).edit().putBoolean(secondary
@@ -548,6 +550,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             if (enabled) {
                 if (!addUnlockHandle(secondary)) {
                     params.flags &= ~touchFlag;
+                    params.alpha = 1f;
                     manager.updateViewLayout(panel, params);
                     AppPreferences.get(this).edit().putBoolean(secondary
                             ? AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH
@@ -562,6 +565,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         } catch (Throwable error) {
             Log.w(TAG, "Unable to change overlay touch-through", error);
         }
+    }
+
+    private static float touchThroughWindowAlpha() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? 0.79f : 1f;
     }
 
     private boolean addUnlockHandle(final boolean secondary) {
