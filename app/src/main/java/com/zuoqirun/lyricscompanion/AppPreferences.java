@@ -66,6 +66,9 @@ final class AppPreferences {
     static final String KEY_COMPACT_SHOW_BARS = "compact_show_bars";
     static final String KEY_COMPACT_USE_REAL_SPECTRUM = "compact_use_real_spectrum";
     static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
+    static final String KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING =
+            "hide_overlays_when_not_playing";
+    static final String KEY_HIDE_OVERLAYS_IN_PLAYER = "hide_overlays_in_player";
     static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
     static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
     static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
@@ -497,6 +500,14 @@ final class AppPreferences {
 
     static boolean tapOverlayReturnsToPlayer(Context context) {
         return get(context).getBoolean(KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, false);
+    }
+
+    static boolean hideOverlaysWhenNotPlaying(Context context) {
+        return get(context).getBoolean(KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING, false);
+    }
+
+    static boolean hideOverlaysInPlayer(Context context) {
+        return get(context).getBoolean(KEY_HIDE_OVERLAYS_IN_PLAYER, false);
     }
 
     static boolean notificationLyrics(Context context) {

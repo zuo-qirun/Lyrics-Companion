@@ -54,6 +54,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager.LayoutParams secondaryParams;
     private LyricsPanelView secondaryPanel;
     private boolean settingsVisible;
+    private boolean overlaysHiddenForPlayback;
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
     private final Handler notificationHandler = new Handler(Looper.getMainLooper());
@@ -193,8 +194,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private void rebuildAll() {
         AudioSpectrumSource.sync(this);
+        overlaysHiddenForPlayback = shouldHideOverlays();
         DiagnosticLog.record(this, "Overlay", "rebuild main=" + AppPreferences.mainEnabled(this)
                 + " secondary=" + AppPreferences.secondaryEnabled(this)
+                + " ruleHidden=" + overlaysHiddenForPlayback
                 + " permission=" + canDrawOverlays());
         Log.i(TAG, "Rebuild main=" + AppPreferences.mainEnabled(this)
                 + " secondary=" + AppPreferences.secondaryEnabled(this)
@@ -211,13 +214,15 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         dismissMain();
         dismissSecondary();
+        if (overlaysHiddenForPlayback) return;
         if (AppPreferences.mainEnabled(this) && !settingsVisible) showMain();
         if (AppPreferences.secondaryEnabled(this)) showSecondary();
     }
 
     private void rebuildSecondary() {
         dismissSecondary();
-        if (AppPreferences.secondaryEnabled(this) && canDrawOverlays()) showSecondary();
+        if (AppPreferences.secondaryEnabled(this) && canDrawOverlays()
+                && !shouldHideOverlays()) showSecondary();
     }
 
     private void showMain() {
@@ -520,6 +525,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private void refreshPlaybackNotification() {
         MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
+        syncOverlayVisibility(snapshot);
         boolean showLyrics = AppPreferences.notificationLyrics(this);
         String lyric = showLyrics ? notificationLyric(snapshot) : "正在同步播放器与歌词时间轴";
         String translation = showLyrics ? notificationTranslation(snapshot) : "";
@@ -535,6 +541,37 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) manager.notify(NOTIFICATION_ID,
                 createNotification(title, lyric, translation, subtext));
+    }
+
+    private boolean shouldHideOverlays() {
+        MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
+        return shouldHideOverlays(snapshot);
+    }
+
+    private boolean shouldHideOverlays(MusicSnapshot snapshot) {
+        boolean hideInPlayer = AppPreferences.hideOverlaysInPlayer(this);
+        boolean playerInForeground = hideInPlayer && ForegroundAppDetector.isPlayerInForeground(
+                this, MusicNotificationListener.activePlayerPackageName());
+        return OverlayPlaybackVisibility.shouldHide(
+                AppPreferences.hideOverlaysWhenNotPlaying(this), snapshot.playing,
+                hideInPlayer, playerInForeground);
+    }
+
+    private void syncOverlayVisibility(MusicSnapshot snapshot) {
+        boolean shouldHide = shouldHideOverlays(snapshot);
+        if (shouldHide == overlaysHiddenForPlayback) return;
+        overlaysHiddenForPlayback = shouldHide;
+        DiagnosticLog.record(this, "Overlay", shouldHide
+                ? "hidden by visibility rule"
+                : "restored because no visibility rule matches");
+        if (shouldHide) {
+            dismissMain();
+            dismissSecondary();
+            return;
+        }
+        if (!canDrawOverlays()) return;
+        if (AppPreferences.mainEnabled(this) && !settingsVisible && mainPanel == null) showMain();
+        if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null) showSecondary();
     }
 
     private Notification createNotification() {

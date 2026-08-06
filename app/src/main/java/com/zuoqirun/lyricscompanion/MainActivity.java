@@ -301,6 +301,13 @@ public final class MainActivity extends AppCompatActivity {
                 .apply());
         outputCard.addView(returnToPlayer);
 
+        MaterialButton visibilityRules = button("悬浮窗隐藏规则", false);
+        visibilityRules.setOnClickListener(v -> startActivity(
+                new Intent(this, OverlayVisibilitySettingsActivity.class)));
+        LinearLayout.LayoutParams visibilityRuleParams = new LinearLayout.LayoutParams(-1, dp(48));
+        visibilityRuleParams.topMargin = dp(10);
+        outputCard.addView(visibilityRules, visibilityRuleParams);
+
         MaterialSwitch notificationLyrics = toggle("通知栏显示歌词",
                 "通知标题显示歌曲，正文显示当前歌词，展开后显示翻译；默认关闭");
         notificationLyrics.setChecked(AppPreferences.notificationLyrics(this));

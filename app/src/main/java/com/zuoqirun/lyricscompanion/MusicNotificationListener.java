@@ -256,6 +256,11 @@ public final class MusicNotificationListener extends NotificationListenerService
         }
     }
 
+    static String activePlayerPackageName() {
+        String packageName = activePlayerPackageName;
+        return packageName == null ? "" : packageName.trim();
+    }
+
     static void requestPlaybackControl(Context context, MediaControlAction action) {
         MusicNotificationListener listener = activeInstance;
         if (listener == null || action == null) return;

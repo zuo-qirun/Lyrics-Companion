@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -7,6 +8,10 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.GET_TASKS" android:maxSdkVersion="20" />
 
     <queries>
         <package android:name="com.netease.cloudmusic" />
@@ -53,6 +58,9 @@
             android:exported="false" />
         <activity
             android:name=".DisplaySettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".OverlayVisibilitySettingsActivity"
             android:exported="false" />
         <activity
             android:name=".FullscreenLyricsActivity"
