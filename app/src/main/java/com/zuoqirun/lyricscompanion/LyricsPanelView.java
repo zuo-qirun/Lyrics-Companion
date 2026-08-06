@@ -385,6 +385,17 @@ final class LyricsPanelView extends View {
         }
     }
 
+    void cancelLyricBrowseForOverlayLock() {
+        browsingLyrics = false;
+        browseMoved = false;
+        browseUntilElapsedMs = 0L;
+        browseSettling = false;
+        browseVisualOffsetPx = 0f;
+        browseVelocityPxPerSecond = 0f;
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+        invalidate();
+    }
+
     private void consumeBrowseSteps(float stepPx) {
         if (stepPx <= 0f) return;
         while (browseVisualOffsetPx <= -stepPx) {

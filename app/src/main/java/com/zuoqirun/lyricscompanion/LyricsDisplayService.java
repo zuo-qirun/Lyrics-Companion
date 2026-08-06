@@ -478,6 +478,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     pressedView = null;
                 }
                 if (confirmLongPress) {
+                    if (v instanceof LyricsPanelView) {
+                        ((LyricsPanelView) v).cancelLyricBrowseForOverlayLock();
+                    }
                     setOverlayTouchThrough(secondary, true);
                     return true;
                 }
