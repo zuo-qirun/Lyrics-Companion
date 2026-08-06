@@ -34,9 +34,10 @@ npm start
 curl http://127.0.0.1:8790/health
 curl http://127.0.0.1:8790/update.json
 curl http://127.0.0.1:8790/versions.json
+curl http://127.0.0.1:8790/faq.json
 ```
 
-网页入口：`/` 为最新版，`/versions` 为历史版本。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。
+网页入口：`/` 为最新版，`/versions` 为历史版本。`/faq.json` 提供 App 内 FAQ，客户端会在成功刷新后缓存最近一次有效内容。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。
 
 ## systemd
 

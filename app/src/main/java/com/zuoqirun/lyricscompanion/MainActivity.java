@@ -3,6 +3,8 @@ package com.zuoqirun.lyricscompanion;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -951,6 +953,92 @@ public final class MainActivity extends AppCompatActivity {
         feedbackReplyStatus = text("反馈回复：正在检查…", 12, 0xFF8392A8, false);
         feedbackReplyStatus.setPadding(0, dp(8), 0, 0);
         parent.addView(feedbackReplyStatus);
+        MaterialButton faq = button("常见问题 FAQ", false);
+        faq.setOnClickListener(v -> showFaqPanel());
+        LinearLayout.LayoutParams faqParams = new LinearLayout.LayoutParams(-1, dp(48));
+        faqParams.topMargin = dp(10);
+        parent.addView(faq, faqParams);
+    }
+
+    private void showFaqPanel() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(4), dp(2), dp(4), dp(8));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("常见问题")
+                .setView(scroll)
+                .setPositiveButton("关闭", null)
+                .create();
+        renderFaq(content, FaqClient.cached(this), "正在从服务器同步 FAQ…");
+        dialog.show();
+        FaqClient.fetchAsync(this, result -> runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+            renderFaq(content, result.document,
+                    result.refreshed ? "已同步最新 FAQ" : result.document == null
+                            ? "服务器暂时无法连接，暂无本地缓存" : "当前显示本地缓存，服务器暂时无法连接");
+        }));
+    }
+
+    private void renderFaq(LinearLayout content, FaqClient.FaqDocument document, String status) {
+        content.removeAllViews();
+        TextView state = text(status + (document != null && !document.updatedAt.isEmpty()
+                        ? "\n更新时间：" + document.updatedAt : ""),
+                12, 0xFF8392A8, false);
+        state.setLineSpacing(0f, 1.2f);
+        state.setPadding(0, 0, 0, dp(12));
+        content.addView(state);
+        if (document == null) {
+            TextView empty = text("暂时没有可显示的 FAQ，请稍后重试。", 14, 0xFF52657D, false);
+            content.addView(empty);
+            return;
+        }
+        for (FaqClient.Item item : document.items) {
+            TextView question = text(item.question, 16, 0xFF102033, true);
+            question.setPadding(0, dp(8), 0, dp(6));
+            content.addView(question);
+            if (!item.answer.isEmpty()) {
+                TextView answer = text(item.answer, 14, 0xFF26384D, false);
+                answer.setLineSpacing(0f, 1.2f);
+                content.addView(answer);
+            }
+            for (FaqClient.Instruction instruction : item.instructions) {
+                TextView title = text(instruction.title, 13, 0xFF52657D, true);
+                title.setPadding(0, dp(10), 0, dp(4));
+                content.addView(title);
+                addFaqCommand(content, instruction.command);
+            }
+            if (!item.note.isEmpty()) {
+                TextView note = text(item.note, 12, 0xFF66788F, false);
+                note.setLineSpacing(0f, 1.2f);
+                note.setPadding(0, dp(8), 0, dp(4));
+                content.addView(note);
+            }
+        }
+    }
+
+    private void addFaqCommand(LinearLayout parent, String command) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView value = text(command, 12, 0xFF102033, false);
+        value.setTextIsSelectable(true);
+        value.setTypeface(android.graphics.Typeface.MONOSPACE);
+        value.setLineSpacing(0f, 1.1f);
+        value.setPadding(dp(10), dp(8), dp(10), dp(8));
+        value.setBackground(solid(0xFFE8F0F5, 8));
+        row.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
+        MaterialButton copy = button("复制", false);
+        copy.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("FAQ 命令", command));
+            Toast.makeText(this, "命令已复制", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(dp(64), dp(44));
+        copyParams.leftMargin = dp(8);
+        row.addView(copy, copyParams);
+        parent.addView(row);
     }
 
     private void uploadDiagnosticSnapshot() {

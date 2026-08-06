@@ -66,6 +66,12 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
     const updateManifest = await update.json();
     assert.match(updateManifest.historyUrl, /\/versions\.json$/);
 
+    const faq = await fetch(`http://127.0.0.1:${port}/faq.json`);
+    assert.equal(faq.status, 200);
+    const faqDocument = await faq.json();
+    assert.equal(faqDocument.schemaVersion, 1);
+    assert.equal(faqDocument.items[0].id, "media-system-permission");
+
     const feedback = await post("/api/feedback", {
       clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       appVersion: "test", message: "本地接口集成测试反馈", contact: "",

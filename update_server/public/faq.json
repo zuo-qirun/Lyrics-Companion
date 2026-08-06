@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-06",
+  "items": [
+    {
+      "id": "media-system-permission",
+      "question": "多媒体系统不支持该操作怎么办？",
+      "answer": "部分车机或深度定制系统不会在应用设置页提供“使用情况访问”或“通知读取”入口。连接电脑并开启 USB 调试后，可以用 ADB 直接补授对应权限；使用甲壳虫等具备 Shell 权限的工具时，去掉命令开头的 adb shell 即可。",
+      "instructions": [
+        {
+          "title": "电脑 ADB：授权使用情况访问",
+          "command": "adb shell appops set com.zuoqirun.lyricscompanion GET_USAGE_STATS allow"
+        },
+        {
+          "title": "甲壳虫等 Shell 工具：授权使用情况访问",
+          "command": "appops set com.zuoqirun.lyricscompanion GET_USAGE_STATS allow"
+        },
+        {
+          "title": "电脑 ADB：授权通知监听器",
+          "command": "adb shell cmd notification allow_listener com.zuoqirun.lyricscompanion/com.zuoqirun.lyricscompanion.MusicNotificationListener"
+        },
+        {
+          "title": "甲壳虫等 Shell 工具：授权通知监听器",
+          "command": "cmd notification allow_listener com.zuoqirun.lyricscompanion/com.zuoqirun.lyricscompanion.MusicNotificationListener"
+        }
+      ],
+      "note": "执行后回到应用重新打开；如果系统提示命令不存在、权限被拒绝或重启后失效，说明该 ROM 限制了对应 AppOps，请改用系统设置授权，或联系设备厂商。命令只授权 Lyrics Companion 读取当前媒体会话和识别前台播放器，不会读取账号密码或上传歌词正文。"
+    }
+  ]
+}
