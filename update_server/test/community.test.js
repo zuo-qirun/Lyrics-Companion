@@ -51,3 +51,9 @@ test("diagnostic normalization keeps a large bounded report and drops unrelated 
   assert.equal(normalized.details.length, 1_200_000);
   assert.equal(normalized.adminToken, undefined);
 });
+
+test("diagnostic normalization keeps only a valid feedback association", () => {
+  const valid = normalizeDiagnostic({feedbackId: first});
+  assert.equal(valid.feedbackId, first);
+  assert.equal(normalizeDiagnostic({feedbackId: "not-a-feedback-id"}).feedbackId, "");
+});

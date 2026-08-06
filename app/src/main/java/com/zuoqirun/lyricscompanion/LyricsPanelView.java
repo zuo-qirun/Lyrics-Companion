@@ -40,10 +40,12 @@ final class LyricsPanelView extends View {
     private final RectF coverRect = new RectF();
     private final RectF shadowRect = new RectF();
     private final Path clipPath = new Path();
+    private final Path iconPath = new Path();
     private final LruCache<TextLayoutKey, List<WrappedChunk>> wrappedTextCache =
             new LruCache<>(96);
     private final LruCache<TextLayoutKey, String> ellipsizedTextCache =
             new LruCache<>(96);
+    private final LruCache<Integer, BlurMaskFilter> blurMaskCache = new LruCache<>(16);
     private float[] refinedLineHeights = new float[8];
     private float[] refinedLineTops = new float[8];
     private float textScale = 1f;
@@ -536,24 +538,24 @@ final class LyricsPanelView extends View {
                         centerX + gap + barWidth, centerY + iconHalf);
                 canvas.drawRoundRect(workRect, barWidth, barWidth, paint);
             } else {
-                Path triangle = new Path();
-                triangle.moveTo(centerX - iconHalf * 0.52f, centerY - iconHalf);
-                triangle.lineTo(centerX - iconHalf * 0.52f, centerY + iconHalf);
-                triangle.lineTo(centerX + iconHalf, centerY);
-                triangle.close();
-                canvas.drawPath(triangle, paint);
+                iconPath.reset();
+                iconPath.moveTo(centerX - iconHalf * 0.52f, centerY - iconHalf);
+                iconPath.lineTo(centerX - iconHalf * 0.52f, centerY + iconHalf);
+                iconPath.lineTo(centerX + iconHalf, centerY);
+                iconPath.close();
+                canvas.drawPath(iconPath, paint);
             }
             return;
         }
         boolean previous = action == MediaControlAction.PREVIOUS;
         float direction = previous ? -1f : 1f;
         float baseX = centerX - direction * iconHalf;
-        Path triangle = new Path();
-        triangle.moveTo(baseX, centerY - iconHalf);
-        triangle.lineTo(baseX, centerY + iconHalf);
-        triangle.lineTo(centerX + direction * iconHalf * 0.78f, centerY);
-        triangle.close();
-        canvas.drawPath(triangle, paint);
+        iconPath.reset();
+        iconPath.moveTo(baseX, centerY - iconHalf);
+        iconPath.lineTo(baseX, centerY + iconHalf);
+        iconPath.lineTo(centerX + direction * iconHalf * 0.78f, centerY);
+        iconPath.close();
+        canvas.drawPath(iconPath, paint);
         float barX = centerX + direction * iconHalf * 1.05f;
         canvas.drawRect(barX - radius * 0.075f, centerY - iconHalf,
                 barX + radius * 0.075f, centerY + iconHalf, paint);
@@ -1050,7 +1052,7 @@ final class LyricsPanelView extends View {
             float blur = AmllStyleMotion.lineBlur(offset, snapshot.playing, previewing);
             BlurMaskFilter lineMask = null;
             if (blur > 0.01f) {
-                lineMask = new BlurMaskFilter(blur * density, BlurMaskFilter.Blur.NORMAL);
+                lineMask = blurMask(blur * density);
                 paint.setMaskFilter(lineMask);
             }
             int lineColor = lyricColor(withAlpha(0xFFFFFFFF,
@@ -1269,15 +1271,18 @@ final class LyricsPanelView extends View {
         }
         if (showBars) {
             drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
-                    width - pad, barsHeight, lyricColor(primaryText));
+                    width - pad, barsHeight, lyricColor(primaryText),
+                    AppPreferences.compactSpectrumColor(getContext(), secondary));
         }
         canvas.restoreToCount(save);
     }
 
     /** Draws real FFT bands when permitted, otherwise the user-selected virtual or static mode. */
     private void drawCompactPlaybackBars(Canvas canvas, MusicSnapshot snapshot, float left,
-                                         float top, float right, float height, int color) {
+                                         float top, float right, float height, int lyricColor,
+                                         int spectrumColor) {
         if (right <= left || height <= 0f) return;
+        int color = spectrumColor == 0 ? lyricColor : spectrumColor;
         float width = right - left;
         int count = SpectrumMath.BAND_COUNT;
         float slot = width / count;
@@ -1585,9 +1590,8 @@ final class LyricsPanelView extends View {
             }
             canvas.scale(scale, scale, lineLeft, centerY);
             if (refinedLyricBlur && offset != 0) {
-                paint.setMaskFilter(new BlurMaskFilter(
-                        Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density),
-                        BlurMaskFilter.Blur.NORMAL));
+                paint.setMaskFilter(blurMask(
+                        Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density)));
             }
             if (line.interlude) {
                 drawInterludeDots(canvas, snapshot, lineLeft, top + fontSize * 0.30f,
@@ -2826,5 +2830,14 @@ final class LyricsPanelView extends View {
 
     private static float clampRange(float value, float minimum, float maximum) {
         return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private BlurMaskFilter blurMask(float radius) {
+        int key = Float.floatToIntBits(radius);
+        BlurMaskFilter cached = blurMaskCache.get(key);
+        if (cached != null) return cached;
+        BlurMaskFilter created = new BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL);
+        blurMaskCache.put(key, created);
+        return created;
     }
 }

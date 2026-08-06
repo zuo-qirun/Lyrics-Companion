@@ -54,6 +54,7 @@ final class CommunityClient {
                 String id = response.optString("id");
                 String token = response.optString("replyToken");
                 rememberTicket(appContext, id, token);
+                AppPreferences.setLastFeedbackId(appContext, id);
                 complete(callback, new FeedbackResult(true, id, ""));
             } catch (Throwable error) {
                 complete(callback, new FeedbackResult(false, "", safeMessage(error)));
@@ -129,7 +130,13 @@ final class CommunityClient {
     }
 
     static void uploadSnapshotAsync(Context context, Callback<DiagnosticResult> callback) {
-        uploadDiagnosticAsync(context, "/diagnostics", "snapshot", CrashReporter.snapshot(context), callback);
+        uploadSnapshotAsync(context, "", callback);
+    }
+
+    static void uploadSnapshotAsync(Context context, String feedbackId,
+                                    Callback<DiagnosticResult> callback) {
+        uploadDiagnosticAsync(context, "/diagnostics", "snapshot", feedbackId,
+                CrashReporter.snapshot(context), callback);
     }
 
     static void uploadPendingCrashAsync(Context context, Callback<DiagnosticResult> callback) {
@@ -139,19 +146,23 @@ final class CommunityClient {
             complete(callback, new DiagnosticResult(true, "", ""));
             return;
         }
-        uploadDiagnosticAsync(appContext, "/diagnostics/crash", "crash", pending, result -> {
+        uploadDiagnosticAsync(appContext, "/diagnostics/crash", "crash", "", pending, result -> {
             if (result.success) CrashReporter.clearPending(appContext);
             complete(callback, result);
         });
     }
 
-    private static void uploadDiagnosticAsync(Context context, String path, String kind, JSONObject diagnostic,
+    private static void uploadDiagnosticAsync(Context context, String path, String kind,
+                                              String feedbackId, JSONObject diagnostic,
                                               Callback<DiagnosticResult> callback) {
         Context appContext = context.getApplicationContext();
         EXECUTOR.execute(() -> {
             try {
                 JSONObject body = baseBody(appContext);
                 body.put("kind", kind);
+                if (feedbackId != null && !feedbackId.trim().isEmpty()) {
+                    body.put("feedbackId", feedbackId.trim());
+                }
                 body.put("summary", diagnostic.optString("summary"));
                 body.put("details", diagnostic.optString("details"));
                 JSONObject response = post(path, body);

@@ -124,10 +124,11 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         LinearLayout compact = card("紧凑单行");
         addToggle(compact, "显示封面、歌名和歌手", AppPreferences.KEY_COMPACT_SHOW_COVER,
                 AppPreferences.compactShowCover(this, secondary));
-        addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
-                AppPreferences.compactShowBars(this, secondary));
-        addRealSpectrumToggle(compact);
-        spectrumStatus = text(spectrumStatusText(), 12, 0xFF8392A8, false);
+         addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
+                 AppPreferences.compactShowBars(this, secondary));
+         addRealSpectrumToggle(compact);
+         addSpectrumColorControls(compact);
+         spectrumStatus = text(spectrumStatusText(), 12, 0xFF8392A8, false);
         spectrumStatus.setPadding(0, dp(5), 0, 0);
         compact.addView(spectrumStatus);
         TextView compactNote = text("仅在" + (secondary ? "副屏" : "主屏")
@@ -343,6 +344,65 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 listener.onColorChanged();
             } else {
                 AppPreferences.setLyricColor(this, secondary, 0);
+                changed();
+            }
+        });
+    }
+
+    private void addSpectrumColorControls(LinearLayout parent) {
+        TextView heading = text("律动颜色", 14, 0xFFD7E1EE, true);
+        heading.setPadding(0, dp(16), 0, 0);
+        parent.addView(heading);
+
+        int savedColor = AppPreferences.compactSpectrumColor(this, secondary);
+        int initialColor = savedColor == 0 ? 0xFFFFCA66 : savedColor;
+        int[] rgb = {Color.red(initialColor), Color.green(initialColor), Color.blue(initialColor)};
+        MaterialSwitch manualMode = new MaterialSwitch(this);
+        manualMode.setText("手动调色");
+        manualMode.setTextColor(0xFFF1F5FA);
+        manualMode.setTextSize(14f);
+        manualMode.setGravity(Gravity.CENTER_VERTICAL);
+        manualMode.setPadding(0, dp(6), 0, 0);
+        manualMode.setChecked(savedColor != 0);
+        parent.addView(manualMode);
+
+        TextView automaticNote = text("自动模式跟随歌词颜色；手动模式只改变底部律动条。", 12,
+                0xFF8392A8, false);
+        automaticNote.setPadding(0, 0, 0, dp(4));
+        automaticNote.setVisibility(savedColor == 0 ? View.VISIBLE : View.GONE);
+        parent.addView(automaticNote);
+
+        LinearLayout manualControls = new LinearLayout(this);
+        manualControls.setOrientation(LinearLayout.VERTICAL);
+        manualControls.setVisibility(savedColor == 0 ? View.GONE : View.VISIBLE);
+        TextView state = text(colorLabel(initialColor), 12, 0xFF8392A8, false);
+        LinearLayout stateRow = new LinearLayout(this);
+        stateRow.setGravity(Gravity.CENTER_VERTICAL);
+        stateRow.addView(state, new LinearLayout.LayoutParams(0, -2, 1f));
+        View swatch = new View(this);
+        LinearLayout.LayoutParams swatchParams = new LinearLayout.LayoutParams(dp(34), dp(22));
+        swatchParams.leftMargin = dp(10);
+        stateRow.addView(swatch, swatchParams);
+        updateColorSwatch(swatch, initialColor);
+        manualControls.addView(stateRow);
+        ColorChangeListener listener = () -> {
+            int color = Color.rgb(rgb[0], rgb[1], rgb[2]);
+            AppPreferences.setCompactSpectrumColor(this, secondary, color);
+            state.setText(colorLabel(color));
+            updateColorSwatch(swatch, color);
+            changed();
+        };
+        addColorSeek(manualControls, "红", rgb, 0, listener);
+        addColorSeek(manualControls, "绿", rgb, 1, listener);
+        addColorSeek(manualControls, "蓝", rgb, 2, listener);
+        parent.addView(manualControls);
+
+        manualMode.setOnCheckedChangeListener((button, enabled) -> {
+            manualControls.setVisibility(enabled ? View.VISIBLE : View.GONE);
+            automaticNote.setVisibility(enabled ? View.GONE : View.VISIBLE);
+            if (enabled) listener.onColorChanged();
+            else {
+                AppPreferences.setCompactSpectrumColor(this, secondary, 0);
                 changed();
             }
         });

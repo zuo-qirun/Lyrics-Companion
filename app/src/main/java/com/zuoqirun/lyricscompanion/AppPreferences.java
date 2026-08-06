@@ -65,6 +65,7 @@ final class AppPreferences {
     static final String KEY_COMPACT_SHOW_COVER = "compact_show_cover";
     static final String KEY_COMPACT_SHOW_BARS = "compact_show_bars";
     static final String KEY_COMPACT_USE_REAL_SPECTRUM = "compact_use_real_spectrum";
+    static final String KEY_COMPACT_SPECTRUM_COLOR = "compact_spectrum_color";
     static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
     static final String KEY_LAUNCH_OVERLAY_ON_ICON = "launch_overlay_on_icon";
     static final String KEY_LAUNCH_OVERLAY_TARGET = "launch_overlay_target";
@@ -83,11 +84,13 @@ final class AppPreferences {
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
     static final String KEY_FEEDBACK_TICKETS = "feedback_tickets";
+    static final String KEY_LAST_FEEDBACK_ID = "last_feedback_id";
     static final String KEY_FEEDBACK_READ_REPLY_IDS = "feedback_read_reply_ids";
     static final String KEY_FAQ_CACHE = "faq_cache";
     static final String KEY_DIAGNOSTIC_UPLOAD_ENABLED = "diagnostic_upload_enabled";
     static final String KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED =
             "community_announcement_dismissed";
+    static final String KEY_SAFETY_NOTICE_SEEN = "safety_notice_seen";
 
     private AppPreferences() {}
 
@@ -505,6 +508,16 @@ final class AppPreferences {
         return displayBoolean(context, secondary, KEY_COMPACT_USE_REAL_SPECTRUM, true);
     }
 
+    /** Zero keeps the spectrum bars following the current lyric color. */
+    static int compactSpectrumColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_COMPACT_SPECTRUM_COLOR, 0);
+    }
+
+    static void setCompactSpectrumColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_COMPACT_SPECTRUM_COLOR,
+                color == 0 ? 0 : (color | 0xFF000000));
+    }
+
     static boolean tapOverlayReturnsToPlayer(Context context) {
         return get(context).getBoolean(KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, false);
     }
@@ -536,6 +549,15 @@ final class AppPreferences {
 
     static boolean notificationLyrics(Context context) {
         return get(context).getBoolean(KEY_NOTIFICATION_LYRICS, false);
+    }
+
+    static String lastFeedbackId(Context context) {
+        return get(context).getString(KEY_LAST_FEEDBACK_ID, "");
+    }
+
+    static void setLastFeedbackId(Context context, String feedbackId) {
+        get(context).edit().putString(KEY_LAST_FEEDBACK_ID,
+                feedbackId == null ? "" : feedbackId.trim()).apply();
     }
 
     static boolean lockscreenLyrics(Context context) {

@@ -715,7 +715,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private void openMainActivity() {
         Intent intent = new Intent(this, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        startActivity(intent);
+        try {
+            startActivity(intent);
+        } catch (Throwable error) {
+            // Some car launchers reject activity launches from a background overlay service.
+            // The ongoing foreground-service notification already carries the same PendingIntent.
+            Log.w(TAG, "Unable to open main activity from overlay", error);
+            DiagnosticLog.record(this, "Overlay", "open main activity failed="
+                    + error.getClass().getSimpleName() + ": " + error.getMessage());
+            refreshPlaybackNotification();
+        }
     }
 
     private void createNotificationChannel() {

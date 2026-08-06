@@ -215,8 +215,10 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showCommunityAnnouncementIfNeeded() {
-        if (isFinishing() || isDestroyed() || AppPreferences.get(this).getBoolean(
+        if (isFinishing() || isDestroyed()) return;
+        if (AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED, false)) {
+            showSafetyNoticeIfNeeded();
             return;
         }
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
@@ -228,6 +230,24 @@ public final class MainActivity extends AppCompatActivity {
                                 true).apply())
                 .create();
         dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, Color.BLACK));
+        dialog.setOnDismissListener(ignored -> showSafetyNoticeIfNeeded());
+        dialog.show();
+    }
+
+    private void showSafetyNoticeIfNeeded() {
+        if (isFinishing() || isDestroyed() || AppPreferences.get(this).getBoolean(
+                AppPreferences.KEY_SAFETY_NOTICE_SEEN, false)) return;
+        showSafetyNotice();
+    }
+
+    private void showSafetyNotice() {
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("车机使用须知")
+                .setMessage("本应用只读取播放器状态并绘制 Android 悬浮歌词，不控制车辆行驶、转向、制动等安全系统。\n\n"
+                        + "请在停车时完成权限和布局设置，驾驶中不要操作屏幕。不同车机的权限、自启动和播放器实现可能导致悬浮窗无法自动恢复；歌词内容和时间请以原播放器为准。")
+                .setPositiveButton("知道了", (ignored, which) -> AppPreferences.get(this).edit()
+                        .putBoolean(AppPreferences.KEY_SAFETY_NOTICE_SEEN, true).apply())
+                .create();
         dialog.show();
     }
 
@@ -500,6 +520,11 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton feedback = button("意见反馈", false);
         feedback.setOnClickListener(v -> showFeedbackDialog());
         communityCard.addView(feedback, new LinearLayout.LayoutParams(-1, dp(48)));
+        MaterialButton safety = button("车机使用须知", false);
+        safety.setOnClickListener(v -> showSafetyNotice());
+        LinearLayout.LayoutParams safetyParams = new LinearLayout.LayoutParams(-1, dp(48));
+        safetyParams.topMargin = dp(10);
+        communityCard.addView(safety, safetyParams);
         addSupportControls(communityCard);
 
         LinearLayout stateCard = card();
@@ -508,6 +533,11 @@ public final class MainActivity extends AppCompatActivity {
         musicStatus.setLineSpacing(0f, 1.2f);
         musicStatus.setPadding(0, dp(9), 0, 0);
         stateCard.addView(musicStatus);
+        MaterialButton rematchLyrics = button("重新匹配当前歌词", false);
+        rematchLyrics.setOnClickListener(v -> showLyricRematchDialog());
+        LinearLayout.LayoutParams rematchParams = new LinearLayout.LayoutParams(-1, dp(48));
+        rematchParams.topMargin = dp(12);
+        stateCard.addView(rematchLyrics, rematchParams);
 
         if (useTwoColumnLayout()) {
             LinearLayout columns = new LinearLayout(this);
@@ -1042,14 +1072,70 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void uploadDiagnosticSnapshot() {
+        String feedbackId = AppPreferences.lastFeedbackId(this);
+        if (!feedbackId.isEmpty()) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle("关联诊断快照")
+                    .setMessage("最近提交的反馈编号为 " + shortId(feedbackId)
+                            + "。是否把这次诊断快照关联到它？")
+                    .setNegativeButton("不关联上传", (dialog, which) -> uploadDiagnosticSnapshotFor(""))
+                    .setPositiveButton("关联上传", (dialog, which) -> uploadDiagnosticSnapshotFor(feedbackId))
+                    .show();
+            return;
+        }
+        uploadDiagnosticSnapshotFor("");
+    }
+
+    private void showLyricRematchDialog() {
+        MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
+        if (!snapshot.active || snapshot.title.trim().isEmpty()) {
+            Toast.makeText(this, "当前没有可重新匹配的曲目", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] labels = {"自动识别", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
+        String[] catalogs = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
+        String selected = AppPreferences.lyricCatalog(this);
+        int selectedIndex = 0;
+        for (int i = 0; i < catalogs.length; i++) {
+            if (catalogs[i].equals(selected)) {
+                selectedIndex = i;
+                break;
+            }
+        }
+        final int[] choice = {selectedIndex};
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("重新匹配歌词")
+                .setMessage(snapshot.title + (snapshot.artist.trim().isEmpty()
+                        ? "" : "\n" + snapshot.artist))
+                .setSingleChoiceItems(labels, selectedIndex,
+                        (dialog, which) -> choice[0] = which)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("重新匹配", (dialog, which) -> {
+                    AppPreferences.get(this).edit()
+                            .putString(AppPreferences.KEY_LYRIC_CATALOG, catalogs[choice[0]])
+                            .apply();
+                    AppPreferences.changed(this);
+                    MusicStateStore.reloadLyrics(this);
+                    refreshPreview();
+                    Toast.makeText(this, "已开始重新匹配", Toast.LENGTH_SHORT).show();
+                })
+                .show();
+    }
+
+    private void uploadDiagnosticSnapshotFor(String feedbackId) {
         if (diagnosticBusy) return;
         diagnosticBusy = true;
-        CommunityClient.uploadSnapshotAsync(this, result -> runOnUiThread(() -> {
+        CommunityClient.uploadSnapshotAsync(this, feedbackId, result -> runOnUiThread(() -> {
             diagnosticBusy = false;
             if (isFinishing() || isDestroyed()) return;
             Toast.makeText(this, result.success ? "诊断快照已上传" : "诊断上传失败：" + result.error,
                     Toast.LENGTH_LONG).show();
         }));
+    }
+
+    private static String shortId(String value) {
+        if (value == null || value.length() <= 12) return value == null ? "" : value;
+        return value.substring(0, 8) + "…" + value.substring(value.length() - 4);
     }
 
     private void refreshFeedbackReplies() {

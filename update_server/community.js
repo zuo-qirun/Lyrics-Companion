@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const CLIENT_ID_PATTERN = /^[a-f0-9-]{16,64}$/i;
+const FEEDBACK_ID_PATTERN = /^[a-f0-9-]{36}$/i;
 const TICKET_LIMIT = 20;
 const DIAGNOSTIC_DETAILS_LIMIT = 1_200_000;
 
@@ -29,6 +30,8 @@ function normalizeDiagnostic(value) {
     summary: String(source.summary || "").trim().slice(0, 500),
     details: String(source.details || "").trim().slice(0, DIAGNOSTIC_DETAILS_LIMIT),
     appVersion: String(source.appVersion || "").trim().slice(0, 80),
+    feedbackId: FEEDBACK_ID_PATTERN.test(String(source.feedbackId || "").trim())
+      ? String(source.feedbackId).trim().toLowerCase() : "",
   };
 }
 
