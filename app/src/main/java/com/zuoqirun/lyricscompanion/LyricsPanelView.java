@@ -1164,7 +1164,11 @@ final class LyricsPanelView extends View {
         int accent = refinedAccentColor();
         int primaryText = light ? mix(accent, Color.BLACK, 0.72f)
                 : mix(accent, Color.WHITE, 0.78f);
-        drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
+        // A zero-opacity compact panel must not enter the background saveLayer path. Some
+        // hardware renderers composite an empty alpha layer as an opaque black rectangle.
+        if (opacity > 0) {
+            drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
+        }
 
         int save = canvas.save();
         float radius = Math.min(width, height) * 0.18f;

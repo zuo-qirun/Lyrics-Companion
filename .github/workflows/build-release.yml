@@ -125,8 +125,21 @@ jobs:
 
           changelog_source = pathlib.Path("CHANGELOG.md")
           text = changelog_source.read_text(encoding="utf-8") if changelog_source.exists() else ""
-          match = re.search(r"(?ms)^##\s+(.+?)\s*$\n(.*?)(?=^##\s+|\Z)", text)
-          body = match.group(2).strip() if match else ""
+          sections = re.findall(r"(?ms)^##\s+(.+?)\s*$\n(.*?)(?=^##\s+|\Z)", text)
+          selected = []
+          if sections:
+              latest_heading, _ = sections[0]
+              date_match = re.match(r"^(\d{8})(?:[-_].*)?$", latest_heading.strip())
+              if date_match:
+                  latest_date = date_match.group(1)
+                  for section in sections:
+                      if not re.match(r"^" + re.escape(latest_date) + r"(?:[-_].*)?$",
+                                      section[0].strip()):
+                          break
+                      selected.append(section)
+              else:
+                  selected = sections[:1]
+          body = "\n".join(section_body for _, section_body in selected).strip()
           subject = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], text=True).strip()
           items = [line.strip()[2:].strip() for line in body.splitlines()
                    if line.strip().startswith("- ")]

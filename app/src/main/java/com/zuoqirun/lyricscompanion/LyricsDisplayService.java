@@ -10,6 +10,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Build;
@@ -25,6 +28,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
+import android.widget.TextView;
 
 /** Owns independent overlay windows on the default display and a selected secondary display. */
 public final class LyricsDisplayService extends Service implements DisplayManager.DisplayListener {
@@ -40,7 +44,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             "com.zuoqirun.lyricscompanion.action.REFRESH_SECONDARY";
     private static final String ACTION_SETTINGS_VISIBILITY =
             "com.zuoqirun.lyricscompanion.action.SETTINGS_VISIBILITY";
+    private static final String ACTION_LAUNCH_SELECTED =
+            "com.zuoqirun.lyricscompanion.action.LAUNCH_SELECTED";
     private static final String EXTRA_VISIBLE = "visible";
+    private static final String EXTRA_TARGET_SECONDARY = "target_secondary";
     private static final String EXTRA_DX = "dx";
     private static final String EXTRA_DY = "dy";
 
@@ -48,12 +55,18 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager mainWindowManager;
     private WindowManager.LayoutParams mainParams;
     private LyricsPanelView mainPanel;
+    private TextView mainUnlockHandle;
+    private WindowManager.LayoutParams mainUnlockParams;
     private Context secondaryContext;
     private Display secondaryDisplay;
     private WindowManager secondaryWindowManager;
     private WindowManager.LayoutParams secondaryParams;
     private LyricsPanelView secondaryPanel;
+    private TextView secondaryUnlockHandle;
+    private WindowManager.LayoutParams secondaryUnlockParams;
     private boolean settingsVisible;
+    private boolean launcherOnly;
+    private boolean launcherOnlySecondary;
     private boolean overlaysHiddenForPlayback;
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
@@ -101,9 +114,49 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 .setAction(ACTION_REFRESH_SECONDARY));
     }
 
+    static boolean startSelectedFromLauncher(Context context) {
+        boolean secondary = AppPreferences.launchOverlaySecondary(context);
+        boolean selectedEnabled = secondary ? AppPreferences.secondaryEnabled(context)
+                : AppPreferences.mainEnabled(context);
+        if (!selectedEnabled) {
+            secondary = !secondary;
+            selectedEnabled = secondary ? AppPreferences.secondaryEnabled(context)
+                    : AppPreferences.mainEnabled(context);
+        }
+        if (!selectedEnabled) return false;
+        Intent intent = new Intent(context, LyricsDisplayService.class)
+                .setAction(ACTION_LAUNCH_SELECTED)
+                .putExtra(EXTRA_TARGET_SECONDARY, secondary);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+            return true;
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to launch selected overlay", error);
+            DiagnosticLog.record(context, "Overlay", "launcher start failed="
+                    + error.getClass().getSimpleName() + ": " + error.getMessage());
+            return false;
+        }
+    }
+
     static void setSettingsVisible(Context context, boolean visible) {
         startCommand(context, new Intent(context, LyricsDisplayService.class)
                 .setAction(ACTION_SETTINGS_VISIBILITY).putExtra(EXTRA_VISIBLE, visible));
+    }
+
+    static void stopAndDisable(Context context) {
+        AppPreferences.get(context).edit()
+                .putBoolean(AppPreferences.KEY_MAIN_OVERLAY, false)
+                .putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, false)
+                .putBoolean(AppPreferences.KEY_NOTIFICATION_LYRICS, false)
+                .putBoolean(AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH, false)
+                .putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH, false)
+                .remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)
+                .apply();
+        context.stopService(new Intent(context, LyricsDisplayService.class));
     }
 
     private static void startCommand(Context context, Intent intent) {
@@ -154,9 +207,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         if (ACTION_SETTINGS_VISIBILITY.equals(action)) {
             settingsVisible = intent.getBooleanExtra(EXTRA_VISIBLE, false);
+            if (settingsVisible) launcherOnly = false;
             AudioSpectrumSource.sync(this);
             if (settingsVisible) dismissMain();
             else rebuildAll();
+            return START_STICKY;
+        }
+        if (ACTION_LAUNCH_SELECTED.equals(action)) {
+            launcherOnly = true;
+            launcherOnlySecondary = intent.getBooleanExtra(EXTRA_TARGET_SECONDARY, false);
+            settingsVisible = false;
+            rebuildAll();
             return START_STICKY;
         }
         rebuildAll();
@@ -215,14 +276,18 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         dismissMain();
         dismissSecondary();
         if (overlaysHiddenForPlayback) return;
-        if (AppPreferences.mainEnabled(this) && !settingsVisible) showMain();
-        if (AppPreferences.secondaryEnabled(this)) showSecondary();
+        if (AppPreferences.mainEnabled(this) && !settingsVisible
+                && (!launcherOnly || !launcherOnlySecondary)) showMain();
+        if (AppPreferences.secondaryEnabled(this)
+                && (!launcherOnly || launcherOnlySecondary)) showSecondary();
     }
 
     private void rebuildSecondary() {
         dismissSecondary();
         if (AppPreferences.secondaryEnabled(this) && canDrawOverlays()
-                && !shouldHideOverlays()) showSecondary();
+                && !shouldHideOverlays() && (!launcherOnly || launcherOnlySecondary)) {
+            showSecondary();
+        }
     }
 
     private void showMain() {
@@ -238,7 +303,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         mainParams.y = clamp(AppPreferences.get(this).getInt(AppPreferences.KEY_MAIN_Y, dp(this, 100)),
                 0, Math.max(0, screen.y - height));
         attachDrag(mainPanel, mainWindowManager, mainParams, screen,
-                AppPreferences.KEY_MAIN_X, AppPreferences.KEY_MAIN_Y, true);
+                AppPreferences.KEY_MAIN_X, AppPreferences.KEY_MAIN_Y, true, false);
         try {
             mainWindowManager.addView(mainPanel, mainParams);
             DiagnosticLog.record(this, "Overlay", "main attached position=" + mainParams.x
@@ -247,6 +312,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     + AppPreferences.overlayStyle(this, false));
             Log.i(TAG, "Main overlay attached at " + mainParams.x + "," + mainParams.y
                     + " size=" + width + "x" + height);
+            if (AppPreferences.overlayTouchThrough(this, false)) {
+                setOverlayTouchThrough(false, true);
+            }
         } catch (Throwable error) {
             DiagnosticLog.record(this, "Overlay", "main attach failed="
                     + error.getClass().getSimpleName());
@@ -289,7 +357,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             secondaryParams.y = clamp(AppPreferences.get(this).getInt(
                     AppPreferences.KEY_SECONDARY_Y, defaultY), 0, Math.max(0, screen.y - height));
             attachDrag(secondaryPanel, secondaryWindowManager, secondaryParams, screen,
-                    AppPreferences.KEY_SECONDARY_X, AppPreferences.KEY_SECONDARY_Y, false);
+                    AppPreferences.KEY_SECONDARY_X, AppPreferences.KEY_SECONDARY_Y, false, true);
             secondaryWindowManager.addView(secondaryPanel, secondaryParams);
             DiagnosticLog.record(this, "Display", "secondary attached id="
                     + display.getDisplayId() + " name=" + display.getName() + " position="
@@ -298,6 +366,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     + AppPreferences.overlayStyle(this, true));
             Log.i(TAG, "Lyrics shown on display " + display.getDisplayId()
                     + " (" + display.getName() + ")");
+            if (AppPreferences.overlayTouchThrough(this, true)) {
+                setOverlayTouchThrough(true, true);
+            }
         } catch (Throwable error) {
             DiagnosticLog.record(this, "Display", "secondary attach failed="
                     + error.getClass().getSimpleName() + ": " + error.getMessage());
@@ -322,10 +393,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void attachDrag(View view, WindowManager manager, WindowManager.LayoutParams params,
-                            Point screen, String xKey, String yKey, boolean openOnTap) {
+                            Point screen, String xKey, String yKey, boolean openOnTap,
+                            boolean secondary) {
         final int touchSlop = ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
         view.setOnTouchListener(new View.OnTouchListener() {
             final Handler longPressHandler = new Handler(Looper.getMainLooper());
+            final Handler tapHandler = new Handler(Looper.getMainLooper());
             float downRawX;
             float downRawY;
             int downX;
@@ -333,13 +406,26 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             boolean moved;
             boolean longPressReady;
             boolean lyricGesture;
+            boolean doubleTap;
             MediaControlAction playbackControl;
             View pressedView;
-            final Runnable forceClose = new Runnable() {
+            long lastTapUpAt;
+            final Runnable lockForTouchThrough = new Runnable() {
                 @Override public void run() {
                     if (pressedView == null || moved) return;
                     longPressReady = true;
                     pressedView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                }
+            };
+            final Runnable singleTap = new Runnable() {
+                @Override public void run() {
+                    if (playbackControl != null || !openOnTap) return;
+                    if (!AppPreferences.tapOverlayReturnsToPlayer(
+                            LyricsDisplayService.this)
+                            || !MusicNotificationListener.openActivePlayer(
+                            LyricsDisplayService.this)) {
+                        openMainActivity();
+                    }
                 }
             };
 
@@ -358,8 +444,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                             : null;
                     lyricGesture = playbackControl == null && v instanceof LyricsPanelView
                             && ((LyricsPanelView) v).isLyricGestureRegion(event.getX(), event.getY());
-                    longPressHandler.removeCallbacks(forceClose);
-                    longPressHandler.postDelayed(forceClose,
+                    doubleTap = !lyricGesture && playbackControl == null
+                            && lastTapUpAt > 0L
+                            && event.getEventTime() - lastTapUpAt
+                            <= ViewConfiguration.getDoubleTapTimeout();
+                    if (doubleTap) {
+                        tapHandler.removeCallbacks(singleTap);
+                        lastTapUpAt = 0L;
+                    }
+                    longPressHandler.removeCallbacks(lockForTouchThrough);
+                    longPressHandler.postDelayed(lockForTouchThrough,
                             ViewConfiguration.getLongPressTimeout());
                 } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
                     float dx = event.getRawX() - downRawX;
@@ -367,22 +461,24 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     if (dx * dx + dy * dy > touchSlop * touchSlop) {
                         moved = true;
                         longPressReady = false;
-                        longPressHandler.removeCallbacks(forceClose);
+                        longPressHandler.removeCallbacks(lockForTouchThrough);
                     }
                 } else if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN
                         || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                     moved = true;
                     longPressReady = false;
-                    longPressHandler.removeCallbacks(forceClose);
+                    longPressHandler.removeCallbacks(lockForTouchThrough);
+                    tapHandler.removeCallbacks(singleTap);
+                    lastTapUpAt = 0L;
                     pressedView = null;
                 } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                    longPressHandler.removeCallbacks(forceClose);
+                    longPressHandler.removeCallbacks(lockForTouchThrough);
                     confirmLongPress = longPressReady && !moved;
                     longPressReady = false;
                     pressedView = null;
                 }
                 if (confirmLongPress) {
-                    forceCloseOverlay(openOnTap);
+                    setOverlayTouchThrough(secondary, true);
                     return true;
                 }
                 if (lyricGesture) {
@@ -412,19 +508,23 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                             if (playbackControl != null) {
                                 MusicNotificationListener.requestPlaybackControl(
                                         LyricsDisplayService.this, playbackControl);
-                            } else if (openOnTap) {
-                                if (!AppPreferences.tapOverlayReturnsToPlayer(
-                                        LyricsDisplayService.this)
-                                        || !MusicNotificationListener.openActivePlayer(
-                                        LyricsDisplayService.this)) {
-                                    openMainActivity();
+                            } else if (doubleTap) {
+                                forceReturnOverlay(!secondary);
+                            } else if (!lyricGesture) {
+                                lastTapUpAt = event.getEventTime();
+                                tapHandler.removeCallbacks(singleTap);
+                                if (openOnTap) {
+                                    tapHandler.postDelayed(singleTap,
+                                            ViewConfiguration.getDoubleTapTimeout());
                                 }
                             }
                         }
                         playbackControl = null;
+                        doubleTap = false;
                         return true;
                     case MotionEvent.ACTION_CANCEL:
                         playbackControl = null;
+                        doubleTap = false;
                         return true;
                     default:
                         return true;
@@ -433,13 +533,113 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         });
     }
 
-    private void forceCloseOverlay(boolean mainOverlay) {
+    private void setOverlayTouchThrough(boolean secondary, boolean enabled) {
+        WindowManager manager = secondary ? secondaryWindowManager : mainWindowManager;
+        View panel = secondary ? secondaryPanel : mainPanel;
+        WindowManager.LayoutParams params = secondary ? secondaryParams : mainParams;
+        if (manager == null || panel == null || params == null || panel.getParent() == null) return;
+        int touchFlag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        params.flags = enabled ? params.flags | touchFlag : params.flags & ~touchFlag;
+        try {
+            manager.updateViewLayout(panel, params);
+            AppPreferences.get(this).edit().putBoolean(secondary
+                    ? AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH
+                    : AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH, enabled).apply();
+            if (enabled) {
+                if (!addUnlockHandle(secondary)) {
+                    params.flags &= ~touchFlag;
+                    manager.updateViewLayout(panel, params);
+                    AppPreferences.get(this).edit().putBoolean(secondary
+                            ? AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH
+                            : AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH, false).apply();
+                    return;
+                }
+            } else {
+                removeUnlockHandle(secondary);
+            }
+            DiagnosticLog.record(this, "Overlay", (enabled ? "touch through enabled "
+                    : "touch through disabled ") + (secondary ? "secondary" : "main"));
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to change overlay touch-through", error);
+        }
+    }
+
+    private boolean addUnlockHandle(final boolean secondary) {
+        WindowManager manager = secondary ? secondaryWindowManager : mainWindowManager;
+        WindowManager.LayoutParams panelParams = secondary ? secondaryParams : mainParams;
+        if (manager == null || panelParams == null) return false;
+        removeUnlockHandle(secondary);
+        final TextView handle = new TextView(secondary ? secondaryContext : this);
+        handle.setText("×");
+        handle.setTextColor(Color.WHITE);
+        handle.setTextSize(20f);
+        handle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        handle.setGravity(Gravity.CENTER);
+        handle.setContentDescription("点击取消悬浮窗穿透");
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(0xCC202124);
+        circle.setStroke(dp(handle.getContext(), 1), 0xAAFFFFFF);
+        handle.setBackground(circle);
+        int size = dp(handle.getContext(), 36);
+        int height = size;
+        final WindowManager.LayoutParams handleParams = new WindowManager.LayoutParams(
+                size, height,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT);
+        handleParams.gravity = Gravity.TOP | Gravity.START;
+        handleParams.x = clamp(panelParams.x + panelParams.width - size, 0,
+                Math.max(0, displaySize(secondary ? secondaryDisplay
+                        : mainWindowManager.getDefaultDisplay()).x - size));
+        handleParams.y = clamp(panelParams.y, 0,
+                Math.max(0, displaySize(secondary ? secondaryDisplay
+                        : mainWindowManager.getDefaultDisplay()).y - height));
+        handle.setOnClickListener(v -> setOverlayTouchThrough(secondary, false));
+        try {
+            manager.addView(handle, handleParams);
+            if (secondary) {
+                secondaryUnlockHandle = handle;
+                secondaryUnlockParams = handleParams;
+            } else {
+                mainUnlockHandle = handle;
+                mainUnlockParams = handleParams;
+            }
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to add overlay unlock handle", error);
+            return false;
+        }
+        return true;
+    }
+
+    private void removeUnlockHandle(boolean secondary) {
+        WindowManager manager = secondary ? secondaryWindowManager : mainWindowManager;
+        TextView handle = secondary ? secondaryUnlockHandle : mainUnlockHandle;
+        if (manager != null && handle != null && handle.getParent() != null) {
+            try { manager.removeViewImmediate(handle); }
+            catch (Throwable ignored) { }
+        }
+        if (secondary) {
+            secondaryUnlockHandle = null;
+            secondaryUnlockParams = null;
+        } else {
+            mainUnlockHandle = null;
+            mainUnlockParams = null;
+        }
+    }
+
+    private void forceReturnOverlay(boolean mainOverlay) {
         String key = mainOverlay ? AppPreferences.KEY_MAIN_OVERLAY
                 : AppPreferences.KEY_SECONDARY_OVERLAY;
-        AppPreferences.get(this).edit().putBoolean(key, false).apply();
+        AppPreferences.get(this).edit().putBoolean(key, false)
+                .putBoolean(mainOverlay ? AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH
+                        : AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH, false).apply();
         if (mainOverlay) dismissMain();
         else dismissSecondary();
-        DiagnosticLog.record(this, "Overlay", "long press closed "
+        DiagnosticLog.record(this, "Overlay", "double tap forced return "
                 + (mainOverlay ? "main" : "secondary"));
         openMainActivity();
     }
@@ -477,6 +677,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void dismissMain() {
+        removeUnlockHandle(false);
         if (mainWindowManager != null && mainPanel != null && mainPanel.getParent() != null) {
             try { mainWindowManager.removeViewImmediate(mainPanel); }
             catch (Throwable ignored) { }
@@ -487,6 +688,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void dismissSecondary() {
+        removeUnlockHandle(true);
         if (secondaryWindowManager != null && secondaryPanel != null
                 && secondaryPanel.getParent() != null) {
             try { secondaryWindowManager.removeViewImmediate(secondaryPanel); }
@@ -570,8 +772,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             return;
         }
         if (!canDrawOverlays()) return;
-        if (AppPreferences.mainEnabled(this) && !settingsVisible && mainPanel == null) showMain();
-        if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null) showSecondary();
+        if (AppPreferences.mainEnabled(this) && !settingsVisible && mainPanel == null
+                && (!launcherOnly || !launcherOnlySecondary)) showMain();
+        if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null
+                && (!launcherOnly || launcherOnlySecondary)) showSecondary();
     }
 
     private Notification createNotification() {

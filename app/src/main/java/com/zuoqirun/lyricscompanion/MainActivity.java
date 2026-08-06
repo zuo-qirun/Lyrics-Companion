@@ -78,6 +78,7 @@ public final class MainActivity extends AppCompatActivity {
     private TextView feedbackReplyStatus;
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
+    private MaterialSwitch launchOverlaySwitch;
     private MaterialButton mainRefinedSettingsButton;
     private MaterialButton secondaryRefinedSettingsButton;
     private Spinner displaySpinner;
@@ -92,6 +93,7 @@ public final class MainActivity extends AppCompatActivity {
     private boolean activityResumed;
     private boolean listenerReconnectScheduled;
     private long listenerReconnectDeadlineElapsedMs;
+    private boolean launcherDispatch;
 
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() {
@@ -126,6 +128,11 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (isLauncherIntent() && dispatchLauncherOverlay()) {
+            launcherDispatch = true;
+            finish();
+            return;
+        }
         if (Build.VERSION.SDK_INT >= 21) {
             getWindow().setStatusBarColor(0xFF07111F);
             getWindow().setNavigationBarColor(0xFF07111F);
@@ -140,6 +147,7 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (launcherDispatch) return;
         activityResumed = true;
         ensureNotificationListenerConnected();
         bindPreferences();
@@ -155,6 +163,10 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     @Override protected void onPause() {
+        if (launcherDispatch) {
+            super.onPause();
+            return;
+        }
         activityResumed = false;
         listenerReconnectScheduled = false;
         handler.removeCallbacks(listenerReconnect);
@@ -162,6 +174,26 @@ public final class MainActivity extends AppCompatActivity {
         handler.removeCallbacks(communityRefresh);
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
+    }
+
+    private boolean isLauncherIntent() {
+        Intent intent = getIntent();
+        return intent != null && Intent.ACTION_MAIN.equals(intent.getAction())
+                && intent.hasCategory(Intent.CATEGORY_LAUNCHER);
+    }
+
+    private boolean dispatchLauncherOverlay() {
+        if (!AppPreferences.launchOverlayOnIcon(this)) return false;
+        long now = SystemClock.elapsedRealtime();
+        SharedPreferences preferences = AppPreferences.get(this);
+        long last = preferences.getLong(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT, 0L);
+        if (last > 0L && now >= last && now - last <= 30_000L) {
+            preferences.edit().remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT).apply();
+            return false;
+        }
+        if (!LyricsDisplayService.startSelectedFromLauncher(this)) return false;
+        preferences.edit().putLong(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT, now).apply();
+        return true;
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -271,10 +303,11 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("显示位置"));
         mainOverlaySwitch = toggle("主屏悬浮窗",
-                "离开设置页后显示；可拖动，轻触返回设置，静止长按强制关闭");
+                "离开设置页后显示；可拖动，双击强制返回，长按锁定并开启触摸穿透；点击圆形 × 按钮可恢复");
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
+            if (checked) AppPreferences.setLaunchOverlaySecondary(this, false);
             if (checked && !canDrawOverlays()) openOverlayPermission();
             if (checked) requestSpectrumPermissionIfNeeded(false);
             AppPreferences.changed(this);
@@ -286,6 +319,7 @@ public final class MainActivity extends AppCompatActivity {
         secondaryOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, checked).apply();
+            if (checked) AppPreferences.setLaunchOverlaySecondary(this, true);
             if (checked && !canDrawOverlays()) openOverlayPermission();
             if (checked) requestSpectrumPermissionIfNeeded(true);
             AppPreferences.changed(this);
@@ -293,6 +327,18 @@ public final class MainActivity extends AppCompatActivity {
             LyricsDisplayService.setSettingsVisible(this, true);
         });
         outputCard.addView(secondaryOverlaySwitch);
+        launchOverlaySwitch = toggle("点击图标启动悬浮窗",
+                "开启后首次点击图标只启动记忆的悬浮窗；30 秒内再次点击进入主界面，关闭后直接打开主界面");
+        launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
+        launchOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_LAUNCH_OVERLAY_ON_ICON, checked)
+                    .remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)
+                    .apply();
+        });
+        outputCard.addView(launchOverlaySwitch);
+        addLauncherOverlayTargetSelector(outputCard);
         MaterialSwitch returnToPlayer = toggle("轻触悬浮窗返回播放器",
                 "关闭时打开歌词伴侣；无法打开播放器时会自动回到歌词伴侣");
         returnToPlayer.setChecked(AppPreferences.tapOverlayReturnsToPlayer(this));
@@ -328,6 +374,12 @@ public final class MainActivity extends AppCompatActivity {
                     .putBoolean(AppPreferences.KEY_LOCKSCREEN_LYRICS, checked).apply();
             AppPreferences.changed(this);
         });
+
+        MaterialButton stopService = button("关闭服务并退出", false);
+        stopService.setOnClickListener(v -> confirmStopServiceAndExit());
+        LinearLayout.LayoutParams stopServiceParams = new LinearLayout.LayoutParams(-1, dp(48));
+        stopServiceParams.topMargin = dp(12);
+        outputCard.addView(stopService, stopServiceParams);
 
         TextView displayLabel = text("投屏屏幕", 13, 0xFF93A4B9, true);
         displayLabel.setPadding(0, dp(14), 0, dp(5));
@@ -496,6 +548,58 @@ public final class MainActivity extends AppCompatActivity {
         return scroll;
     }
 
+    private void confirmStopServiceAndExit() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("关闭歌词服务")
+                .setMessage("将关闭悬浮窗、通知歌词和前台同步服务，并退出应用。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("关闭并退出", (dialog, which) -> stopServiceAndExit())
+                .show();
+    }
+
+    private void stopServiceAndExit() {
+        LyricsDisplayService.stopAndDisable(this);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) finishAndRemoveTask();
+        else finish();
+    }
+
+    private void addLauncherOverlayTargetSelector(LinearLayout parent) {
+        TextView label = text("图标启动目标", 14, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(14), 0, dp(6));
+        parent.addView(label);
+        String[] labels = {"主屏悬浮窗", "副屏歌词"};
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels) {
+            @Override public View getView(int position, View convertView, ViewGroup parentView) {
+                TextView view = (TextView) super.getView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                  ViewGroup parentView) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
+                styleSpinnerText(view);
+                return view;
+            }
+        };
+        spinner.setAdapter(adapter);
+        spinner.setSelection(AppPreferences.launchOverlaySecondary(this) ? 1 : 0, false);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                 View view, int position, long id) {
+                AppPreferences.setLaunchOverlaySecondary(MainActivity.this, position == 1);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView help = text("首次点击图标时只显示这里选择的悬浮窗；未启用时会自动尝试另一块已启用的悬浮窗。",
+                12, 0xFF74869D, false);
+        help.setPadding(0, dp(5), 0, 0);
+        parent.addView(help);
+    }
+
     private void addStyleSelector(LinearLayout parent, String title, boolean secondary) {
         TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
@@ -616,6 +720,7 @@ public final class MainActivity extends AppCompatActivity {
         bindingUi = true;
         mainOverlaySwitch.setChecked(AppPreferences.mainEnabled(this));
         secondaryOverlaySwitch.setChecked(AppPreferences.secondaryEnabled(this));
+        launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         bindingUi = false;
     }
 
