@@ -10,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
 import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -211,6 +212,9 @@ final class LyricsPanelView extends View {
         } else if ("refined".equals(overlayStyle)) {
             drawRefined(canvas, snapshot, density);
         } else if ("compact".equals(overlayStyle)) {
+            // Transparent compact overlays must not retain pixels from a previous style
+            // or frame, otherwise the old next-line lyric can show through the current line.
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
             drawCompact(canvas, snapshot, density);
         } else if ("pip".equals(overlayStyle)) {
             drawPip(canvas, snapshot, density);
