@@ -30,6 +30,7 @@ final class AppPreferences {
     static final String KEY_TEXT_SCALE = "text_scale";
     static final String KEY_TITLE_SCALE = "title_scale";
     static final String KEY_THEME_MODE = "theme_mode";
+    static final String KEY_LYRICS_FOLLOW_THEME = "lyrics_follow_theme";
     static final String KEY_OPACITY = "opacity";
     static final String KEY_LYRIC_OFFSET = "lyric_offset";
     static final String KEY_LYRIC_SOURCE_OFFSET = "lyric_source_offset";
@@ -197,6 +198,15 @@ final class AppPreferences {
     static void setThemeMode(Context context, String value) {
         String normalized = "light".equals(value) || "dark".equals(value) ? value : "auto";
         get(context).edit().putString(KEY_THEME_MODE, normalized).apply();
+    }
+
+    /** Disabled by default so switching the settings theme does not recolor overlays. */
+    static boolean lyricsFollowTheme(Context context) {
+        return get(context).getBoolean(KEY_LYRICS_FOLLOW_THEME, false);
+    }
+
+    static void setLyricsFollowTheme(Context context, boolean enabled) {
+        get(context).edit().putBoolean(KEY_LYRICS_FOLLOW_THEME, enabled).apply();
     }
 
     static float panelScale(Context context) {

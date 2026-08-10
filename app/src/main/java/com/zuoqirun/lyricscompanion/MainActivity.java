@@ -25,6 +25,7 @@ import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.util.TypedValue;
 import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -34,6 +35,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatDelegate;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -70,6 +72,8 @@ public final class MainActivity extends AppCompatActivity {
     private static final long LISTENER_INITIAL_RECONNECT_DELAY_MS = 2_500L;
     private static final long LISTENER_RECONNECT_INTERVAL_MS = 1_000L;
     private static final long LISTENER_RECONNECT_WINDOW_MS = 30_000L;
+    private static final int PERMISSION_CHECK_NOTIFICATION = 1;
+    private static final int PERMISSION_CHECK_OVERLAY = 1 << 1;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView permissionStatus;
     private TextView musicStatus;
@@ -95,6 +99,8 @@ public final class MainActivity extends AppCompatActivity {
     private boolean feedbackReplyDialogVisible;
     private boolean activityResumed;
     private boolean stoppingAndExiting;
+    private int pendingPermissionFaqCheck;
+    private boolean permissionFaqDialogVisible;
     private boolean listenerReconnectScheduled;
     private long listenerReconnectDeadlineElapsedMs;
     private boolean launcherDispatch;
@@ -131,6 +137,9 @@ public final class MainActivity extends AppCompatActivity {
     };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
+        // The companion's dense control surface is intentionally a stable dark workspace.
+        // Overlay lyrics can still use the separately selected light/dark environment.
+        getDelegate().setLocalNightMode(AppCompatDelegate.MODE_NIGHT_YES);
         super.onCreate(savedInstanceState);
         boolean launcherIntent = isLauncherIntent();
         if (launcherIntent) {
@@ -169,6 +178,9 @@ public final class MainActivity extends AppCompatActivity {
         handler.post(statusRefresh);
         handler.removeCallbacks(communityRefresh);
         handler.post(communityRefresh);
+        // Some ROMs update the permission state a moment after their Settings page closes.
+        // Check after that hand-off so a newly granted switch never produces a false warning.
+        handler.postDelayed(this::promptPermissionFaqIfStillMissing, 350L);
     }
 
     @Override protected void onPause() {
@@ -266,7 +278,8 @@ public final class MainActivity extends AppCompatActivity {
     private View buildContent() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF07111F);
+        scroll.setBackgroundColor(themeColor(com.google.android.material.R.attr.colorSurface,
+                0xFF07111F));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(34));
@@ -875,7 +888,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void addThemeSelector(LinearLayout parent) {
-        TextView label = sectionLabel("\u6b4c\u8bcd\u663c\u591c\u4e3b\u9898");
+        TextView label = sectionLabel("悬浮歌词深浅色环境");
         label.setPadding(0, dp(16), 0, dp(4));
         parent.addView(label);
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
@@ -909,12 +922,24 @@ public final class MainActivity extends AppCompatActivity {
                                                   View view, int position, long id) {
                 if (values[position].equals(AppPreferences.themeMode(MainActivity.this))) return;
                 AppPreferences.setThemeMode(MainActivity.this, values[position]);
-                refreshPreview();
+                LyricsCompanionApp.applyMaterialTheme(values[position]);
                 AppPreferences.changed(MainActivity.this);
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView mainThemeNote = text("主界面固定使用黑色主题；此选项只影响悬浮歌词背景与已开启跟随的自动歌词色。", 12,
+                0xFF74869D, false);
+        mainThemeNote.setPadding(0, dp(3), 0, dp(2));
+        parent.addView(mainThemeNote);
+        MaterialSwitch followLyrics = toggle("歌词跟随深浅色", "开启后，自动歌词色会随界面主题切换；关闭时主屏和副屏歌词保持原颜色，顶部歌词条始终使用自己的颜色设置。");
+        followLyrics.setChecked(AppPreferences.lyricsFollowTheme(this));
+        followLyrics.setOnCheckedChangeListener((button, enabled) -> {
+            AppPreferences.setLyricsFollowTheme(MainActivity.this, enabled);
+            refreshPreview();
+            AppPreferences.changed(MainActivity.this);
+        });
+        parent.addView(followLyrics);
     }
 
     private void addDisplaySettingsLaunchers(LinearLayout parent) {
@@ -1018,32 +1043,40 @@ public final class MainActivity extends AppCompatActivity {
         content.removeAllViews();
         TextView state = text(status + (document != null && !document.updatedAt.isEmpty()
                         ? "\n更新时间：" + document.updatedAt : ""),
-                12, 0xFF8392A8, false);
+                12, themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        0xFF8392A8), false);
         state.setLineSpacing(0f, 1.2f);
         state.setPadding(0, 0, 0, dp(12));
         content.addView(state);
         if (document == null) {
-            TextView empty = text("暂时没有可显示的 FAQ，请稍后重试。", 14, 0xFF52657D, false);
+            TextView empty = text("暂时没有可显示的 FAQ，请稍后重试。", 14,
+                    themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                            0xFF8392A8), false);
             content.addView(empty);
             return;
         }
         for (FaqClient.Item item : document.items) {
-            TextView question = text(item.question, 16, 0xFF102033, true);
+            TextView question = text(item.question, 16,
+                    themeColor(com.google.android.material.R.attr.colorOnSurface, 0xFFF2F6FB), true);
             question.setPadding(0, dp(8), 0, dp(6));
             content.addView(question);
             if (!item.answer.isEmpty()) {
-                TextView answer = text(item.answer, 14, 0xFF26384D, false);
+                TextView answer = text(item.answer, 14,
+                        themeColor(com.google.android.material.R.attr.colorOnSurface, 0xFFD8E1EE), false);
                 answer.setLineSpacing(0f, 1.2f);
                 content.addView(answer);
             }
             for (FaqClient.Instruction instruction : item.instructions) {
-                TextView title = text(instruction.title, 13, 0xFF52657D, true);
+                TextView title = text(instruction.title, 13,
+                        themeColor(com.google.android.material.R.attr.colorPrimary, 0xFF6EE7F2), true);
                 title.setPadding(0, dp(10), 0, dp(4));
                 content.addView(title);
                 addFaqCommand(content, instruction.command);
             }
             if (!item.note.isEmpty()) {
-                TextView note = text(item.note, 12, 0xFF66788F, false);
+                TextView note = text(item.note, 12,
+                        themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant,
+                                0xFF8392A8), false);
                 note.setLineSpacing(0f, 1.2f);
                 note.setPadding(0, dp(8), 0, dp(4));
                 content.addView(note);
@@ -1054,12 +1087,13 @@ public final class MainActivity extends AppCompatActivity {
     private void addFaqCommand(LinearLayout parent, String command) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView value = text(command, 12, 0xFF102033, false);
+        TextView value = text(command, 12,
+                themeColor(com.google.android.material.R.attr.colorOnSurface, 0xFFF2F6FB), false);
         value.setTextIsSelectable(true);
         value.setTypeface(android.graphics.Typeface.MONOSPACE);
         value.setLineSpacing(0f, 1.1f);
         value.setPadding(dp(10), dp(8), dp(10), dp(8));
-        value.setBackground(solid(0xFFE8F0F5, 8));
+        value.setBackground(solid(0xFF25364D, 8));
         row.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
         MaterialButton copy = button("复制", false);
         copy.setOnClickListener(v -> {
@@ -1262,7 +1296,8 @@ public final class MainActivity extends AppCompatActivity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(15), dp(16), dp(16));
         MaterialShapeDrawable surface = new MaterialShapeDrawable();
-        surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        surface.setFillColor(android.content.res.ColorStateList.valueOf(
+                themeColor(com.google.android.material.R.attr.colorSurfaceContainer, 0xFF101E31)));
         surface.setCornerSize(dp(20));
         surface.setElevation(dp(1));
         card.setBackground(surface);
@@ -1275,7 +1310,10 @@ public final class MainActivity extends AppCompatActivity {
         return params;
     }
 
-    private TextView sectionLabel(String value) { return text(value, 13, 0xFF6EE7F2, true); }
+    private TextView sectionLabel(String value) {
+        return text(value, 13, themeColor(com.google.android.material.R.attr.colorPrimary,
+                0xFF6EE7F2), true);
+    }
 
     private void addGlobalFontControls(LinearLayout parent) {
         TextView label = sectionLabel("全局字体");
@@ -1329,7 +1367,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(sp);
-        view.setTextColor(color);
+        view.setTextColor(adaptiveTextColor(color));
         if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         return view;
     }
@@ -1338,11 +1376,16 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton button = new MaterialButton(this);
         button.setText(value);
         button.setTextSize(13f);
-        button.setTextColor(primary ? 0xFF07111F : 0xFFF1F5FA);
+        button.setTextColor(primary
+                ? themeColor(com.google.android.material.R.attr.colorOnPrimary, 0xFF07111F)
+                : themeColor(com.google.android.material.R.attr.colorOnSurface, 0xFFF1F5FA));
         button.setAllCaps(false);
         button.setCornerRadius(dp(15));
         button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                primary ? 0xFF6EE7F2 : 0xFF25364D));
+                primary ? themeColor(com.google.android.material.R.attr.colorPrimary, 0xFF6EE7F2)
+                        // Keep secondary controls neutral on the deliberately dark home page;
+                        // device DynamicColors can otherwise turn them lavender.
+                        : 0xFF25364D));
         return button;
     }
 
@@ -1358,10 +1401,29 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void styleSpinnerText(TextView view) {
-        view.setTextColor(0xFFF2F6FB);
+        view.setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurface, 0xFFF2F6FB));
         view.setTextSize(14f);
         view.setPadding(dp(12), dp(8), dp(12), dp(8));
-        view.setBackgroundColor(0xFF132238);
+        view.setBackgroundColor(themeColor(com.google.android.material.R.attr.colorSurfaceContainer,
+                0xFF132238));
+    }
+
+    private int themeColor(int attribute, int fallback) {
+        TypedValue value = new TypedValue();
+        return getTheme().resolveAttribute(attribute, value, true) ? value.data : fallback;
+    }
+
+    private int adaptiveTextColor(int requested) {
+        int night = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        if (night == android.content.res.Configuration.UI_MODE_NIGHT_YES) return requested;
+        if (requested == 0xFF6EE7F2) {
+            return themeColor(com.google.android.material.R.attr.colorPrimary, requested);
+        }
+        float luminance = (Color.red(requested) * 0.2126f + Color.green(requested) * 0.7152f
+                + Color.blue(requested) * 0.0722f) / 255f;
+        return luminance > 0.60f
+                ? themeColor(com.google.android.material.R.attr.colorOnSurface, requested) : requested;
     }
 
     private void refreshOnlineStatus() {
@@ -1500,11 +1562,13 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout summary = new LinearLayout(this);
         summary.setOrientation(LinearLayout.VERTICAL);
         summary.setPadding(dp(16), dp(14), dp(16), dp(14));
-        summary.setBackground(solid(0xFF132B42, 18));
-        TextView newest = text("v" + info.remoteVersionName, 20, 0xFFF2F6FB, true);
+        summary.setBackground(solid(themeColor(com.google.android.material.R.attr.colorPrimaryContainer,
+                0xFF132B42), 18));
+        TextView newest = text("v" + info.remoteVersionName, 20,
+                themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer, 0xFFF2F6FB), true);
         summary.addView(newest);
         TextView versionLine = text("从 v" + info.localVersionName + " 更新", 13,
-                0xFFAFC0D6, false);
+                themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer, 0xFFAFC0D6), false);
         versionLine.setPadding(0, dp(3), 0, 0);
         summary.addView(versionLine);
         StringBuilder metadata = new StringBuilder();
@@ -1514,7 +1578,8 @@ public final class MainActivity extends AppCompatActivity {
             metadata.append("需要更新");
         }
         if (metadata.length() > 0) {
-            TextView meta = text(metadata.toString(), 12, 0xFF6EE7F2, true);
+            TextView meta = text(metadata.toString(), 12,
+                    themeColor(com.google.android.material.R.attr.colorPrimary, 0xFF6EE7F2), true);
             meta.setPadding(0, dp(9), 0, 0);
             summary.addView(meta);
         }
@@ -1611,7 +1676,8 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void openNotificationAccess() {
-        if (startSettingsActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))) {
+        if (startPermissionSettingsActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"),
+                PERMISSION_CHECK_NOTIFICATION)) {
             return;
         }
         // Notification access exists on Android 4.4, but its public settings action was only
@@ -1619,9 +1685,11 @@ public final class MainActivity extends AppCompatActivity {
         // every fallback resolve-checked.
         Intent kitKatNotificationAccess = new Intent().setComponent(new ComponentName(
                 "com.android.settings", "com.android.settings.Settings$NotificationAccessSettingsActivity"));
-        if (startSettingsActivity(kitKatNotificationAccess)) return;
-        if (startSettingsActivity(new Intent(Settings.ACTION_SECURITY_SETTINGS))) return;
-        if (startSettingsActivity(new Intent(Settings.ACTION_SETTINGS))) return;
+        if (startPermissionSettingsActivity(kitKatNotificationAccess, PERMISSION_CHECK_NOTIFICATION)) return;
+        if (startPermissionSettingsActivity(new Intent(Settings.ACTION_SECURITY_SETTINGS),
+                PERMISSION_CHECK_NOTIFICATION)) return;
+        if (startPermissionSettingsActivity(new Intent(Settings.ACTION_SETTINGS),
+                PERMISSION_CHECK_NOTIFICATION)) return;
         Toast.makeText(this, "\u65e0\u6cd5\u6253\u5f00\u7cfb\u7edf\u7684\u901a\u77e5\u8bfb\u53d6\u8bbe\u7f6e\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u624b\u52a8\u5f00\u542f\u3002",
                 Toast.LENGTH_LONG).show();
     }
@@ -1634,6 +1702,40 @@ public final class MainActivity extends AppCompatActivity {
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private boolean startPermissionSettingsActivity(Intent intent, int permissionType) {
+        if (!startSettingsActivity(intent)) return false;
+        pendingPermissionFaqCheck |= permissionType;
+        return true;
+    }
+
+    private void promptPermissionFaqIfStillMissing() {
+        if (pendingPermissionFaqCheck == 0 || permissionFaqDialogVisible || isFinishing()) return;
+        int pending = pendingPermissionFaqCheck;
+        pendingPermissionFaqCheck = 0;
+        boolean notificationMissing = (pending & PERMISSION_CHECK_NOTIFICATION) != 0
+                && !hasNotificationAccess();
+        boolean overlayMissing = (pending & PERMISSION_CHECK_OVERLAY) != 0
+                && !canDrawOverlays();
+        if (!notificationMissing && !overlayMissing) return;
+
+        String missing;
+        if (notificationMissing && overlayMissing) {
+            missing = "音乐读取权限和悬浮窗权限";
+        } else if (notificationMissing) {
+            missing = "音乐读取权限";
+        } else {
+            missing = "悬浮窗权限";
+        }
+        permissionFaqDialogVisible = true;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("权限仍未生效")
+                .setMessage("检测到“" + missing + "”仍未授权。不同系统可能将开关放在额外的安全、通知或应用管理页面，可在常见问题中查看对应解决方法。")
+                .setNegativeButton("稍后", null)
+                .setPositiveButton("查看常见问题", (dialog, which) -> showFaqPanel())
+                .setOnDismissListener(dialog -> permissionFaqDialogVisible = false)
+                .show();
     }
 
     private void ensureNotificationListenerConnected() {
@@ -1673,8 +1775,8 @@ public final class MainActivity extends AppCompatActivity {
 
     private void openOverlayPermission() {
         if (Build.VERSION.SDK_INT < 23) {
-            if (!startSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName())))) {
+            if (!startPermissionSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())), PERMISSION_CHECK_OVERLAY)) {
                 Toast.makeText(this, "无法打开系统应用设置，请在系统设置中手动开启悬浮窗权限。",
                         Toast.LENGTH_LONG).show();
             }
@@ -1682,12 +1784,13 @@ public final class MainActivity extends AppCompatActivity {
         }
         Intent intent = new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION",
                 Uri.parse("package:" + getPackageName()));
-        if (startSettingsActivity(intent)) return;
-        if (startSettingsActivity(new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION"))) {
+        if (startPermissionSettingsActivity(intent, PERMISSION_CHECK_OVERLAY)) return;
+        if (startPermissionSettingsActivity(
+                new Intent("android.settings.action.MANAGE_OVERLAY_PERMISSION"), PERMISSION_CHECK_OVERLAY)) {
             return;
         }
-        if (startSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:" + getPackageName())))) {
+        if (startPermissionSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())), PERMISSION_CHECK_OVERLAY)) {
             return;
         }
         Toast.makeText(this, "无法打开系统悬浮窗权限设置，请在系统设置中手动开启。", Toast.LENGTH_LONG).show();

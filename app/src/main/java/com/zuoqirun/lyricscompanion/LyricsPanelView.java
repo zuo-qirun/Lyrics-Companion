@@ -62,6 +62,7 @@ final class LyricsPanelView extends View {
     private int lyricLineCount;
     private String overlayStyle;
     private String themeMode;
+    private boolean lyricsFollowTheme;
     private String refinedDisplayMode;
     private String refinedColorScheme;
     private String refinedAccentVariant;
@@ -160,6 +161,7 @@ final class LyricsPanelView extends View {
         lyricLineCount = AppPreferences.styleLyricLines(getContext(), secondary);
         overlayStyle = compactTextOnly ? "compact" : AppPreferences.overlayStyle(getContext(), secondary);
         themeMode = AppPreferences.themeMode(getContext());
+        lyricsFollowTheme = AppPreferences.lyricsFollowTheme(getContext());
         refinedDisplayMode = AppPreferences.refinedDisplayMode(getContext(), secondary);
         refinedColorScheme = AppPreferences.refinedColorScheme(getContext(), secondary);
         refinedAccentVariant = AppPreferences.refinedAccentVariant(getContext(), secondary);
@@ -736,7 +738,8 @@ final class LyricsPanelView extends View {
         updatePalette(snapshot.albumArt);
         boolean light = refinedUsesLightColors();
         int accent = refinedAccentColor();
-        int primaryText = light ? mix(accent, Color.BLACK, 0.72f)
+        int primaryText = compactTextOnly ? 0xFFF5F8FF
+                : lyricUsesLightColors() ? mix(accent, Color.BLACK, 0.72f)
                 : mix(accent, Color.WHITE, 0.78f);
         int secondaryText = withAlpha(primaryText, 150);
         drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
@@ -776,7 +779,7 @@ final class LyricsPanelView extends View {
         updatePalette(snapshot.albumArt);
         boolean light = refinedUsesLightColors();
         int accent = refinedAccentColor();
-        int primaryText = compactTextOnly ? 0xFFF5F8FF : light ? mix(accent, Color.BLACK, 0.72f)
+        int primaryText = lyricUsesLightColors() ? mix(accent, Color.BLACK, 0.72f)
                 : mix(accent, Color.WHITE, 0.78f);
         int secondaryText = withAlpha(primaryText, 150);
         drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
@@ -1184,7 +1187,7 @@ final class LyricsPanelView extends View {
         updatePalette(snapshot.albumArt);
         boolean light = refinedUsesLightColors();
         int accent = refinedAccentColor();
-        int primaryText = light ? mix(accent, Color.BLACK, 0.72f)
+        int primaryText = lyricUsesLightColors() ? mix(accent, Color.BLACK, 0.72f)
                 : mix(accent, Color.WHITE, 0.78f);
         // A zero-opacity compact panel must not enter the background saveLayer path. Some
         // hardware renderers composite an empty alpha layer as an opaque black rectangle.
@@ -1813,6 +1816,11 @@ final class LyricsPanelView extends View {
         if ("dark".equals(themeMode)) return false;
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return mode != Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** Overlay lyrics only follow the Material light/dark choice when explicitly enabled. */
+    private boolean lyricUsesLightColors() {
+        return lyricsFollowTheme && refinedUsesLightColors();
     }
 
     private int refinedAccentColor() {
