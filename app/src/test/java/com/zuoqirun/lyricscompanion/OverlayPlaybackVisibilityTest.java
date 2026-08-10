@@ -25,4 +25,8 @@ public final class OverlayPlaybackVisibilityTest {
     @Test public void enabledPlayerRuleKeepsOverlayVisibleOutsidePlayer() {
         assertFalse(OverlayPlaybackVisibility.shouldHide(false, true, true, false));
     }
+
+    @Test public void selectedForegroundAppHidesOverlay() {
+        assertTrue(OverlayPlaybackVisibility.shouldHide(false, true, false, false, true));
+    }
 }

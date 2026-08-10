@@ -44,10 +44,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             "com.zuoqirun.lyricscompanion.action.REFRESH_SECONDARY";
     private static final String ACTION_SETTINGS_VISIBILITY =
             "com.zuoqirun.lyricscompanion.action.SETTINGS_VISIBILITY";
-    private static final String ACTION_LAUNCH_SELECTED =
-            "com.zuoqirun.lyricscompanion.action.LAUNCH_SELECTED";
     private static final String EXTRA_VISIBLE = "visible";
-    private static final String EXTRA_TARGET_SECONDARY = "target_secondary";
     private static final String EXTRA_DX = "dx";
     private static final String EXTRA_DY = "dy";
 
@@ -64,9 +61,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private LyricsPanelView secondaryPanel;
     private TextView secondaryUnlockHandle;
     private WindowManager.LayoutParams secondaryUnlockParams;
+    private LyricsPanelView statusLyricStrip;
+    private WindowManager.LayoutParams statusLyricParams;
     private boolean settingsVisible;
-    private boolean launcherOnly;
-    private boolean launcherOnlySecondary;
     private boolean overlaysHiddenForPlayback;
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
@@ -114,19 +111,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 .setAction(ACTION_REFRESH_SECONDARY));
     }
 
-    static boolean startSelectedFromLauncher(Context context) {
-        boolean secondary = AppPreferences.launchOverlaySecondary(context);
-        boolean selectedEnabled = secondary ? AppPreferences.secondaryEnabled(context)
-                : AppPreferences.mainEnabled(context);
-        if (!selectedEnabled) {
-            secondary = !secondary;
-            selectedEnabled = secondary ? AppPreferences.secondaryEnabled(context)
-                    : AppPreferences.mainEnabled(context);
+    static boolean startRememberedFromLauncher(Context context) {
+        if (!AppPreferences.mainEnabled(context) && !AppPreferences.secondaryEnabled(context)) {
+            return false;
         }
-        if (!selectedEnabled) return false;
-        Intent intent = new Intent(context, LyricsDisplayService.class)
-                .setAction(ACTION_LAUNCH_SELECTED)
-                .putExtra(EXTRA_TARGET_SECONDARY, secondary);
+        AppPreferences.setServiceStoppedByUser(context, false);
+        Intent intent = new Intent(context, LyricsDisplayService.class).setAction(ACTION_REFRESH);
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent);
@@ -135,7 +125,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             }
             return true;
         } catch (Throwable error) {
-            Log.w(TAG, "Unable to launch selected overlay", error);
+            Log.w(TAG, "Unable to launch remembered overlays", error);
             DiagnosticLog.record(context, "Overlay", "launcher start failed="
                     + error.getClass().getSimpleName() + ": " + error.getMessage());
             return false;
@@ -147,13 +137,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 .setAction(ACTION_SETTINGS_VISIBILITY).putExtra(EXTRA_VISIBLE, visible));
     }
 
-    static void stopAndDisable(Context context) {
+    static void stopAndRememberOverlays(Context context) {
         AppPreferences.get(context).edit()
-                .putBoolean(AppPreferences.KEY_MAIN_OVERLAY, false)
-                .putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, false)
                 .putBoolean(AppPreferences.KEY_NOTIFICATION_LYRICS, false)
+                .putBoolean(AppPreferences.KEY_TOP_LYRIC_STRIP, false)
                 .putBoolean(AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH, false)
                 .putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH, false)
+                .putBoolean(AppPreferences.KEY_SERVICE_STOPPED_BY_USER, true)
                 .remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)
                 .apply();
         context.stopService(new Intent(context, LyricsDisplayService.class));
@@ -207,17 +197,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         if (ACTION_SETTINGS_VISIBILITY.equals(action)) {
             settingsVisible = intent.getBooleanExtra(EXTRA_VISIBLE, false);
-            if (settingsVisible) launcherOnly = false;
             AudioSpectrumSource.sync(this);
             if (settingsVisible) dismissMain();
             else rebuildAll();
-            return START_STICKY;
-        }
-        if (ACTION_LAUNCH_SELECTED.equals(action)) {
-            launcherOnly = true;
-            launcherOnlySecondary = intent.getBooleanExtra(EXTRA_TARGET_SECONDARY, false);
-            settingsVisible = false;
-            rebuildAll();
             return START_STICKY;
         }
         rebuildAll();
@@ -236,6 +218,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
         dismissSecondary();
+        dismissStatusLyricStrip();
         AudioSpectrumSource.release();
         super.onDestroy();
     }
@@ -271,21 +254,25 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (!canDrawOverlays()) {
             dismissMain();
             dismissSecondary();
+            dismissStatusLyricStrip();
             return;
         }
         dismissMain();
         dismissSecondary();
-        if (overlaysHiddenForPlayback) return;
-        if (AppPreferences.mainEnabled(this) && !settingsVisible
-                && (!launcherOnly || !launcherOnlySecondary)) showMain();
-        if (AppPreferences.secondaryEnabled(this)
-                && (!launcherOnly || launcherOnlySecondary)) showSecondary();
+        if (overlaysHiddenForPlayback) {
+            dismissStatusLyricStrip();
+            return;
+        }
+        if (AppPreferences.mainEnabled(this) && !settingsVisible) showMain();
+        if (AppPreferences.secondaryEnabled(this)) showSecondary();
+        if (AppPreferences.topLyricStrip(this)) showStatusLyricStrip();
+        else dismissStatusLyricStrip();
     }
 
     private void rebuildSecondary() {
         dismissSecondary();
         if (AppPreferences.secondaryEnabled(this) && canDrawOverlays()
-                && !shouldHideOverlays() && (!launcherOnly || launcherOnlySecondary)) {
+                && !shouldHideOverlays()) {
             showSecondary();
         }
     }
@@ -730,6 +717,71 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
     }
 
+    /** A non-interactive, top-pinned lyric strip. Android keeps status-bar icons above it. */
+    private void showStatusLyricStrip() {
+        WindowManager manager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        if (manager == null) return;
+        int screenWidth = displaySize(manager.getDefaultDisplay()).x;
+        if (screenWidth <= 0) return;
+        int regionPercent = AppPreferences.topLyricRegionPercent(this);
+        int stripWidth = Math.max(dp(this, 160), screenWidth * regionPercent / 100);
+        int topInset = statusBarHeightPx();
+        WindowManager.LayoutParams params = overlayParams(screenWidth,
+                topInset + dp(this, 44));
+        // Keep the transparent renderer in the status area. System icons remain on top and
+        // the two lyric lines are centered through the remaining horizontal space.
+        params.width = stripWidth;
+        params.x = (screenWidth - stripWidth) / 2 + dp(this, AppPreferences.topLyricOffsetXDp(this));
+        params.y = -Math.max(dp(this, 6), topInset * 2 / 3)
+                + dp(this, AppPreferences.topLyricOffsetYDp(this));
+        // This strip is informational only: every tap falls through to the launcher/player.
+        params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        if (statusLyricStrip != null) {
+            // Settings may change while the strip stays attached. Reload its compact renderer
+            // and update its actual window bounds instead of returning with stale values.
+            statusLyricStrip.reloadStyle();
+            try {
+                manager.updateViewLayout(statusLyricStrip, params);
+                statusLyricParams = params;
+            } catch (Throwable error) {
+                Log.w(TAG, "Unable to update top lyric strip", error);
+                dismissStatusLyricStrip();
+            }
+            return;
+        }
+        LyricsPanelView strip = new LyricsPanelView(this, false, false, true);
+        try {
+            manager.addView(strip, params);
+            statusLyricStrip = strip;
+            statusLyricParams = params;
+            strip.reloadStyle();
+            DiagnosticLog.record(this, "Overlay", "top lyric strip attached widthPx="
+                    + screenWidth + " heightPx=" + params.height);
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to add top lyric strip", error);
+            statusLyricStrip = null;
+            statusLyricParams = null;
+        }
+    }
+
+    private void updateStatusLyricStrip(MusicSnapshot snapshot) {
+        if (statusLyricStrip != null) statusLyricStrip.postInvalidateOnAnimation();
+    }
+
+    private void dismissStatusLyricStrip() {
+        if (statusLyricStrip != null && statusLyricStrip.getParent() != null) {
+            try { ((WindowManager) getSystemService(WINDOW_SERVICE)).removeViewImmediate(statusLyricStrip); }
+            catch (Throwable ignored) { }
+        }
+        statusLyricStrip = null;
+        statusLyricParams = null;
+    }
+
+    private int statusBarHeightPx() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id == 0 ? dp(this, 24) : getResources().getDimensionPixelSize(id);
+    }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
@@ -740,28 +792,35 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private static boolean hasServiceWork(Context context) {
-        return AppPreferences.mainEnabled(context) || AppPreferences.secondaryEnabled(context)
-                || AppPreferences.notificationLyrics(context);
+        return !AppPreferences.serviceStoppedByUser(context)
+                && (AppPreferences.mainEnabled(context)
+                || AppPreferences.secondaryEnabled(context)
+                || AppPreferences.notificationLyrics(context)
+                || AppPreferences.topLyricStrip(context));
     }
 
     private void refreshPlaybackNotification() {
         MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
         syncOverlayVisibility(snapshot);
+        updateStatusLyricStrip(snapshot);
         boolean showLyrics = AppPreferences.notificationLyrics(this);
         String lyric = showLyrics ? notificationLyric(snapshot) : "正在同步播放器与歌词时间轴";
         String translation = showLyrics ? notificationTranslation(snapshot) : "";
-        String title = showLyrics && snapshot.active && !snapshot.title.trim().isEmpty()
+        String trackTitle = snapshot.active && !snapshot.title.trim().isEmpty()
                 ? snapshot.title : getString(R.string.service_notification_title);
+        // OEMs commonly show only the collapsed notification title. Put the current lyric
+        // there instead of the track title so it remains useful in narrow notification areas.
+        String title = showLyrics ? lyric : getString(R.string.service_notification_title);
         String subtext = showLyrics && snapshot.active
                 ? joinMetadata(snapshot.artist, snapshot.lyricSourceName) : "";
-        String signature = showLyrics + "|" + title + "|" + lyric + "|" + translation + "|"
+        String signature = showLyrics + "|" + title + "|" + trackTitle + "|" + lyric + "|" + translation + "|"
                 + subtext + "|" + snapshot.playing + "|"
                 + AppPreferences.lockscreenLyrics(this);
         if (signature.equals(lastNotificationSignature)) return;
         lastNotificationSignature = signature;
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) manager.notify(NOTIFICATION_ID,
-                createNotification(title, lyric, translation, subtext));
+                createNotification(title, lyric, translation, subtext, trackTitle));
     }
 
     private boolean shouldHideOverlays() {
@@ -771,11 +830,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private boolean shouldHideOverlays(MusicSnapshot snapshot) {
         boolean hideInPlayer = AppPreferences.hideOverlaysInPlayer(this);
-        boolean playerInForeground = hideInPlayer && ForegroundAppDetector.isPlayerInForeground(
-                this, MusicNotificationListener.activePlayerPackageName());
+        java.util.Set<String> hiddenApps = AppPreferences.hiddenOverlayApps(this);
+        String foregroundPackage = hideInPlayer || !hiddenApps.isEmpty()
+                ? ForegroundAppDetector.foregroundPackage(this) : "";
+        boolean playerInForeground = hideInPlayer && ForegroundAppDetector.samePackage(
+                MusicNotificationListener.activePlayerPackageName(), foregroundPackage);
+        boolean hiddenAppInForeground = !foregroundPackage.isEmpty()
+                && hiddenApps.contains(foregroundPackage);
         return OverlayPlaybackVisibility.shouldHide(
                 AppPreferences.hideOverlaysWhenNotPlaying(this), snapshot.playing,
-                hideInPlayer, playerInForeground);
+                hideInPlayer, playerInForeground, hiddenAppInForeground);
     }
 
     private void syncOverlayVisibility(MusicSnapshot snapshot) {
@@ -791,26 +855,25 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             return;
         }
         if (!canDrawOverlays()) return;
-        if (AppPreferences.mainEnabled(this) && !settingsVisible && mainPanel == null
-                && (!launcherOnly || !launcherOnlySecondary)) showMain();
-        if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null
-                && (!launcherOnly || launcherOnlySecondary)) showSecondary();
+        if (AppPreferences.mainEnabled(this) && !settingsVisible && mainPanel == null) showMain();
+        if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null) showSecondary();
     }
 
     private Notification createNotification() {
         MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
         boolean showLyrics = AppPreferences.notificationLyrics(this);
-        String title = showLyrics && snapshot.active && !snapshot.title.trim().isEmpty()
-                ? snapshot.title : getString(R.string.service_notification_title);
         String lyric = showLyrics ? notificationLyric(snapshot) : "正在同步播放器与歌词时间轴";
         String translation = showLyrics ? notificationTranslation(snapshot) : "";
+        String trackTitle = snapshot.active && !snapshot.title.trim().isEmpty()
+                ? snapshot.title : getString(R.string.service_notification_title);
+        String title = showLyrics ? lyric : getString(R.string.service_notification_title);
         String subtext = showLyrics && snapshot.active
                 ? joinMetadata(snapshot.artist, snapshot.lyricSourceName) : "";
-        return createNotification(title, lyric, translation, subtext);
+        return createNotification(title, lyric, translation, subtext, trackTitle);
     }
 
     private Notification createNotification(String title, String lyric, String translation,
-                                            String subtext) {
+                                            String subtext, String trackTitle) {
         Intent open = new Intent(this, MainActivity.class);
         int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
@@ -818,15 +881,24 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 pendingFlags);
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
+        String compactLyric = compactNotificationText(lyric, 180);
+        String compactTranslation = compactNotificationText(translation, 180);
+        String track = compactNotificationText(trackTitle, 120);
         builder.setSmallIcon(Build.VERSION.SDK_INT >= 21
                         ? R.drawable.ic_launcher : android.R.drawable.ic_media_play)
-                .setContentTitle(title)
-                .setContentText(lyric)
+                .setContentTitle(compactLyric)
+                .setContentText(compactTranslation.isEmpty() ? track : compactTranslation)
                 .setContentIntent(contentIntent)
-                .setOngoing(true);
-        if (!subtext.isEmpty()) builder.setSubText(subtext);
-        builder.setStyle(new Notification.BigTextStyle().bigText(
-                translation.isEmpty() ? lyric : lyric + "\n" + translation));
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setShowWhen(false);
+        if (!subtext.isEmpty()) builder.setSubText(compactNotificationText(subtext, 120));
+        Notification.BigTextStyle expanded = new Notification.BigTextStyle()
+                .setBigContentTitle(track)
+                .bigText(compactTranslation.isEmpty() ? compactLyric
+                        : compactLyric + "\n" + compactTranslation);
+        if (!subtext.isEmpty()) expanded.setSummaryText(compactNotificationText(subtext, 120));
+        builder.setStyle(expanded);
         if (Build.VERSION.SDK_INT >= 21) {
             boolean publicLyrics = AppPreferences.lockscreenLyrics(this);
             builder.setVisibility(publicLyrics ? Notification.VISIBILITY_PUBLIC
@@ -864,6 +936,15 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 ? "" : snapshot.lyrics.translatedLyric.trim();
         String lyric = snapshot.lyrics.lyric == null ? "" : snapshot.lyrics.lyric.trim();
         return translation.isEmpty() || translation.equals(lyric) ? "" : translation;
+    }
+
+    /** Keeps both collapsed and expanded notification layouts within OEM text limits. */
+    private static String compactNotificationText(String value, int maxCodePoints) {
+        if (value == null) return "";
+        String compact = value.replaceAll("\\s+", " ").trim();
+        if (compact.codePointCount(0, compact.length()) <= maxCodePoints) return compact;
+        int end = compact.offsetByCodePoints(0, Math.max(1, maxCodePoints - 1));
+        return compact.substring(0, end).trim() + "…";
     }
 
     private static String joinMetadata(String artist, String source) {

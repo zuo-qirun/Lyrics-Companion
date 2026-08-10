@@ -5,7 +5,7 @@ import java.util.Locale;
 final class MusicAppRegistry {
     private static final App[] KNOWN_APPS = {
             new App("netease", "网易云音乐", "com.netease.cloudmusic"),
-            new App("netease", "网易云音乐", "com.netease.cloudmusic.iot"),
+            new App("netease", "网易云音乐车机版", "com.netease.cloudmusic.iot"),
             new App("qqmusic", "QQ 音乐", "com.tencent.qqmusic"),
             new App("qqmusic", "QQ 音乐", "com.tencent.qqmusiccar"),
             new App("kugou", "酷狗音乐", "com.kugou.android"),
@@ -33,8 +33,10 @@ final class MusicAppRegistry {
     static App resolve(String packageName, String applicationLabel) {
         String normalizedPackage = safe(packageName).toLowerCase(Locale.ROOT);
         for (App app : KNOWN_APPS) {
-            if (normalizedPackage.equals(app.packagePrefix)
-                    || normalizedPackage.startsWith(app.packagePrefix + ".")) return app;
+            if (normalizedPackage.equals(app.packagePrefix)) return app;
+        }
+        for (App app : KNOWN_APPS) {
+            if (normalizedPackage.startsWith(app.packagePrefix + ".")) return app;
         }
         App packageFeatureMatch = resolveFeatures(normalizedPackage, normalizedPackage);
         if (packageFeatureMatch != null) return packageFeatureMatch;

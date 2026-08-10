@@ -201,6 +201,7 @@ final class CrashReporter {
                 + "\nsecondaryLyricOffsetMs=" + AppPreferences.lyricOffsetMs(context, true)
                 + "\ncustomFont=" + !AppPreferences.customFontFile(context).isEmpty()
                 + "\nnotificationLyrics=" + AppPreferences.notificationLyrics(context)
+                + "\ntopLyricStrip=" + AppPreferences.topLyricStrip(context)
                 + "\nlockscreenLyrics=" + AppPreferences.lockscreenLyrics(context);
     }
 
@@ -214,6 +215,8 @@ final class CrashReporter {
         if (backend == null || backend.trim().isEmpty()) {
             backend = Build.VERSION.SDK_INT >= 21 ? "MediaSession" : "RemoteController";
         }
+        String activePlayerPackage = singleLine(
+                MusicNotificationListener.getActivePlayerPackageName(), 200);
         String lyricState = !snapshot.active ? "no_active_player"
                 : !snapshot.lyricLoaded ? "loading"
                 : !snapshot.lyricAvailable ? "no_match" : "ready";
@@ -224,8 +227,8 @@ final class CrashReporter {
                 + "\nlistenerConnected=" + MusicNotificationListener.isListenerConnected()
                 + "\nlistenerHealthy=" + MusicNotificationListener.isHealthy(3_000L)
                 + "\nbackend=" + backend
-                + "\nactivePlayerPackage="
-                + singleLine(MusicNotificationListener.getActivePlayerPackageName(), 200)
+                + "\nactivePlayerPackage=" + activePlayerPackage
+                + "\nplayerPackageIncluded=true"
                 + "\nsessionCount=" + MusicNotificationListener.getLastSessionCount()
                 + "\nlastSessionReadAgeMs=" + readAgeMs
                 + "\nlastSessionError=" + singleLine(MusicNotificationListener.getLastSessionError(), 500)

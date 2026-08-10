@@ -6,7 +6,6 @@ import android.content.ComponentName;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -83,6 +82,8 @@ public final class MainActivity extends AppCompatActivity {
     private MaterialSwitch launchOverlaySwitch;
     private MaterialButton mainRefinedSettingsButton;
     private MaterialButton secondaryRefinedSettingsButton;
+    private MaterialButton mainCompactSettingsButton;
+    private MaterialButton secondaryCompactSettingsButton;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private TextView globalFontSummary;
@@ -93,6 +94,7 @@ public final class MainActivity extends AppCompatActivity {
     private boolean diagnosticBusy;
     private boolean feedbackReplyDialogVisible;
     private boolean activityResumed;
+    private boolean stoppingAndExiting;
     private boolean listenerReconnectScheduled;
     private long listenerReconnectDeadlineElapsedMs;
     private boolean launcherDispatch;
@@ -130,7 +132,12 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (isLauncherIntent() && dispatchLauncherOverlay()) {
+        boolean launcherIntent = isLauncherIntent();
+        if (launcherIntent) {
+            AppPreferences.get(this).edit().remove("launch_overlay_target").apply();
+            AppPreferences.setServiceStoppedByUser(this, false);
+        }
+        if (launcherIntent && dispatchLauncherOverlay()) {
             launcherDispatch = true;
             finish();
             return;
@@ -174,7 +181,7 @@ public final class MainActivity extends AppCompatActivity {
         handler.removeCallbacks(listenerReconnect);
         handler.removeCallbacks(statusRefresh);
         handler.removeCallbacks(communityRefresh);
-        LyricsDisplayService.setSettingsVisible(this, false);
+        if (!stoppingAndExiting) LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
     }
 
@@ -187,13 +194,13 @@ public final class MainActivity extends AppCompatActivity {
     private boolean dispatchLauncherOverlay() {
         if (!AppPreferences.launchOverlayOnIcon(this)) return false;
         long now = SystemClock.elapsedRealtime();
-        SharedPreferences preferences = AppPreferences.get(this);
+        android.content.SharedPreferences preferences = AppPreferences.get(this);
         long last = preferences.getLong(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT, 0L);
         if (last > 0L && now >= last && now - last <= 30_000L) {
             preferences.edit().remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT).apply();
             return false;
         }
-        if (!LyricsDisplayService.startSelectedFromLauncher(this)) return false;
+        if (!LyricsDisplayService.startRememberedFromLauncher(this)) return false;
         preferences.edit().putLong(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT, now).apply();
         return true;
     }
@@ -329,7 +336,6 @@ public final class MainActivity extends AppCompatActivity {
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
-            if (checked) AppPreferences.setLaunchOverlaySecondary(this, false);
             if (checked && !canDrawOverlays()) openOverlayPermission();
             if (checked) requestSpectrumPermissionIfNeeded(false);
             AppPreferences.changed(this);
@@ -341,7 +347,6 @@ public final class MainActivity extends AppCompatActivity {
         secondaryOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, checked).apply();
-            if (checked) AppPreferences.setLaunchOverlaySecondary(this, true);
             if (checked && !canDrawOverlays()) openOverlayPermission();
             if (checked) requestSpectrumPermissionIfNeeded(true);
             AppPreferences.changed(this);
@@ -350,7 +355,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         outputCard.addView(secondaryOverlaySwitch);
         launchOverlaySwitch = toggle("点击图标启动悬浮窗",
-                "开启后首次点击图标只启动记忆的悬浮窗；30 秒内再次点击进入主界面，关闭后直接打开主界面");
+                "开启后首次点击图标按已保存的主屏、副屏开关恢复悬浮窗；30 秒内再次点击进入主界面，关闭后直接打开主界面");
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         launchOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -360,7 +365,6 @@ public final class MainActivity extends AppCompatActivity {
                     .apply();
         });
         outputCard.addView(launchOverlaySwitch);
-        addLauncherOverlayTargetSelector(outputCard);
         MaterialSwitch returnToPlayer = toggle("轻触悬浮窗返回播放器",
                 "关闭时打开歌词伴侣；无法打开播放器时会自动回到歌词伴侣");
         returnToPlayer.setChecked(AppPreferences.tapOverlayReturnsToPlayer(this));
@@ -377,9 +381,13 @@ public final class MainActivity extends AppCompatActivity {
         outputCard.addView(visibilityRules, visibilityRuleParams);
 
         MaterialSwitch notificationLyrics = toggle("通知栏显示歌词",
-                "通知标题显示歌曲，正文显示当前歌词，展开后显示翻译；默认关闭");
+                "仅在系统通知卡片中显示歌词；锁屏歌词也依赖此开关，不创建桌面悬浮条");
         notificationLyrics.setChecked(AppPreferences.notificationLyrics(this));
         outputCard.addView(notificationLyrics);
+        MaterialSwitch topLyricStrip = toggle("顶部歌词条",
+                "在桌面顶部透明显示紧凑双行歌词（本句/下句、居中、逐字高亮）；需要悬浮窗权限，不改变通知内容");
+        topLyricStrip.setChecked(AppPreferences.topLyricStrip(this));
+        outputCard.addView(topLyricStrip);
         MaterialSwitch lockscreenLyrics = toggle("锁屏显示歌词",
                 "允许在锁屏通知中显示歌曲、歌手和歌词；关闭时使用隐私占位内容");
         lockscreenLyrics.setChecked(AppPreferences.lockscreenLyrics(this));
@@ -391,6 +399,17 @@ public final class MainActivity extends AppCompatActivity {
             updateLockscreenLyricsEnabled(lockscreenLyrics, checked);
             AppPreferences.changed(this);
         });
+        topLyricStrip.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_TOP_LYRIC_STRIP, checked).apply();
+            AppPreferences.changed(this);
+        });
+        MaterialButton statusLyricSettings = button("顶部歌词条详细设置", false);
+        statusLyricSettings.setOnClickListener(v -> startActivity(
+                new Intent(this, StatusLyricSettingsActivity.class)));
+        LinearLayout.LayoutParams statusLyricSettingsParams = new LinearLayout.LayoutParams(-1, dp(48));
+        statusLyricSettingsParams.topMargin = dp(8);
+        outputCard.addView(statusLyricSettings, statusLyricSettingsParams);
         lockscreenLyrics.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit()
                     .putBoolean(AppPreferences.KEY_LOCKSCREEN_LYRICS, checked).apply();
@@ -449,6 +468,17 @@ public final class MainActivity extends AppCompatActivity {
                     .putExtra(RefinedSettingsActivity.EXTRA_SECONDARY, true));
         });
         styleCard.addView(secondaryRefinedSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
+        mainCompactSettingsButton = button("主屏紧凑歌词详细设置", false);
+        mainCompactSettingsButton.setOnClickListener(v -> startActivity(
+                new Intent(this, CompactSettingsActivity.class)));
+        LinearLayout.LayoutParams compactMainParams = new LinearLayout.LayoutParams(-1, dp(50));
+        compactMainParams.topMargin = dp(10);
+        styleCard.addView(mainCompactSettingsButton, compactMainParams);
+        secondaryCompactSettingsButton = button("副屏紧凑歌词详细设置", false);
+        secondaryCompactSettingsButton.setOnClickListener(v -> startActivity(
+                new Intent(this, CompactSettingsActivity.class)
+                        .putExtra(CompactSettingsActivity.EXTRA_SECONDARY, true)));
+        styleCard.addView(secondaryCompactSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
         updateRefinedSettingsVisibility();
         addThemeSelector(styleCard);
         addGlobalFontControls(styleCard);
@@ -533,7 +563,7 @@ public final class MainActivity extends AppCompatActivity {
         musicStatus.setLineSpacing(0f, 1.2f);
         musicStatus.setPadding(0, dp(9), 0, 0);
         stateCard.addView(musicStatus);
-        MaterialButton rematchLyrics = button("重新匹配当前歌词", false);
+        MaterialButton rematchLyrics = button("修正歌曲信息并重新匹配", false);
         rematchLyrics.setOnClickListener(v -> showLyricRematchDialog());
         LinearLayout.LayoutParams rematchParams = new LinearLayout.LayoutParams(-1, dp(48));
         rematchParams.topMargin = dp(12);
@@ -573,7 +603,7 @@ public final class MainActivity extends AppCompatActivity {
             root.addView(stateCard, cardMargins());
         }
 
-        TextView footnote = text("提示：Android 5.0 以上读取 MediaSession；Android 4.4 播放器需发布 RemoteControlClient。副屏重接后会自动恢复。", 12,
+        TextView footnote = text("提示：支持发布 MediaSession 的在线、本地和 U 盘音乐播放器；文件名会自动清理路径、序号、扩展名和音质标记，仍不准确时可用“修正歌曲信息并重新匹配”。歌词伴侣不会向 iPhone CarPlay 仪表盘注入媒体信息。", 12,
                 0xFF66788F, false);
         footnote.setLineSpacing(0f, 1.25f);
         root.addView(footnote);
@@ -583,60 +613,24 @@ public final class MainActivity extends AppCompatActivity {
     private void confirmStopServiceAndExit() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("关闭歌词服务")
-                .setMessage("将关闭悬浮窗、通知歌词和前台同步服务，并退出应用。")
+                .setMessage("将完全关闭悬浮窗、通知歌词和前台同步服务并退出应用。主屏、副屏开关会保留，供下次点击图标恢复。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("关闭并退出", (dialog, which) -> stopServiceAndExit())
                 .show();
     }
 
     private void stopServiceAndExit() {
-        LyricsDisplayService.stopAndDisable(this);
+        stoppingAndExiting = true;
+        LyricsDisplayService.stopAndRememberOverlays(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) finishAndRemoveTask();
         else finish();
-    }
-
-    private void addLauncherOverlayTargetSelector(LinearLayout parent) {
-        TextView label = text("图标启动目标", 14, 0xFFD7E1EE, true);
-        label.setPadding(0, dp(14), 0, dp(6));
-        parent.addView(label);
-        String[] labels = {"主屏悬浮窗", "副屏歌词"};
-        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
-        spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels) {
-            @Override public View getView(int position, View convertView, ViewGroup parentView) {
-                TextView view = (TextView) super.getView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-            @Override public View getDropDownView(int position, View convertView,
-                                                  ViewGroup parentView) {
-                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-        };
-        spinner.setAdapter(adapter);
-        spinner.setSelection(AppPreferences.launchOverlaySecondary(this) ? 1 : 0, false);
-        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
-                                                 View view, int position, long id) {
-                AppPreferences.setLaunchOverlaySecondary(MainActivity.this, position == 1);
-            }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
-        });
-        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView help = text("首次点击图标时只显示这里选择的悬浮窗；未启用时会自动尝试另一块已启用的悬浮窗。",
-                12, 0xFF74869D, false);
-        help.setPadding(0, dp(5), 0, 0);
-        parent.addView(help);
     }
 
     private void addStyleSelector(LinearLayout parent, String title, boolean secondary) {
         TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑单行", "PiPWindow"};
+        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow"};
         String[] values = {"refined", "amll", "default", "compact", "pip"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
@@ -686,6 +680,14 @@ public final class MainActivity extends AppCompatActivity {
         }
         if (secondaryRefinedSettingsButton != null) {
             secondaryRefinedSettingsButton.setVisibility("refined".equals(AppPreferences.overlayStyle(this, true))
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (mainCompactSettingsButton != null) {
+            mainCompactSettingsButton.setVisibility("compact".equals(AppPreferences.overlayStyle(this, false))
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (secondaryCompactSettingsButton != null) {
+            secondaryCompactSettingsButton.setVisibility("compact".equals(AppPreferences.overlayStyle(this, true))
                     ? View.VISIBLE : View.GONE);
         }
     }
@@ -959,7 +961,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void addSupportControls(LinearLayout parent) {
         MaterialSwitch crashUpload = toggle("自动上传闪退诊断",
-                "包含设备型号、系统与权限、曲目元数据、播放/歌词/显示状态及最近事件；不含歌词正文、通知正文或设备唯一标识；默认关闭");
+                "包含设备型号、系统与权限、活跃播放器包名、曲目元数据、播放/歌词/显示状态及最近事件；不含歌词正文、通知正文或设备唯一标识；默认关闭");
         crashUpload.setChecked(AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false));
         crashUpload.setOnCheckedChangeListener((button, checked) -> {
@@ -1102,22 +1104,55 @@ public final class MainActivity extends AppCompatActivity {
                 break;
             }
         }
-        final int[] choice = {selectedIndex};
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(4), 0, dp(4), 0);
+        TextInputLayout titleLayout = new TextInputLayout(this);
+        titleLayout.setHint("用于匹配的歌名");
+        TextInputEditText titleInput = new TextInputEditText(titleLayout.getContext());
+        titleInput.setSingleLine(true);
+        titleInput.setText(snapshot.title);
+        titleLayout.addView(titleInput, new LinearLayout.LayoutParams(-1, -2));
+        content.addView(titleLayout, new LinearLayout.LayoutParams(-1, -2));
+        TextInputLayout artistLayout = new TextInputLayout(this);
+        artistLayout.setHint("用于匹配的歌手（可留空）");
+        TextInputEditText artistInput = new TextInputEditText(artistLayout.getContext());
+        artistInput.setSingleLine(true);
+        artistInput.setText(snapshot.artist);
+        artistLayout.addView(artistInput, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams artistParams = new LinearLayout.LayoutParams(-1, -2);
+        artistParams.topMargin = dp(8);
+        content.addView(artistLayout, artistParams);
+        TextView catalogLabel = text("匹配词库", 13, 0xFFA9B6C8, false);
+        LinearLayout.LayoutParams catalogLabelParams = new LinearLayout.LayoutParams(-1, -2);
+        catalogLabelParams.topMargin = dp(12);
+        content.addView(catalogLabel, catalogLabelParams);
+        Spinner catalogSpinner = new Spinner(this);
+        catalogSpinner.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels));
+        catalogSpinner.setSelection(selectedIndex);
+        LinearLayout.LayoutParams catalogParams = new LinearLayout.LayoutParams(-1, dp(52));
+        catalogParams.topMargin = dp(10);
+        content.addView(catalogSpinner, catalogParams);
         new MaterialAlertDialogBuilder(this)
-                .setTitle("重新匹配歌词")
-                .setMessage(snapshot.title + (snapshot.artist.trim().isEmpty()
-                        ? "" : "\n" + snapshot.artist))
-                .setSingleChoiceItems(labels, selectedIndex,
-                        (dialog, which) -> choice[0] = which)
+                .setTitle("修正歌曲信息并匹配歌词")
+                .setView(content)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("重新匹配", (dialog, which) -> {
+                    String requestedTitle = titleInput.getText() == null ? ""
+                            : titleInput.getText().toString().trim();
+                    String requestedArtist = artistInput.getText() == null ? ""
+                            : artistInput.getText().toString().trim();
+                    if (requestedTitle.isEmpty()) requestedTitle = snapshot.title;
                     AppPreferences.get(this).edit()
-                            .putString(AppPreferences.KEY_LYRIC_CATALOG, catalogs[choice[0]])
+                            .putString(AppPreferences.KEY_LYRIC_CATALOG,
+                                    catalogs[catalogSpinner.getSelectedItemPosition()])
                             .apply();
                     AppPreferences.changed(this);
-                    MusicStateStore.reloadLyrics(this);
+                    MusicStateStore.reloadLyrics(this, requestedTitle, requestedArtist);
                     refreshPreview();
-                    Toast.makeText(this, "已开始重新匹配", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "已按修正后的歌曲信息开始匹配",
+                            Toast.LENGTH_SHORT).show();
                 })
                 .show();
     }
@@ -1460,11 +1495,11 @@ public final class MainActivity extends AppCompatActivity {
     private void showUpdateDialog(AppUpdater.UpdateInfo info) {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        TextView changelog = text("", 14, 0xFF102033, false);
+        TextView changelog = text("", 14, 0xFFF2F6FB, false);
         changelog.setLineSpacing(0f, 1.18f);
         changelog.setPadding(dp(14), dp(10), dp(14), dp(14));
         changelog.setMovementMethod(LinkMovementMethod.getInstance());
-        changelog.setLinkTextColor(0xFF006D77);
+        changelog.setLinkTextColor(0xFF6EE7F2);
         changelog.setText(MarkdownRenderer.render(info.detailText()));
         changelog.setTextIsSelectable(true);
         scroll.addView(changelog, new ScrollView.LayoutParams(-1, -2));
@@ -1477,7 +1512,7 @@ public final class MainActivity extends AppCompatActivity {
                 .setNegativeButton("稍后", null)
                 .setPositiveButton("下载并安装", (ignoredDialog, which) -> installUpdate(info))
                 .create();
-        dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, Color.BLACK));
+        dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, 0xFFF2F6FB));
         dialog.show();
     }
 

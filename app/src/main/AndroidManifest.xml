@@ -14,6 +14,10 @@
     <uses-permission android:name="android.permission.GET_TASKS" android:maxSdkVersion="20" />
 
     <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <package android:name="com.netease.cloudmusic" />
         <package android:name="com.netease.cloudmusic.iot" />
         <package android:name="com.tencent.qqmusic" />
@@ -55,6 +59,12 @@
             android:exported="false" />
         <activity
             android:name=".RefinedSettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".CompactSettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".StatusLyricSettingsActivity"
             android:exported="false" />
         <activity
             android:name=".DisplaySettingsActivity"

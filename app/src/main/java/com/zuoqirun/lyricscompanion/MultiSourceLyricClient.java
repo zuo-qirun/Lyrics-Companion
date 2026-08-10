@@ -35,14 +35,26 @@ final class MultiSourceLyricClient {
                 + " providers=" + plan.providers + " title=" + title + " artist=" + artist
                 + " durationMs=" + durationMs + " directMediaId="
                 + (!directMediaId(currentSource, currentSource, mediaId).isEmpty()));
-        for (String provider : plan.providers) {
-            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-            Log.i(TAG, "Trying catalog " + provider + ": " + title + " / " + artist);
-            Result result = tryProvider(provider,
-                    directMediaId(currentSource, provider, mediaId),
-                    title, artist, durationMs);
-            if (!result.timeline.isEmpty()) return result;
-            Log.i(TAG, "No lyric in catalog " + provider + ": " + title);
+        List<LocalTrackQueryRules.Query> queries = new ArrayList<>();
+        queries.add(new LocalTrackQueryRules.Query(title, artist));
+        queries.addAll(LocalTrackQueryRules.fallbackQueries(currentSource, title, artist));
+        for (int queryIndex = 0; queryIndex < queries.size(); queryIndex++) {
+            LocalTrackQueryRules.Query query = queries.get(queryIndex);
+            if (queryIndex > 0) {
+                DiagnosticLog.record(appContext, "Lyrics", "local filename fallback index="
+                        + queryIndex + " title=" + query.title + " artist=" + query.artist);
+            }
+            for (String provider : plan.providers) {
+                if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                Log.i(TAG, "Trying catalog " + provider + ": "
+                        + query.title + " / " + query.artist);
+                String providerMediaId = queryIndex == 0
+                        ? directMediaId(currentSource, provider, mediaId) : "";
+                Result result = tryProvider(provider, providerMediaId,
+                        query.title, query.artist, durationMs);
+                if (!result.timeline.isEmpty()) return result;
+                Log.i(TAG, "No lyric in catalog " + provider + ": " + query.title);
+            }
         }
         return Result.EMPTY;
     }

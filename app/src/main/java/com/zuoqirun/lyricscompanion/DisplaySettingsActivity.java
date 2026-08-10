@@ -1,13 +1,10 @@
 package com.zuoqirun.lyricscompanion;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
-import android.os.Build;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
@@ -32,7 +29,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
 
     private boolean secondary;
     private LyricsPanelView preview;
-    private TextView spectrumStatus;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -121,23 +117,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, value));
         addCard(root, artwork);
 
-        LinearLayout compact = card("紧凑单行");
-        addToggle(compact, "显示封面、歌名和歌手", AppPreferences.KEY_COMPACT_SHOW_COVER,
-                AppPreferences.compactShowCover(this, secondary));
-         addToggle(compact, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
-                 AppPreferences.compactShowBars(this, secondary));
-         addRealSpectrumToggle(compact);
-         addSpectrumColorControls(compact);
-         spectrumStatus = text(spectrumStatusText(), 12, 0xFF8392A8, false);
-        spectrumStatus.setPadding(0, dp(5), 0, 0);
-        compact.addView(spectrumStatus);
-        TextView compactNote = text("仅在" + (secondary ? "副屏" : "主屏")
-                + "选择“紧凑单行”样式时生效；内容会随窗口尺寸自动缩放，也可在上方单独调整。",
-                12, 0xFF8392A8, false);
-        compactNote.setPadding(0, dp(8), 0, 0);
-        compact.addView(compactNote);
-        addCard(root, compact);
-
         setContentView(scroll);
         CustomFontStore.applyToViewTree(this, scroll);
     }
@@ -145,7 +124,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         LyricsDisplayService.setSettingsVisible(this, true);
-        updateSpectrumStatus();
     }
 
     @Override protected void onPause() {
@@ -247,208 +225,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         parent.addView(toggle);
     }
 
-    private void addRealSpectrumToggle(LinearLayout parent) {
-        MaterialSwitch toggle = new MaterialSwitch(this);
-        toggle.setText("真实音频律动（关闭为虚拟律动）");
-        toggle.setTextColor(0xFFF1F5FA);
-        toggle.setTextSize(14f);
-        toggle.setGravity(Gravity.CENTER_VERTICAL);
-        toggle.setPadding(0, dp(10), 0, 0);
-        toggle.setChecked(AppPreferences.compactUseRealSpectrum(this, secondary));
-        toggle.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.putDisplayBoolean(this, secondary,
-                    AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM, checked);
-            if (checked) requestSpectrumPermissionIfNeeded();
-            changed();
-            updateSpectrumStatus();
-        });
-        parent.addView(toggle);
-    }
-
-    private void requestSpectrumPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 23 || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED) return;
-        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2418);
-    }
-
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                                                      int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 2418) {
-            changed();
-            updateSpectrumStatus();
-        }
-    }
-
-    private String spectrumStatusText() {
-        return AudioSpectrumSource.status(this,
-                AppPreferences.compactUseRealSpectrum(this, secondary));
-    }
-
-    private void updateSpectrumStatus() {
-        if (spectrumStatus != null) spectrumStatus.setText(spectrumStatusText());
-    }
-
     private void addLyricColorControls(LinearLayout parent) {
-        TextView heading = text("歌词颜色", 14, 0xFFD7E1EE, true);
-        heading.setPadding(0, dp(16), 0, 0);
-        parent.addView(heading);
-
-        int savedColor = AppPreferences.lyricColor(this, secondary);
-        int initialColor = savedColor == 0 ? 0xFFFFCA66 : savedColor;
-        int[] rgb = {Color.red(initialColor), Color.green(initialColor), Color.blue(initialColor)};
-        MaterialSwitch manualMode = new MaterialSwitch(this);
-        manualMode.setText("手动调色");
-        manualMode.setTextColor(0xFFF1F5FA);
-        manualMode.setTextSize(14f);
-        manualMode.setGravity(Gravity.CENTER_VERTICAL);
-        manualMode.setPadding(0, dp(6), 0, 0);
-        manualMode.setChecked(savedColor != 0);
-        parent.addView(manualMode);
-
-        TextView automaticNote = text("自动模式会跟随所选歌词样式的配色。", 12,
-                0xFF8392A8, false);
-        automaticNote.setPadding(0, 0, 0, dp(4));
-        automaticNote.setVisibility(savedColor == 0 ? View.VISIBLE : View.GONE);
-        parent.addView(automaticNote);
-
-        LinearLayout manualControls = new LinearLayout(this);
-        manualControls.setOrientation(LinearLayout.VERTICAL);
-        manualControls.setVisibility(savedColor == 0 ? View.GONE : View.VISIBLE);
-        TextView state = text(colorLabel(initialColor), 12, 0xFF8392A8, false);
-        LinearLayout stateRow = new LinearLayout(this);
-        stateRow.setGravity(Gravity.CENTER_VERTICAL);
-        stateRow.addView(state, new LinearLayout.LayoutParams(0, -2, 1f));
-        View swatch = new View(this);
-        LinearLayout.LayoutParams swatchParams = new LinearLayout.LayoutParams(dp(34), dp(22));
-        swatchParams.leftMargin = dp(10);
-        stateRow.addView(swatch, swatchParams);
-        updateColorSwatch(swatch, initialColor);
-        manualControls.addView(stateRow);
-        ColorChangeListener listener = () -> {
-            int color = Color.rgb(rgb[0], rgb[1], rgb[2]);
-            AppPreferences.setLyricColor(this, secondary, color);
-            state.setText(colorLabel(color));
-            updateColorSwatch(swatch, color);
-            changed();
-        };
-        addColorSeek(manualControls, "红", rgb, 0, listener);
-        addColorSeek(manualControls, "绿", rgb, 1, listener);
-        addColorSeek(manualControls, "蓝", rgb, 2, listener);
-        parent.addView(manualControls);
-
-        manualMode.setOnCheckedChangeListener((button, enabled) -> {
-            manualControls.setVisibility(enabled ? View.VISIBLE : View.GONE);
-            automaticNote.setVisibility(enabled ? View.GONE : View.VISIBLE);
-            if (enabled) {
-                listener.onColorChanged();
-            } else {
-                AppPreferences.setLyricColor(this, secondary, 0);
-                changed();
-            }
-        });
-    }
-
-    private void addSpectrumColorControls(LinearLayout parent) {
-        TextView heading = text("律动颜色", 14, 0xFFD7E1EE, true);
-        heading.setPadding(0, dp(16), 0, 0);
-        parent.addView(heading);
-
-        int savedColor = AppPreferences.compactSpectrumColor(this, secondary);
-        int initialColor = savedColor == 0 ? 0xFFFFCA66 : savedColor;
-        int[] rgb = {Color.red(initialColor), Color.green(initialColor), Color.blue(initialColor)};
-        MaterialSwitch manualMode = new MaterialSwitch(this);
-        manualMode.setText("手动调色");
-        manualMode.setTextColor(0xFFF1F5FA);
-        manualMode.setTextSize(14f);
-        manualMode.setGravity(Gravity.CENTER_VERTICAL);
-        manualMode.setPadding(0, dp(6), 0, 0);
-        manualMode.setChecked(savedColor != 0);
-        parent.addView(manualMode);
-
-        TextView automaticNote = text("自动模式跟随歌词颜色；手动模式只改变底部律动条。", 12,
-                0xFF8392A8, false);
-        automaticNote.setPadding(0, 0, 0, dp(4));
-        automaticNote.setVisibility(savedColor == 0 ? View.VISIBLE : View.GONE);
-        parent.addView(automaticNote);
-
-        LinearLayout manualControls = new LinearLayout(this);
-        manualControls.setOrientation(LinearLayout.VERTICAL);
-        manualControls.setVisibility(savedColor == 0 ? View.GONE : View.VISIBLE);
-        TextView state = text(colorLabel(initialColor), 12, 0xFF8392A8, false);
-        LinearLayout stateRow = new LinearLayout(this);
-        stateRow.setGravity(Gravity.CENTER_VERTICAL);
-        stateRow.addView(state, new LinearLayout.LayoutParams(0, -2, 1f));
-        View swatch = new View(this);
-        LinearLayout.LayoutParams swatchParams = new LinearLayout.LayoutParams(dp(34), dp(22));
-        swatchParams.leftMargin = dp(10);
-        stateRow.addView(swatch, swatchParams);
-        updateColorSwatch(swatch, initialColor);
-        manualControls.addView(stateRow);
-        ColorChangeListener listener = () -> {
-            int color = Color.rgb(rgb[0], rgb[1], rgb[2]);
-            AppPreferences.setCompactSpectrumColor(this, secondary, color);
-            state.setText(colorLabel(color));
-            updateColorSwatch(swatch, color);
-            changed();
-        };
-        addColorSeek(manualControls, "红", rgb, 0, listener);
-        addColorSeek(manualControls, "绿", rgb, 1, listener);
-        addColorSeek(manualControls, "蓝", rgb, 2, listener);
-        parent.addView(manualControls);
-
-        manualMode.setOnCheckedChangeListener((button, enabled) -> {
-            manualControls.setVisibility(enabled ? View.VISIBLE : View.GONE);
-            automaticNote.setVisibility(enabled ? View.GONE : View.VISIBLE);
-            if (enabled) listener.onColorChanged();
-            else {
-                AppPreferences.setCompactSpectrumColor(this, secondary, 0);
-                changed();
-            }
-        });
-    }
-
-    private void addColorSeek(LinearLayout parent, String title, int[] rgb, int channel,
-                              ColorChangeListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(6), 0, 0);
-        row.addView(text(title, 13, 0xFFD7E1EE, false),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView value = text(Integer.toString(rgb[channel]), 13, 0xFF6EE7F2, true);
-        row.addView(value);
-        parent.addView(row);
-        SeekBar seek = new SeekBar(this);
-        seek.setMax(255);
-        seek.setProgress(rgb[channel]);
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
-        }
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                value.setText(Integer.toString(progress));
-                if (!fromUser) return;
-                rgb[channel] = progress;
-                listener.onColorChanged();
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar) { }
-            @Override public void onStopTrackingTouch(SeekBar bar) { }
-        });
-        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(32)));
-    }
-
-    private void updateColorSwatch(View swatch, int color) {
-        MaterialShapeDrawable shape = new MaterialShapeDrawable();
-        shape.setFillColor(android.content.res.ColorStateList.valueOf(color));
-        shape.setStroke(dp(1), android.content.res.ColorStateList.valueOf(0xFF6B7C94));
-        shape.setCornerSize(dp(8));
-        swatch.setBackground(shape);
-    }
-
-    private static String colorLabel(int color) {
-        return String.format(java.util.Locale.ROOT, "当前：#%02X%02X%02X",
-                Color.red(color), Color.green(color), Color.blue(color));
+        ColorPaletteControls.add(this, parent, "歌词颜色", "自动模式会跟随所选歌词样式的配色。",
+                AppPreferences.lyricColor(this, secondary), 0xFFFFCA66,
+                color -> AppPreferences.setLyricColor(this, secondary, color), this::changed);
     }
 
     private void addSourceCorrection(LinearLayout parent) {
@@ -547,5 +327,4 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     }
 
     private interface IntConsumer { void accept(int value); }
-    private interface ColorChangeListener { void onColorChanged(); }
 }

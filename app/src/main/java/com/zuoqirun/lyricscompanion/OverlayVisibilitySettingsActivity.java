@@ -2,14 +2,24 @@ package com.zuoqirun.lyricscompanion;
 
 import android.annotation.SuppressLint;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.CheckBox;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -18,13 +28,28 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 @SuppressLint("SetTextI18n")
 public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
+    private static final ExecutorService APP_LIST_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final ExecutorService APP_ICON_EXECUTOR = Executors.newFixedThreadPool(2);
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private TextView usageAccessStatus;
     private MaterialButton usageAccessButton;
+    private TextView hiddenAppsSummary;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,6 +86,15 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 AppPreferences.hideOverlaysInPlayer(this), true);
         addCard(root, rules);
 
+        LinearLayout appRules = card("指定应用隐藏");
+        hiddenAppsSummary = text("", 13, 0xFFD8E1EE, false);
+        hiddenAppsSummary.setPadding(0, dp(10), 0, dp(10));
+        appRules.addView(hiddenAppsSummary);
+        MaterialButton chooseApps = button("选择应用");
+        chooseApps.setOnClickListener(v -> showHiddenAppPicker());
+        appRules.addView(chooseApps, new LinearLayout.LayoutParams(-1, dp(48)));
+        addCard(root, appRules);
+
         LinearLayout access = card("播放器前台识别");
         usageAccessStatus = text("", 14, 0xFFD8E1EE, false);
         usageAccessStatus.setPadding(0, dp(10), 0, dp(10));
@@ -72,6 +106,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
         setContentView(scroll);
         CustomFontStore.applyToViewTree(this, scroll);
+        refreshHiddenAppsSummary();
         refreshUsageAccessState();
     }
 
@@ -79,7 +114,10 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         super.onResume();
         LyricsDisplayService.setSettingsVisible(this, true);
         refreshUsageAccessState();
-        if (AppPreferences.hideOverlaysInPlayer(this)) AppPreferences.changed(this);
+        if (AppPreferences.hideOverlaysInPlayer(this)
+                || !AppPreferences.hiddenOverlayApps(this).isEmpty()) {
+            AppPreferences.changed(this);
+        }
     }
 
     @Override protected void onPause() {
@@ -118,8 +156,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
             return;
         }
         usageAccessStatus.setText(granted
-                ? "使用情况访问已授权，可识别当前播放器是否在前台"
-                : "使用情况访问未授权，进入播放器后隐藏暂不生效");
+                ? "使用情况访问已授权，可识别当前前台应用"
+                : "使用情况访问未授权，按前台应用隐藏的规则暂不生效");
         usageAccessStatus.setTextColor(granted ? 0xFF6EE7F2 : 0xFFFFCA66);
         usageAccessButton.setText(granted ? "已授权" : "授权使用情况访问");
         usageAccessButton.setEnabled(!granted);
@@ -136,6 +174,149 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 Uri.parse("package:" + getPackageName())))) return;
         Toast.makeText(this, "无法打开使用情况访问设置，请在系统设置中手动授权。",
                 Toast.LENGTH_LONG).show();
+    }
+
+    private void showHiddenAppPicker() {
+        LinearLayout loading = new LinearLayout(this);
+        loading.setGravity(Gravity.CENTER_VERTICAL);
+        loading.setPadding(dp(24), dp(12), dp(24), dp(12));
+        ProgressBar spinner = new ProgressBar(this);
+        loading.addView(spinner, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView loadingText = text("正在读取已安装应用…", 14, 0xFFD8E1EE, false);
+        LinearLayout.LayoutParams loadingTextParams = new LinearLayout.LayoutParams(-2, -2);
+        loadingTextParams.leftMargin = dp(14);
+        loading.addView(loadingText, loadingTextParams);
+        final androidx.appcompat.app.AlertDialog loadingDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("选择应用")
+                .setView(loading)
+                .setNegativeButton("取消", null)
+                .show();
+        APP_LIST_EXECUTOR.execute(() -> {
+            List<AppChoice> apps = loadLaunchableApps();
+            mainHandler.post(() -> {
+                if (loadingDialog.isShowing()) loadingDialog.dismiss();
+                if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                if (apps.isEmpty()) {
+                    Toast.makeText(this, "未找到可选择的应用", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                showLoadedHiddenAppPicker(apps);
+            });
+        });
+    }
+
+    private void showLoadedHiddenAppPicker(List<AppChoice> apps) {
+        Set<String> selected = new HashSet<>(AppPreferences.hiddenOverlayApps(this));
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(4), 0, dp(4), 0);
+        scroll.addView(list, new ScrollView.LayoutParams(-1, -2));
+        for (AppChoice app : apps) addAppChoiceRow(list, app, selected);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("在哪些应用上隐藏歌词")
+                .setView(scroll)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", (dialog, which) -> saveHiddenApps(selected))
+                .show();
+    }
+
+    private void addAppChoiceRow(LinearLayout parent, AppChoice app, Set<String> selected) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(android.R.drawable.sym_def_app_icon);
+        icon.setTag(app.packageName);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        ProgressBar iconLoading = new ProgressBar(this);
+        iconLoading.setIndeterminate(true);
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        spinnerParams.leftMargin = dp(-29);
+        spinnerParams.rightMargin = dp(7);
+        row.addView(iconLoading, spinnerParams);
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        TextView label = text(app.label, 14, 0xFFF3F7FC, true);
+        labels.addView(label);
+        TextView packageLabel = text(app.packageName, 11, 0xFFA9B6C8, false);
+        labels.addView(packageLabel);
+        row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
+        CheckBox check = new CheckBox(this);
+        check.setChecked(selected.contains(app.packageName));
+        check.setContentDescription(app.label);
+        check.setOnCheckedChangeListener((button, checked) -> {
+            if (checked) selected.add(app.packageName); else selected.remove(app.packageName);
+        });
+        row.addView(check, new LinearLayout.LayoutParams(-2, -2));
+        row.setOnClickListener(v -> check.setChecked(!check.isChecked()));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        APP_ICON_EXECUTOR.execute(() -> {
+            Drawable drawable = loadApplicationIcon(app.packageName);
+            mainHandler.post(() -> {
+                if (!app.packageName.equals(icon.getTag())) return;
+                iconLoading.setVisibility(View.GONE);
+                if (drawable != null) icon.setImageDrawable(drawable);
+            });
+        });
+    }
+
+    private void saveHiddenApps(Set<String> packages) {
+        AppPreferences.setHiddenOverlayApps(this, packages);
+        AppPreferences.changed(this);
+        refreshHiddenAppsSummary();
+        if (!packages.isEmpty() && !ForegroundAppDetector.hasUsageAccess(this)) {
+            openUsageAccessSettings();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private List<AppChoice> loadLaunchableApps() {
+        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> resolved;
+        try {
+            resolved = getPackageManager().queryIntentActivities(launcher, 0);
+        } catch (Throwable ignored) {
+            resolved = Collections.emptyList();
+        }
+        Map<String, AppChoice> unique = new LinkedHashMap<>();
+        for (ResolveInfo info : resolved) {
+            if (info == null || info.activityInfo == null) continue;
+            String packageName = info.activityInfo.packageName;
+            if (packageName == null || packageName.equals(getPackageName())) continue;
+            CharSequence label = info.loadLabel(getPackageManager());
+            unique.put(packageName, new AppChoice(packageName,
+                    label == null ? packageName : label.toString().trim()));
+        }
+        for (String packageName : AppPreferences.hiddenOverlayApps(this)) {
+            if (!unique.containsKey(packageName)) {
+                unique.put(packageName, new AppChoice(packageName, packageName));
+            }
+        }
+        List<AppChoice> apps = new ArrayList<>(unique.values());
+        Collections.sort(apps, new java.util.Comparator<AppChoice>() {
+            @Override public int compare(AppChoice left, AppChoice right) {
+                return String.CASE_INSENSITIVE_ORDER.compare(left.label, right.label);
+            }
+        });
+        return apps;
+    }
+
+    private Drawable loadApplicationIcon(String packageName) {
+        try {
+            ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
+            return info.loadIcon(getPackageManager());
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private void refreshHiddenAppsSummary() {
+        if (hiddenAppsSummary == null) return;
+        int count = AppPreferences.hiddenOverlayApps(this).size();
+        hiddenAppsSummary.setText(count == 0
+                ? "未选择应用，歌词不会因打开其它应用而隐藏"
+                : "已选择 " + count + " 个应用，进入时自动隐藏，离开后恢复");
     }
 
     private boolean startSettingsActivity(Intent intent) {
@@ -189,5 +370,15 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     private int dp(float value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private static final class AppChoice {
+        final String packageName;
+        final String label;
+
+        AppChoice(String packageName, String label) {
+            this.packageName = packageName;
+            this.label = label == null || label.isEmpty() ? packageName : label;
+        }
     }
 }

@@ -3,6 +3,10 @@ package com.zuoqirun.lyricscompanion;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 final class AppPreferences {
     static final String FILE = "lyrics_companion";
     static final String KEY_MAIN_OVERLAY = "main_overlay";
@@ -64,22 +68,31 @@ final class AppPreferences {
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
     static final String KEY_COMPACT_SHOW_COVER = "compact_show_cover";
     static final String KEY_COMPACT_SHOW_BARS = "compact_show_bars";
+    static final String KEY_COMPACT_SHOW_NEXT_LINE = "compact_show_next_line";
     static final String KEY_COMPACT_USE_REAL_SPECTRUM = "compact_use_real_spectrum";
     static final String KEY_COMPACT_SPECTRUM_COLOR = "compact_spectrum_color";
     static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
     static final String KEY_LAUNCH_OVERLAY_ON_ICON = "launch_overlay_on_icon";
-    static final String KEY_LAUNCH_OVERLAY_TARGET = "launch_overlay_target";
     static final String KEY_LAUNCH_OVERLAY_LAST_AT = "launch_overlay_last_at";
+    static final String KEY_SERVICE_STOPPED_BY_USER = "service_stopped_by_user";
     static final String KEY_MAIN_OVERLAY_TOUCH_THROUGH = "main_overlay_touch_through";
     static final String KEY_SECONDARY_OVERLAY_TOUCH_THROUGH =
             "secondary_overlay_touch_through";
     static final String KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING =
             "hide_overlays_when_not_playing";
     static final String KEY_HIDE_OVERLAYS_IN_PLAYER = "hide_overlays_in_player";
+    static final String KEY_HIDE_OVERLAYS_IN_APPS = "hide_overlays_in_apps";
     static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
     static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
     static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
     static final String KEY_NOTIFICATION_LYRICS = "notification_lyrics";
+    static final String KEY_TOP_LYRIC_STRIP = "top_lyric_strip";
+    /** Zero keeps the top lyric strip white so it stays legible over most wallpapers. */
+    static final String KEY_STATUS_LYRIC_COLOR = "status_lyric_color";
+    static final String KEY_TOP_LYRIC_FONT_SCALE = "top_lyric_font_scale";
+    static final String KEY_TOP_LYRIC_REGION_PERCENT = "top_lyric_region_percent";
+    static final String KEY_TOP_LYRIC_OFFSET_X_DP = "top_lyric_offset_x_dp";
+    static final String KEY_TOP_LYRIC_OFFSET_Y_DP = "top_lyric_offset_y_dp";
     static final String KEY_LOCKSCREEN_LYRICS = "lockscreen_lyrics";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
@@ -227,7 +240,10 @@ final class AppPreferences {
         // Leave a dedicated bottom row for main-display transport controls while keeping
         // the lyric lines readable on both displays.
         String style = overlayStyle(context, secondary);
-        return "compact".equals(style) ? 72 : "amll".equals(style) ? 210 : 176;
+        if ("compact".equals(style)) {
+            return compactShowNextLine(context, secondary) ? 96 : 72;
+        }
+        return "amll".equals(style) ? 210 : 176;
     }
 
     static void setPanelWidthDp(Context context, int value) {
@@ -504,6 +520,10 @@ final class AppPreferences {
         return displayBoolean(context, secondary, KEY_COMPACT_SHOW_BARS, true);
     }
 
+    static boolean compactShowNextLine(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_COMPACT_SHOW_NEXT_LINE, true);
+    }
+
     static boolean compactUseRealSpectrum(Context context, boolean secondary) {
         return displayBoolean(context, secondary, KEY_COMPACT_USE_REAL_SPECTRUM, true);
     }
@@ -526,12 +546,12 @@ final class AppPreferences {
         return get(context).getBoolean(KEY_LAUNCH_OVERLAY_ON_ICON, false);
     }
 
-    static boolean launchOverlaySecondary(Context context) {
-        return get(context).getBoolean(KEY_LAUNCH_OVERLAY_TARGET, false);
+    static boolean serviceStoppedByUser(Context context) {
+        return get(context).getBoolean(KEY_SERVICE_STOPPED_BY_USER, false);
     }
 
-    static void setLaunchOverlaySecondary(Context context, boolean secondary) {
-        get(context).edit().putBoolean(KEY_LAUNCH_OVERLAY_TARGET, secondary).apply();
+    static void setServiceStoppedByUser(Context context, boolean stopped) {
+        get(context).edit().putBoolean(KEY_SERVICE_STOPPED_BY_USER, stopped).apply();
     }
 
     static boolean overlayTouchThrough(Context context, boolean secondary) {
@@ -547,8 +567,56 @@ final class AppPreferences {
         return get(context).getBoolean(KEY_HIDE_OVERLAYS_IN_PLAYER, false);
     }
 
+    static Set<String> hiddenOverlayApps(Context context) {
+        Set<String> stored = get(context).getStringSet(KEY_HIDE_OVERLAYS_IN_APPS,
+                Collections.emptySet());
+        return stored == null ? new HashSet<>() : new HashSet<>(stored);
+    }
+
+    static void setHiddenOverlayApps(Context context, Set<String> packages) {
+        get(context).edit().putStringSet(KEY_HIDE_OVERLAYS_IN_APPS,
+                packages == null ? Collections.emptySet() : new HashSet<>(packages)).apply();
+    }
+
     static boolean notificationLyrics(Context context) {
         return get(context).getBoolean(KEY_NOTIFICATION_LYRICS, false);
+    }
+
+    static boolean topLyricStrip(Context context) {
+        return get(context).getBoolean(KEY_TOP_LYRIC_STRIP, false);
+    }
+
+    static int statusLyricColor(Context context) {
+        return get(context).getInt(KEY_STATUS_LYRIC_COLOR, 0);
+    }
+
+    static void setStatusLyricColor(Context context, int color) {
+        get(context).edit().putInt(KEY_STATUS_LYRIC_COLOR,
+                color == 0 ? 0 : (color | 0xFF000000)).apply();
+    }
+
+    static int topLyricFontScale(Context context) {
+        return Math.max(60, Math.min(200,
+                get(context).getInt(KEY_TOP_LYRIC_FONT_SCALE, 100)));
+    }
+
+    static int topLyricRegionPercent(Context context) {
+        return Math.max(45, Math.min(100,
+                get(context).getInt(KEY_TOP_LYRIC_REGION_PERCENT, 100)));
+    }
+
+    static int topLyricOffsetXDp(Context context) {
+        return Math.max(-240, Math.min(240,
+                get(context).getInt(KEY_TOP_LYRIC_OFFSET_X_DP, 0)));
+    }
+
+    static int topLyricOffsetYDp(Context context) {
+        return Math.max(-240, Math.min(240,
+                get(context).getInt(KEY_TOP_LYRIC_OFFSET_Y_DP, 0)));
+    }
+
+    static void setTopLyricInt(Context context, String key, int value) {
+        get(context).edit().putInt(key, value).apply();
     }
 
     static String lastFeedbackId(Context context) {

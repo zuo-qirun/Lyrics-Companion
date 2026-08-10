@@ -288,6 +288,10 @@ final class MusicStateStore {
     }
 
     static void reloadLyrics(Context context) {
+        reloadLyrics(context, null, null);
+    }
+
+    static void reloadLyrics(Context context, String overrideTitle, String overrideArtist) {
         initialize(context);
         long generation;
         String requestedSource;
@@ -301,10 +305,10 @@ final class MusicStateStore {
             if (TextUtils.isEmpty(title)) return;
             requestedSource = source;
             requestedMediaId = mediaId;
-            requestedTitle = title;
-            requestedArtist = artist;
+            requestedTitle = TextUtils.isEmpty(overrideTitle) ? title : overrideTitle.trim();
+            requestedArtist = overrideArtist == null ? artist : overrideArtist.trim();
             requestedDuration = durationMs;
-            trackKey = lyricTrackKey(requestedSource, requestedTitle, requestedArtist,
+            trackKey = lyricTrackKey(requestedSource, title, artist,
                     requestedDuration, requestedMediaId, selectedCatalog,
                     playerCatalogFallback);
             timeline = LrcTimeline.EMPTY;

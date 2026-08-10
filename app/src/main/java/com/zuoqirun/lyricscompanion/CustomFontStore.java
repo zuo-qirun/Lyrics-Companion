@@ -3,6 +3,8 @@ package com.zuoqirun.lyricscompanion;
 import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Typeface;
+import android.graphics.Paint;
+import android.os.Build;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 import android.view.View;
@@ -122,9 +124,13 @@ final class CustomFontStore {
         Typeface typeface = load(context);
         if (typeface == null || view == null) return;
         if (view instanceof TextView) {
-            Typeface existing = ((TextView) view).getTypeface();
+            TextView textView = (TextView) view;
+            Typeface existing = textView.getTypeface();
             int style = existing == null ? Typeface.NORMAL : existing.getStyle();
-            ((TextView) view).setTypeface(Typeface.create(typeface, style));
+            Typeface styledTypeface = Typeface.create(typeface, style);
+            // A display font can be a valid TTF/OTF while still omitting CJK glyphs. On Android
+            // 6.0+ verify the visible text before replacing the system fallback chain.
+            if (canRender(textView.getText(), styledTypeface)) textView.setTypeface(styledTypeface);
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -132,6 +138,23 @@ final class CustomFontStore {
                 applyToViewTree(context, group.getChildAt(i));
             }
         }
+    }
+
+    static boolean canRender(CharSequence text, Typeface typeface) {
+        if (text == null || text.length() == 0 || typeface == null || Build.VERSION.SDK_INT < 23) {
+            return true;
+        }
+        Paint paint = new Paint();
+        paint.setTypeface(typeface);
+        String value = text.toString();
+        for (int index = 0; index < value.length();) {
+            int codePoint = value.codePointAt(index);
+            index += Character.charCount(codePoint);
+            if (!Character.isWhitespace(codePoint) && !paint.hasGlyph(new String(Character.toChars(codePoint)))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void copyWithLimit(InputStream input, File destination) throws IOException {

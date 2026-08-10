@@ -122,34 +122,43 @@ final class LyricsPanelView extends View {
     private final float[] compactVirtualSpectrum = new float[SpectrumMath.BAND_COUNT];
     private boolean compactSpectrumAnimating;
     private final boolean fullscreen;
+    private final boolean compactTextOnly;
 
-    LyricsPanelView(Context context) { this(context, false, false); }
+    LyricsPanelView(Context context) { this(context, false, false, false); }
 
     LyricsPanelView(Context context, boolean secondary) {
-        this(context, secondary, false);
+        this(context, secondary, false, false);
     }
 
     LyricsPanelView(Context context, boolean secondary, boolean fullscreen) {
+        this(context, secondary, fullscreen, false);
+    }
+
+    /** Compact text-only mode backs the transparent top lyric strip. */
+    LyricsPanelView(Context context, boolean secondary, boolean fullscreen, boolean compactTextOnly) {
         super(context);
         this.secondary = secondary;
         this.fullscreen = fullscreen;
+        this.compactTextOnly = compactTextOnly;
         reloadStyle();
     }
 
     void reloadStyle() {
-        textScale = AppPreferences.textScale(getContext(), secondary);
+        textScale = compactTextOnly ? AppPreferences.topLyricFontScale(getContext()) / 100f
+                : AppPreferences.textScale(getContext(), secondary);
         titleScale = AppPreferences.titleScale(getContext(), secondary) / 100f;
         coverScale = AppPreferences.styleCoverScale(getContext(), secondary);
         opacity = AppPreferences.opacity(getContext(), secondary);
         lyricOffsetMs = AppPreferences.lyricOffsetMs(getContext(), secondary);
-        lyricColor = AppPreferences.lyricColor(getContext(), secondary);
+        lyricColor = compactTextOnly ? AppPreferences.statusLyricColor(getContext())
+                : AppPreferences.lyricColor(getContext(), secondary);
         nextLyricScale = AppPreferences.nextLyricScale(getContext(), secondary) / 100f;
         nextLyricOpacity = AppPreferences.nextLyricOpacity(getContext(), secondary);
         smoothLyricScroll = AppPreferences.smoothLyricScroll(getContext(), secondary);
         backgroundBlur = AppPreferences.styleBlur(getContext(), secondary);
         backgroundDim = AppPreferences.styleDim(getContext(), secondary);
         lyricLineCount = AppPreferences.styleLyricLines(getContext(), secondary);
-        overlayStyle = AppPreferences.overlayStyle(getContext(), secondary);
+        overlayStyle = compactTextOnly ? "compact" : AppPreferences.overlayStyle(getContext(), secondary);
         themeMode = AppPreferences.themeMode(getContext());
         refinedDisplayMode = AppPreferences.refinedDisplayMode(getContext(), secondary);
         refinedColorScheme = AppPreferences.refinedColorScheme(getContext(), secondary);
@@ -228,7 +237,7 @@ final class LyricsPanelView extends View {
         if (browsingLyrics || browseUntilElapsedMs > now) {
             drawBrowseIndicator(canvas, snapshot, density);
         }
-        if (!secondary) drawPlaybackControls(canvas, snapshot, density);
+        if (!secondary && !compactTextOnly) drawPlaybackControls(canvas, snapshot, density);
         scheduleNextFrame(nextFrameDelay(snapshot, now));
     }
 
@@ -767,7 +776,7 @@ final class LyricsPanelView extends View {
         updatePalette(snapshot.albumArt);
         boolean light = refinedUsesLightColors();
         int accent = refinedAccentColor();
-        int primaryText = light ? mix(accent, Color.BLACK, 0.72f)
+        int primaryText = compactTextOnly ? 0xFFF5F8FF : light ? mix(accent, Color.BLACK, 0.72f)
                 : mix(accent, Color.WHITE, 0.78f);
         int secondaryText = withAlpha(primaryText, 150);
         drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
@@ -1162,7 +1171,7 @@ final class LyricsPanelView extends View {
                                     int style, int alpha) {
         if (value == null || value.isEmpty()) return;
         float size = fitSize(value, requestedSize, maxWidth, style);
-        setTextPaint(size, style);
+        setTextPaintForValue(size, style, value);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setColor(withAlpha(color, alpha));
         canvas.drawText(ellipsize(value.replace('\n', ' '), maxWidth), x, baseline, paint);
@@ -1179,7 +1188,7 @@ final class LyricsPanelView extends View {
                 : mix(accent, Color.WHITE, 0.78f);
         // A zero-opacity compact panel must not enter the background saveLayer path. Some
         // hardware renderers composite an empty alpha layer as an opaque black rectangle.
-        if (opacity > 0) {
+        if (!compactTextOnly && opacity > 0) {
             drawRefinedBackground(canvas, snapshot.albumArt, light, accent, snapshot.playing);
         }
 
@@ -1192,8 +1201,8 @@ final class LyricsPanelView extends View {
         float responsiveScale = (float) Math.sqrt(Math.max(0.01f,
                 width * height / referenceArea));
         float pad = Math.max(2f * density, 7f * density * responsiveScale);
-        boolean showCover = AppPreferences.compactShowCover(getContext(), secondary);
-        boolean showBars = AppPreferences.compactShowBars(getContext(), secondary);
+        boolean showCover = !compactTextOnly && AppPreferences.compactShowCover(getContext(), secondary);
+        boolean showBars = !compactTextOnly && AppPreferences.compactShowBars(getContext(), secondary);
         float barsHeight = showBars ? 22f * density * responsiveScale : 0f;
         float barsTop = showBars ? height - pad * 0.42f - barsHeight : height - pad;
         float coverLeft = width - pad;
@@ -1237,34 +1246,39 @@ final class LyricsPanelView extends View {
         float lyricTop = showCover ? coverRect.top : pad;
         float lyricBottom = barsTop - 3f * density;
         float lyricStageHeight = Math.max(1f, lyricBottom - lyricTop);
-        boolean showTranslation = refinedShowTranslation
+        boolean showNextLine = (compactTextOnly || AppPreferences.compactShowNextLine(getContext(), secondary))
+                && !snapshot.lyrics.nextLyric.isEmpty();
+        boolean showTranslation = !showNextLine && refinedShowTranslation
                 && !snapshot.lyrics.translatedLyric.isEmpty();
         // Window area supplies the automatic scale; the user's lyric percentage remains an
         // independent multiplier. Only the available stage height limits the final result.
         float requestedLyricSize = refinedLyricFontSize * density * textScale
                 * 1.50f * responsiveScale;
-        float lyricSize = requestedLyricSize;
-        float translationSize = lyricSize * 0.48f;
+        float lyricSize = showNextLine ? requestedLyricSize * 0.78f : requestedLyricSize;
+        float secondaryLineSize = lyricSize * (showNextLine ? 0.62f : 0.48f);
         setTextPaint(lyricSize, Typeface.BOLD);
         float originalAscent = paint.ascent();
         float originalDescent = paint.descent();
-        setTextPaint(translationSize, Typeface.NORMAL);
-        float translationAscent = paint.ascent();
-        float translationDescent = paint.descent();
+        setTextPaint(secondaryLineSize, Typeface.NORMAL);
+        float secondaryAscent = paint.ascent();
+        float secondaryDescent = paint.descent();
         float lineGap = Math.max(3f * density, lyricSize * 0.12f);
-        float groupHeight = showTranslation
+        boolean showSecondaryLine = showNextLine || showTranslation;
+        float groupHeight = showSecondaryLine
                 ? originalDescent - originalAscent + lineGap
-                + translationDescent - translationAscent
+                + secondaryDescent - secondaryAscent
                 : originalDescent - originalAscent;
         float groupTop = lyricTop + Math.max(0f, (lyricStageHeight - groupHeight) * 0.5f);
         float baseline = groupTop - originalAscent;
-        float translationBaseline = baseline + originalDescent + lineGap - translationAscent;
-        // Preserve the familiar lyric-then-translation reading order and center the complete
-        // pair in the stage to the left of the cover.
-        if (showTranslation) {
-            drawRefinedText(canvas, snapshot.lyrics.translatedLyric,
-                    lyricLeft + lyricWidth * 0.5f, translationBaseline, translationSize,
-                    lyricColor(primaryText), lyricWidth, Paint.Align.CENTER, Typeface.NORMAL, 165);
+        float secondaryBaseline = baseline + originalDescent + lineGap - secondaryAscent;
+        // Center the current/secondary line pair in the stage to the left of the cover.
+        if (showSecondaryLine) {
+            String secondaryText = showNextLine
+                    ? snapshot.lyrics.nextLyric : snapshot.lyrics.translatedLyric;
+            drawRefinedText(canvas, secondaryText,
+                    lyricLeft + lyricWidth * 0.5f, secondaryBaseline, secondaryLineSize,
+                    lyricColor(primaryText), lyricWidth, Paint.Align.CENTER, Typeface.NORMAL,
+                    showNextLine ? 135 : 165);
         }
         if (snapshot.lyrics.interlude) {
             compactMarqueeActive = false;
@@ -2194,7 +2208,7 @@ final class LyricsPanelView extends View {
                                       int baseColor, int activeColor, float lookAhead) {
         if (value == null || value.isEmpty()) return;
         String text = value.replace('\n', ' ');
-        setTextPaint(size, Typeface.BOLD);
+        setTextPaintForValue(size, Typeface.BOLD, value);
         paint.setTextAlign(Paint.Align.LEFT);
         float textWidth = paint.measureText(text);
         float highlighted = snapshot.lyrics.wordTimed
@@ -2222,7 +2236,7 @@ final class LyricsPanelView extends View {
         if (value == null || value.isEmpty() || size <= 0f) return;
         int save = canvas.save();
         canvas.clipRect(left, baseline - size * 1.25f, right, baseline + size * 0.35f);
-        setTextPaint(size, Typeface.BOLD);
+        setTextPaintForValue(size, Typeface.BOLD, value);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setColor(color);
         canvas.drawText(value.replace('\n', ' '), left, baseline, paint);
@@ -2548,7 +2562,7 @@ final class LyricsPanelView extends View {
                                   int color, float maxWidth, int style, int maxLines) {
         if (value == null || value.isEmpty()) return 0f;
         android.graphics.MaskFilter maskFilter = paint.getMaskFilter();
-        setTextPaint(size, style);
+        setTextPaintForValue(size, style, value);
         paint.setMaskFilter(maskFilter);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setColor(color);
@@ -2617,7 +2631,7 @@ final class LyricsPanelView extends View {
                               int baseColor, int activeColor) {
         if (value == null || value.isEmpty()) return;
         float size = fitSize(value, requestedSize, maxWidth, Typeface.BOLD);
-        setTextPaint(size, Typeface.BOLD);
+        setTextPaintForValue(size, Typeface.BOLD, value);
         paint.setTextAlign(align);
         String text = ellipsize(value.replace('\n', ' '), maxWidth);
         float textWidth = paint.measureText(text);
@@ -2693,7 +2707,7 @@ final class LyricsPanelView extends View {
                               int color, float maxWidth, int style) {
         if (value == null || value.isEmpty()) return;
         float size = fitSize(value, requestedSize, maxWidth, style);
-        setTextPaint(size, style);
+        setTextPaintForValue(size, style, value);
         paint.setTextAlign(Paint.Align.CENTER);
         String text = ellipsize(value.replace('\n', ' '), maxWidth);
         paint.setColor(color);
@@ -2704,14 +2718,14 @@ final class LyricsPanelView extends View {
                           int color, float maxWidth, int style) {
         if (value == null || value.isEmpty()) return;
         float size = fitSize(value, requestedSize, maxWidth, style);
-        setTextPaint(size, style);
+        setTextPaintForValue(size, style, value);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setColor(color);
         canvas.drawText(ellipsize(value.replace('\n', ' '), maxWidth), x, y, paint);
     }
 
     private float fitSize(String value, float requested, float maxWidth, int style) {
-        setTextPaint(requested, style);
+        setTextPaintForValue(requested, style, value);
         float measured = paint.measureText(value == null ? "" : value);
         if (measured <= maxWidth || measured <= 0f) return requested;
         return Math.max(requested * 0.62f, requested * maxWidth / measured);
@@ -2762,6 +2776,13 @@ final class LyricsPanelView extends View {
         paint.setTypeface(customTypeface == null
                 ? (style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL)
                 : Typeface.create(customTypeface, style));
+    }
+
+    private void setTextPaintForValue(float size, int style, String value) {
+        setTextPaint(size, style);
+        if (customTypeface != null && !CustomFontStore.canRender(value, paint.getTypeface())) {
+            paint.setTypeface(style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL);
+        }
     }
 
     private void clearTextCaches() {

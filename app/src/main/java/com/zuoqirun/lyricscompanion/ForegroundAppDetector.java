@@ -21,9 +21,13 @@ final class ForegroundAppDetector {
 
     static boolean isPlayerInForeground(Context context, String playerPackage) {
         if (safe(playerPackage).isEmpty()) return false;
-        String foregroundPackage = Build.VERSION.SDK_INT >= 21
-                ? Api21.foregroundPackage(context) : legacyForegroundPackage(context);
+        String foregroundPackage = foregroundPackage(context);
         return samePackage(playerPackage, foregroundPackage);
+    }
+
+    static String foregroundPackage(Context context) {
+        return Build.VERSION.SDK_INT >= 21
+                ? Api21.foregroundPackage(context) : legacyForegroundPackage(context);
     }
 
     static boolean samePackage(String playerPackage, String foregroundPackage) {

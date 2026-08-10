@@ -175,7 +175,8 @@ public final class MusicNotificationListener extends NotificationListenerService
         handler.removeCallbacks(sessionPoll);
         handler.postDelayed(sessionPoll, SESSION_POLL_MS);
         if (AppPreferences.mainEnabled(this) || AppPreferences.secondaryEnabled(this)
-                || AppPreferences.notificationLyrics(this)) {
+                || AppPreferences.notificationLyrics(this)
+                || AppPreferences.topLyricStrip(this)) {
             LyricsDisplayService.startOrRefresh(this);
         }
     }

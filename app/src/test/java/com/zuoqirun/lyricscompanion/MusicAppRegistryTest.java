@@ -18,6 +18,8 @@ public class MusicAppRegistryTest {
         assertSource("kuwo", "com.shaiban.audioplayer.mplayer", "");
         assertSource("soda", "com.luna.music.car", "");
         assertSource("netease", "com.netease.cloudmusic.iot", "");
+        assertEquals("网易云音乐车机版", MusicAppRegistry.resolve(
+                "com.netease.cloudmusic.iot", "").displayName);
     }
 
     @Test public void recognizesVendorWrappedPlayersByApplicationLabel() {
