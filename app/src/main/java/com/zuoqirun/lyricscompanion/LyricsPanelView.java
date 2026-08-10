@@ -1198,8 +1198,11 @@ final class LyricsPanelView extends View {
         clipPath.addRoundRect(panelRect, radius, radius, Path.Direction.CW);
         canvas.clipPath(clipPath);
         float referenceArea = 320f * 104f * density * density;
-        float responsiveScale = (float) Math.sqrt(Math.max(0.01f,
-                width * height / referenceArea));
+        // The top strip exposes a width-only region control. Its font scale must stay tied to
+        // the fixed strip height, otherwise narrowing the region makes lyrics shrink as well.
+        float responsiveScale = compactTextOnly
+                ? (float) Math.sqrt(Math.max(0.01f, height / (104f * density)))
+                : (float) Math.sqrt(Math.max(0.01f, width * height / referenceArea));
         float pad = Math.max(2f * density, 7f * density * responsiveScale);
         boolean showCover = !compactTextOnly && AppPreferences.compactShowCover(getContext(), secondary);
         boolean showBars = !compactTextOnly && AppPreferences.compactShowBars(getContext(), secondary);

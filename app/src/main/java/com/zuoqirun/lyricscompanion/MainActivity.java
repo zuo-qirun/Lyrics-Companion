@@ -1493,27 +1493,69 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showUpdateDialog(AppUpdater.UpdateInfo info) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(18), dp(4), dp(18), dp(4));
+
+        LinearLayout summary = new LinearLayout(this);
+        summary.setOrientation(LinearLayout.VERTICAL);
+        summary.setPadding(dp(16), dp(14), dp(16), dp(14));
+        summary.setBackground(solid(0xFF132B42, 18));
+        TextView newest = text("v" + info.remoteVersionName, 20, 0xFFF2F6FB, true);
+        summary.addView(newest);
+        TextView versionLine = text("从 v" + info.localVersionName + " 更新", 13,
+                0xFFAFC0D6, false);
+        versionLine.setPadding(0, dp(3), 0, 0);
+        summary.addView(versionLine);
+        StringBuilder metadata = new StringBuilder();
+        if (info.size > 0L) metadata.append("安装包 ").append(formatApkSize(info.size));
+        if (info.force) {
+            if (metadata.length() > 0) metadata.append("  ·  ");
+            metadata.append("需要更新");
+        }
+        if (metadata.length() > 0) {
+            TextView meta = text(metadata.toString(), 12, 0xFF6EE7F2, true);
+            meta.setPadding(0, dp(9), 0, 0);
+            summary.addView(meta);
+        }
+        content.addView(summary, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView section = text("本次更新", 13, 0xFF6EE7F2, true);
+        section.setPadding(dp(4), dp(16), 0, dp(6));
+        content.addView(section);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
         TextView changelog = text("", 14, 0xFFF2F6FB, false);
-        changelog.setLineSpacing(0f, 1.18f);
-        changelog.setPadding(dp(14), dp(10), dp(14), dp(14));
+        changelog.setLineSpacing(0f, 1.28f);
+        changelog.setPadding(dp(8), dp(6), dp(8), dp(10));
         changelog.setMovementMethod(LinkMovementMethod.getInstance());
         changelog.setLinkTextColor(0xFF6EE7F2);
-        changelog.setText(MarkdownRenderer.render(info.detailText()));
+        changelog.setText(MarkdownRenderer.render(updateChangelogBody(info.changelog)));
         changelog.setTextIsSelectable(true);
         scroll.addView(changelog, new ScrollView.LayoutParams(-1, -2));
         int maxHeight = Math.round(getResources().getDisplayMetrics().heightPixels * 0.58f);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, maxHeight);
-        scroll.setLayoutParams(scrollParams);
+        content.addView(scroll, scrollParams);
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("发现 Lyrics Companion 更新")
-                .setView(scroll)
+                .setTitle("发现新版本")
+                .setView(content)
                 .setNegativeButton("稍后", null)
                 .setPositiveButton("下载并安装", (ignoredDialog, which) -> installUpdate(info))
                 .create();
         dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, 0xFFF2F6FB));
         dialog.show();
+    }
+
+    private static String updateChangelogBody(String raw) {
+        String body = raw == null ? "" : raw.trim();
+        body = body.replaceFirst("(?s)^#\\s*更新日志\\s*\\n+", "");
+        return body.isEmpty() ? "本次版本包含体验优化与问题修复。" : body;
+    }
+
+    private static String formatApkSize(long bytes) {
+        if (bytes < 1024L * 1024L) return (bytes / 1024L) + " KB";
+        return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1024f / 1024f);
     }
 
     private void installUpdate(AppUpdater.UpdateInfo info) {
