@@ -6,11 +6,9 @@ import android.content.ComponentName;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
@@ -29,10 +27,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.util.TypedValue;
 import android.widget.ArrayAdapter;
-import android.widget.CheckBox;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -75,7 +71,6 @@ public final class MainActivity extends AppCompatActivity {
     private static final String THIRD_PARTY_NOTICES_URL =
             SOURCE_REPOSITORY_URL + "/blob/main/THIRD_PARTY_NOTICES.md";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
-    private static final ExecutorService APP_ICON_EXECUTOR = Executors.newFixedThreadPool(2);
     private static final long LISTENER_HEALTH_MAX_AGE_MS = 3_000L;
     private static final long LISTENER_INITIAL_RECONNECT_DELAY_MS = 2_500L;
     private static final long LISTENER_RECONNECT_INTERVAL_MS = 1_000L;
@@ -824,17 +819,12 @@ public final class MainActivity extends AppCompatActivity {
             if (catalog.equals(AppPreferences.playerPackageLyricCatalogOverride(this,
                     app.packageName))) selected.add(app.packageName);
         }
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(4), 0, dp(4), 0);
-        for (InstalledAppListCache.AppChoice app : apps) {
-            addCatalogAppChoiceRow(list, app, selected);
-        }
-        scroll.addView(list);
+        ListView list = new ListView(this);
+        list.setDividerHeight(0);
+        list.setAdapter(new AppChoiceListAdapter(this, apps, selected));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(catalogLabel + "词库 · 强制匹配")
-                .setView(scroll)
+                .setView(list)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", (dialog, which) -> {
                     for (InstalledAppListCache.AppChoice app : apps) {
@@ -853,53 +843,6 @@ public final class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "已保存 " + catalogLabel + " 强制匹配应用", Toast.LENGTH_SHORT).show();
                 })
                 .show();
-    }
-
-    private void addCatalogAppChoiceRow(LinearLayout parent, InstalledAppListCache.AppChoice app,
-                                        Set<String> selected) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(8), dp(12), dp(8));
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(android.R.drawable.sym_def_app_icon);
-        icon.setTag(app.packageName);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        ProgressBar iconLoading = new ProgressBar(this);
-        iconLoading.setIndeterminate(true);
-        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(22), dp(22));
-        spinnerParams.leftMargin = dp(-29);
-        spinnerParams.rightMargin = dp(7);
-        row.addView(iconLoading, spinnerParams);
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        labels.addView(text(app.label, 14, 0xFFF3F7FC, true));
-        labels.addView(text(app.packageName, 11, 0xFFA9B6C8, false));
-        row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
-        CheckBox check = new CheckBox(this);
-        check.setChecked(selected.contains(app.packageName));
-        check.setOnCheckedChangeListener((button, checked) -> {
-            if (checked) selected.add(app.packageName); else selected.remove(app.packageName);
-        });
-        row.addView(check, new LinearLayout.LayoutParams(-2, -2));
-        row.setOnClickListener(v -> check.setChecked(!check.isChecked()));
-        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        APP_ICON_EXECUTOR.execute(() -> {
-            Drawable drawable = loadApplicationIcon(app.packageName);
-            handler.post(() -> {
-                if (!app.packageName.equals(icon.getTag())) return;
-                iconLoading.setVisibility(View.GONE);
-                if (drawable != null) icon.setImageDrawable(drawable);
-            });
-        });
-    }
-
-    private Drawable loadApplicationIcon(String packageName) {
-        try {
-            ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
-            return info.loadIcon(getPackageManager());
-        } catch (Throwable ignored) {
-            return null;
-        }
     }
 
     private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {
