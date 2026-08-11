@@ -16,6 +16,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,23 +27,38 @@ final class AppChoiceListAdapter extends BaseAdapter {
     private static final ExecutorService ICON_EXECUTOR = Executors.newFixedThreadPool(2);
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final List<InstalledAppListCache.AppChoice> apps;
+    private final List<InstalledAppListCache.AppChoice> allApps;
+    private final List<InstalledAppListCache.AppChoice> visibleApps;
     private final Set<String> selected;
 
     AppChoiceListAdapter(Context context, List<InstalledAppListCache.AppChoice> apps,
                          Set<String> selected) {
         this.context = context;
-        this.apps = apps;
+        this.allApps = new ArrayList<>(apps);
+        this.visibleApps = new ArrayList<>(apps);
         this.selected = selected;
     }
 
-    @Override public int getCount() { return apps.size(); }
+    @Override public int getCount() { return visibleApps.size(); }
 
     @Override public InstalledAppListCache.AppChoice getItem(int position) {
-        return apps.get(position);
+        return visibleApps.get(position);
     }
 
     @Override public long getItemId(int position) { return position; }
+
+    void setQuery(String query) {
+        String normalized = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        visibleApps.clear();
+        for (InstalledAppListCache.AppChoice app : allApps) {
+            if (normalized.isEmpty()
+                    || app.label.toLowerCase(Locale.ROOT).contains(normalized)
+                    || app.packageName.toLowerCase(Locale.ROOT).contains(normalized)) {
+                visibleApps.add(app);
+            }
+        }
+        notifyDataSetChanged();
+    }
 
     @Override public View getView(int position, View convertView, ViewGroup parent) {
         RowHolder holder;
@@ -49,6 +66,7 @@ final class AppChoiceListAdapter extends BaseAdapter {
             LinearLayout row = new LinearLayout(context);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(12), dp(8), dp(12), dp(8));
+            row.setBackgroundColor(0xFF101E31);
             ImageView icon = new ImageView(context);
             row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
             ProgressBar iconLoading = new ProgressBar(context);

@@ -20,6 +20,8 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.method.LinkMovementMethod;
 import android.view.Display;
 import android.view.Gravity;
@@ -821,10 +823,17 @@ public final class MainActivity extends AppCompatActivity {
         }
         ListView list = new ListView(this);
         list.setDividerHeight(0);
-        list.setAdapter(new AppChoiceListAdapter(this, apps, selected));
+        list.setBackgroundColor(0xFF101E31);
+        AppChoiceListAdapter adapter = new AppChoiceListAdapter(this, apps, selected);
+        list.setAdapter(adapter);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(4), 0, dp(4), 0);
+        content.addView(appSearchField(adapter));
+        content.addView(list, new LinearLayout.LayoutParams(-1, dp(440)));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(catalogLabel + "词库 · 强制匹配")
-                .setView(list)
+                .setView(content)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", (dialog, which) -> {
                     for (InstalledAppListCache.AppChoice app : apps) {
@@ -843,6 +852,33 @@ public final class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "已保存 " + catalogLabel + " 强制匹配应用", Toast.LENGTH_SHORT).show();
                 })
                 .show();
+    }
+
+    private TextInputLayout appSearchField(AppChoiceListAdapter adapter) {
+        TextInputLayout input = new TextInputLayout(this);
+        input.setHint("搜索应用名称或包名");
+        input.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        input.setBoxBackgroundColor(0xFF17263A);
+        input.setBoxStrokeColor(0xFF6EE7F2);
+        input.setHintTextColor(ColorStateList.valueOf(0xFFA9B6C8));
+        TextInputEditText editor = new TextInputEditText(this);
+        editor.setSingleLine(true);
+        editor.setInputType(InputType.TYPE_CLASS_TEXT);
+        editor.setTextColor(0xFFF3F7FC);
+        editor.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count,
+                                                    int after) { }
+            @Override public void onTextChanged(CharSequence text, int start, int before,
+                                                int count) {
+                adapter.setQuery(text == null ? "" : text.toString());
+            }
+            @Override public void afterTextChanged(Editable text) { }
+        });
+        input.addView(editor, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(dp(6), dp(4), dp(6), dp(8));
+        input.setLayoutParams(params);
+        return input;
     }
 
     private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {
