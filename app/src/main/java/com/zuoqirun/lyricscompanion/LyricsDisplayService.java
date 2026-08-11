@@ -86,6 +86,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (Intent.ACTION_SCREEN_ON.equals(intent == null ? null : intent.getAction())) {
+                Log.i(TAG, "Screen-on receiver fired");
+                DiagnosticLog.record(context, "Overlay", "screen-on receiver fired");
                 startRememberedFromSystem(context, "screen_on");
             }
         }
@@ -126,12 +128,22 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     static void startRememberedFromSystem(Context context, String reason) {
-        if (!AppPreferences.autoStartOverlays(context)) return;
+        boolean enabled = AppPreferences.autoStartOverlays(context);
+        Log.i(TAG, "System restore reason=" + reason + " enabled=" + enabled);
+        if (!enabled) return;
+        boolean addedDefaultTarget = AppPreferences.ensureAutoStartOverlayTarget(context);
+        if (addedDefaultTarget) {
+            DiagnosticLog.record(context, "Overlay", reason
+                    + " enabled default main overlay because no target was remembered");
+        }
         startRemembered(context, reason);
     }
 
     private static boolean startRemembered(Context context, String reason) {
-        if (!hasRememberedOverlayTarget(context)) return false;
+        if (!hasRememberedOverlayTarget(context)) {
+            DiagnosticLog.record(context, "Overlay", reason + " skipped: no remembered target");
+            return false;
+        }
         AppPreferences.setServiceStoppedByUser(context, false);
         Intent intent = new Intent(context, LyricsDisplayService.class).setAction(ACTION_REFRESH);
         try {
@@ -140,6 +152,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             } else {
                 context.startService(intent);
             }
+            DiagnosticLog.record(context, "Overlay", reason + " restored remembered overlays");
             return true;
         } catch (Throwable error) {
             Log.w(TAG, "Unable to launch remembered overlays", error);

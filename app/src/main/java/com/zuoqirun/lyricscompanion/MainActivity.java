@@ -394,7 +394,13 @@ public final class MainActivity extends AppCompatActivity {
             if (bindingUi) return;
             AppPreferences.get(this).edit()
                     .putBoolean(AppPreferences.KEY_AUTO_START_OVERLAYS, checked).apply();
-            if (checked) AppPreferences.setServiceStoppedByUser(this, false);
+            if (checked) {
+                boolean addedDefaultTarget = AppPreferences.ensureAutoStartOverlayTarget(this);
+                AppPreferences.setServiceStoppedByUser(this, false);
+                if (addedDefaultTarget && mainOverlaySwitch != null) {
+                    mainOverlaySwitch.setChecked(true);
+                }
+            }
             LyricsDisplayService.startOrRefresh(this);
         });
         outputCard.addView(autoStartSwitch);

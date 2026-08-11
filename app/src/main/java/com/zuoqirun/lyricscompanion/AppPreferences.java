@@ -641,6 +641,15 @@ final class AppPreferences {
         return get(context).getBoolean(KEY_AUTO_START_OVERLAYS, false);
     }
 
+    /** An enabled auto-start option must always have a visible target to restore. */
+    static boolean ensureAutoStartOverlayTarget(Context context) {
+        if (mainEnabled(context) || secondaryEnabled(context) || topLyricStrip(context)) {
+            return false;
+        }
+        get(context).edit().putBoolean(KEY_MAIN_OVERLAY, true).apply();
+        return true;
+    }
+
     static boolean serviceStoppedByUser(Context context) {
         return get(context).getBoolean(KEY_SERVICE_STOPPED_BY_USER, false);
     }
