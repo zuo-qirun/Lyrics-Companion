@@ -114,6 +114,8 @@ final class LyricsPanelView extends View {
     private long amllScrollAnimationStartedMs;
     private int amllScrollDirection;
     private Typeface customTypeface;
+    /** Avoid repeatedly entering vendor Typeface code when the requested face has not changed. */
+    private Typeface appliedTextTypeface;
     private String compactMarqueeText = "";
     private long compactMarqueeElapsedMs;
     private long compactMarqueeLastFrameMs;
@@ -2784,15 +2786,21 @@ final class LyricsPanelView extends View {
         paint.setMaskFilter(null);
         paint.clearShadowLayer();
         paint.setTextSize(size);
-        paint.setTypeface(customTypeface == null
+        Typeface target = customTypeface == null
                 ? (style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL)
-                : Typeface.create(customTypeface, style));
+                : Typeface.create(customTypeface, style);
+        if (paint.getTypeface() != target && appliedTextTypeface != target) {
+            paint.setTypeface(target);
+        }
+        appliedTextTypeface = target;
     }
 
     private void setTextPaintForValue(float size, int style, String value) {
         setTextPaint(size, style);
         if (customTypeface != null && !CustomFontStore.canRender(value, paint.getTypeface())) {
-            paint.setTypeface(style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL);
+            Typeface fallback = style == Typeface.BOLD ? SANS_BOLD : SANS_NORMAL;
+            if (paint.getTypeface() != fallback) paint.setTypeface(fallback);
+            appliedTextTypeface = fallback;
         }
     }
 

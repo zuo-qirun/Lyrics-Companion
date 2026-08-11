@@ -39,6 +39,8 @@ final class AppPreferences {
     static final String KEY_LYRIC_COLOR = "lyric_color";
     static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
+    /** Optional per-player override. An absent value deliberately follows KEY_LYRIC_CATALOG. */
+    static final String KEY_PLAYER_LYRIC_CATALOG = "player_lyric_catalog";
     static final String KEY_PLAYER_CATALOG_FALLBACK = "player_catalog_fallback";
     static final String KEY_MAIN_X = "main_x";
     static final String KEY_MAIN_Y = "main_y";
@@ -324,10 +326,40 @@ final class AppPreferences {
     }
 
     static String lyricCatalog(Context context) {
-        String value = get(context).getString(KEY_LYRIC_CATALOG, "auto");
+        return normalizeLyricCatalog(get(context).getString(KEY_LYRIC_CATALOG, "auto"));
+    }
+
+    /** Resolves a player-specific rule first, then retains the existing global default. */
+    static String lyricCatalog(Context context, String sourceId) {
+        String override = get(context).getString(playerLyricCatalogKey(sourceId), "");
+        return resolveLyricCatalog(override, lyricCatalog(context));
+    }
+
+    static String resolveLyricCatalog(String playerOverride, String fallback) {
+        return playerOverride == null || playerOverride.trim().isEmpty()
+                ? normalizeLyricCatalog(fallback) : normalizeLyricCatalog(playerOverride);
+    }
+
+    /** Empty removes the override so this player follows the global default again. */
+    static void putPlayerLyricCatalog(Context context, String sourceId, String catalog) {
+        SharedPreferences.Editor editor = get(context).edit();
+        if (catalog == null || catalog.trim().isEmpty()) {
+            editor.remove(playerLyricCatalogKey(sourceId));
+        } else {
+            editor.putString(playerLyricCatalogKey(sourceId), normalizeLyricCatalog(catalog));
+        }
+        editor.apply();
+    }
+
+    static String playerLyricCatalogOverride(Context context, String sourceId) {
+        String value = get(context).getString(playerLyricCatalogKey(sourceId), "");
+        return value == null || value.trim().isEmpty() ? "" : normalizeLyricCatalog(value);
+    }
+
+    private static String normalizeLyricCatalog(String value) {
         if ("netease".equals(value) || "qqmusic".equals(value)
                 || "kugou".equals(value) || "kuwo".equals(value)
-                || "soda".equals(value)) return value;
+                || "soda".equals(value) || "auto".equals(value)) return value;
         return "auto";
     }
 
@@ -682,5 +714,11 @@ final class AppPreferences {
         String safe = sourceId == null ? "media" : sourceId.trim().toLowerCase();
         if (!safe.matches("[a-z0-9_]+")) safe = "media";
         return KEY_LYRIC_SOURCE_OFFSET + "_" + safe;
+    }
+
+    private static String playerLyricCatalogKey(String sourceId) {
+        String safe = sourceId == null ? "media" : sourceId.trim().toLowerCase();
+        if (!safe.matches("[a-z0-9_]+")) safe = "media";
+        return KEY_PLAYER_LYRIC_CATALOG + "_" + safe;
     }
 }

@@ -707,7 +707,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void addLyricCatalogSelector(LinearLayout parent,
                                          MaterialSwitch playerCatalogFallback) {
-        TextView label = text("优先匹配词库", 14, 0xFFD7E1EE, true);
+        TextView label = text("默认匹配词库", 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
         String[] labels = {"自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
@@ -746,16 +746,69 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView help = text("自动模式优先使用识别出的播放器同源词库；手动模式始终先尝试所选词库。当前词库无结果后才依次查询下一词库。",
+        TextView help = text("这是未单独设置播放器时的默认规则。自动模式优先使用识别出的播放器同源词库；手动模式始终先尝试所选词库。当前词库无结果后才依次查询下一词库。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
+        MaterialButton rules = button("按播放器自定义词库规则", false);
+        rules.setOnClickListener(v -> showPlayerLyricCatalogRulesDialog());
+        LinearLayout.LayoutParams rulesParams = new LinearLayout.LayoutParams(-1, dp(46));
+        rulesParams.topMargin = dp(8);
+        parent.addView(rules, rulesParams);
     }
 
     private static void updatePlayerCatalogFallbackEnabled(MaterialSwitch view,
                                                             boolean enabled) {
         view.setEnabled(enabled);
         view.setAlpha(enabled ? 1f : 0.55f);
+    }
+
+    private void showPlayerLyricCatalogRulesDialog() {
+        final String[] playerLabels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "其他播放器"};
+        final String[] playerSources = {"netease", "qqmusic", "kugou", "kuwo", "soda", "media"};
+        final String[] catalogLabels = {"跟随默认规则", "自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
+        final String[] catalogValues = {"", "auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(4), 0, dp(4), 0);
+        TextView note = text("可让每个播放器优先查询指定词库；“跟随默认规则”会使用上方的默认设置。保存后会立即重新匹配当前歌曲。",
+                13, 0xFF74869D, false);
+        note.setLineSpacing(0f, 1.2f);
+        content.addView(note);
+        final Spinner[] spinners = new Spinner[playerSources.length];
+        for (int i = 0; i < playerSources.length; i++) {
+            TextView player = text(playerLabels[i], 14, 0xFFD7E1EE, true);
+            player.setPadding(0, dp(14), 0, dp(4));
+            content.addView(player);
+            Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+            spinner.setAdapter(new ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_dropdown_item, catalogLabels));
+            String saved = AppPreferences.playerLyricCatalogOverride(this, playerSources[i]);
+            int selection = 0;
+            for (int index = 0; index < catalogValues.length; index++) {
+                if (catalogValues[index].equals(saved)) { selection = index; break; }
+            }
+            spinner.setSelection(selection, false);
+            content.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+            spinners[i] = spinner;
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("按播放器自定义词库")
+                .setView(scroll)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    for (int i = 0; i < playerSources.length; i++) {
+                        AppPreferences.putPlayerLyricCatalog(this, playerSources[i],
+                                catalogValues[spinners[i].getSelectedItemPosition()]);
+                    }
+                    AppPreferences.changed(this);
+                    MusicStateStore.reloadLyrics(this);
+                    refreshPreview();
+                    Toast.makeText(this, "已保存播放器词库规则", Toast.LENGTH_SHORT).show();
+                })
+                .show();
     }
 
     private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {
@@ -1130,7 +1183,7 @@ public final class MainActivity extends AppCompatActivity {
         }
         String[] labels = {"自动识别", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
         String[] catalogs = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
-        String selected = AppPreferences.lyricCatalog(this);
+        String selected = AppPreferences.lyricCatalog(this, MusicStateStore.activeSourceId());
         int selectedIndex = 0;
         for (int i = 0; i < catalogs.length; i++) {
             if (catalogs[i].equals(selected)) {
@@ -1178,12 +1231,8 @@ public final class MainActivity extends AppCompatActivity {
                     String requestedArtist = artistInput.getText() == null ? ""
                             : artistInput.getText().toString().trim();
                     if (requestedTitle.isEmpty()) requestedTitle = snapshot.title;
-                    AppPreferences.get(this).edit()
-                            .putString(AppPreferences.KEY_LYRIC_CATALOG,
-                                    catalogs[catalogSpinner.getSelectedItemPosition()])
-                            .apply();
-                    AppPreferences.changed(this);
-                    MusicStateStore.reloadLyrics(this, requestedTitle, requestedArtist);
+                    MusicStateStore.reloadLyrics(this, requestedTitle, requestedArtist,
+                            catalogs[catalogSpinner.getSelectedItemPosition()]);
                     refreshPreview();
                     Toast.makeText(this, "已按修正后的歌曲信息开始匹配",
                             Toast.LENGTH_SHORT).show();

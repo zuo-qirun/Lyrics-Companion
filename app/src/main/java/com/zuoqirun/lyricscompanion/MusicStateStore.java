@@ -40,6 +40,7 @@ final class MusicStateStore {
     private static boolean lyricLoadFinished;
     private static String lyricSourceName = "";
     private static String liveSessionLyric = "";
+    private static boolean netEaseAutoScrollUnsupported;
     private static Future<?> lyricLoadTask;
 
     private MusicStateStore() {}
@@ -82,7 +83,7 @@ final class MusicStateStore {
         float newSpeed = data.speed;
         String normalizedSourceName = TextUtils.isEmpty(newSourceName)
                 ? "音乐播放器" : newSourceName;
-        String selectedCatalog = AppPreferences.lyricCatalog(context);
+        String selectedCatalog = AppPreferences.lyricCatalog(context, normalizedSource);
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
@@ -91,7 +92,17 @@ final class MusicStateStore {
         String playbackStateForLog = "";
         synchronized (LOCK) {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
-            if (!sodaHasCompositeIdentity && shouldKeepLiveLyricTrackIdentity(
+            boolean netEaseUnsupported = isNetEaseAutoScrollUnsupported(
+                    normalizedSource, rawTitle);
+            if (netEaseUnsupported && sameSource && !TextUtils.isEmpty(title)) {
+                // NetEase replaces TITLE with this status when it has no scrollable lyric.
+                // Preserve the track identity, but never use the status as a live lyric line.
+                newTitle = title;
+                newArtist = artist;
+                newMediaId = mediaId;
+                newDuration = durationMs;
+                incomingLiveSessionLyric = "";
+            } else if (!sodaHasCompositeIdentity && shouldKeepLiveLyricTrackIdentity(
                     normalizedSource, sameSource, title, newTitle,
                     artist, newArtist, durationMs, newDuration,
                     mediaId, newMediaId)) {
@@ -164,6 +175,7 @@ final class MusicStateStore {
             lastReportedPositionMs = newPosition;
             positionUpdatedAtElapsedMs = positionTimeToStore;
             playbackSpeed = effectiveSpeed;
+            boolean wasNetEaseUnsupported = netEaseAutoScrollUnsupported;
             if (changed) {
                 trackKey = newTrackKey;
                 timeline = LrcTimeline.EMPTY;
@@ -175,7 +187,26 @@ final class MusicStateStore {
                 generationToLoad = ++trackGeneration;
                 cancelLyricLoadLocked();
             }
-            if (usesLiveTitleMetadata(normalizedSource)
+            if (netEaseUnsupported) {
+                netEaseAutoScrollUnsupported = true;
+                timeline = LrcTimeline.EMPTY;
+                lyricLoadFinished = true;
+                lyricSourceName = "";
+                liveSessionLyric = "";
+                cancelLyricLoadLocked();
+                generationToLoad = -1L;
+            } else {
+                netEaseAutoScrollUnsupported = false;
+                if (wasNetEaseUnsupported && !changed) {
+                    timeline = LrcTimeline.EMPTY;
+                    lyricLoadFinished = false;
+                    lyricSourceName = "";
+                    liveSessionLyric = "";
+                    generationToLoad = ++trackGeneration;
+                    cancelLyricLoadLocked();
+                }
+            }
+            if (!netEaseUnsupported && usesLiveTitleMetadata(normalizedSource)
                     && !TextUtils.isEmpty(incomingLiveSessionLyric)) {
                 liveSessionLyric = incomingLiveSessionLyric.trim();
             }
@@ -240,6 +271,7 @@ final class MusicStateStore {
             lyricLoadFinished = false;
             lyricSourceName = "";
             liveSessionLyric = "";
+            netEaseAutoScrollUnsupported = false;
             trackGeneration++;
             cancelLyricLoadLocked();
         }
@@ -292,6 +324,11 @@ final class MusicStateStore {
     }
 
     static void reloadLyrics(Context context, String overrideTitle, String overrideArtist) {
+        reloadLyrics(context, overrideTitle, overrideArtist, null);
+    }
+
+    static void reloadLyrics(Context context, String overrideTitle, String overrideArtist,
+                             String selectedCatalogOverride) {
         initialize(context);
         long generation;
         String requestedSource;
@@ -299,11 +336,14 @@ final class MusicStateStore {
         String requestedTitle;
         String requestedArtist;
         long requestedDuration;
-        String selectedCatalog = AppPreferences.lyricCatalog(context);
+        String selectedCatalog;
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         synchronized (LOCK) {
             if (TextUtils.isEmpty(title)) return;
             requestedSource = source;
+            selectedCatalog = selectedCatalogOverride == null
+                    ? AppPreferences.lyricCatalog(context, requestedSource)
+                    : selectedCatalogOverride;
             requestedMediaId = mediaId;
             requestedTitle = TextUtils.isEmpty(overrideTitle) ? title : overrideTitle.trim();
             requestedArtist = overrideArtist == null ? artist : overrideArtist.trim();
@@ -315,6 +355,7 @@ final class MusicStateStore {
             lyricLoadFinished = false;
             lyricSourceName = "";
             liveSessionLyric = "";
+            netEaseAutoScrollUnsupported = false;
             generation = ++trackGeneration;
             cancelLyricLoadLocked();
         }
@@ -357,6 +398,7 @@ final class MusicStateStore {
                     + "\nlyricLineCount=" + timeline.lineCount()
                     + "\nlyricLoadTaskActive=" + (lyricLoadTask != null
                     && !lyricLoadTask.isDone())
+                    + "\nnetEaseAutoScrollUnsupported=" + netEaseAutoScrollUnsupported
                     + "\nliveSessionLyricPresent=" + !TextUtils.isEmpty(liveSessionLyric);
         }
     }
@@ -594,6 +636,12 @@ final class MusicStateStore {
         return usesLiveTitleMetadata(source) && loadFinished
                 && (catalogTimeline == null || catalogTimeline.isEmpty())
                 && !TextUtils.isEmpty(liveLyric);
+    }
+
+    static boolean isNetEaseAutoScrollUnsupported(String source, String rawTitle) {
+        if (!"netease".equals(source) || rawTitle == null) return false;
+        String normalized = rawTitle.replaceAll("\\s+", "");
+        return normalized.contains("该歌词不支持自动滚动");
     }
 
     private static boolean usesLiveTitleMetadata(String source) {

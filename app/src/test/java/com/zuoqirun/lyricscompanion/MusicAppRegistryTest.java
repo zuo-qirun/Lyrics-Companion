@@ -280,6 +280,22 @@ public class MusicAppRegistryTest {
         assertFalse(first.equals(direct));
     }
 
+    @Test public void netEaseUnsupportedAutoScrollStatusIsNeverUsedAsALyricLine() {
+        assertTrue(MusicStateStore.isNetEaseAutoScrollUnsupported(
+                "netease", "该歌词不支持自动滚动"));
+        assertTrue(MusicStateStore.isNetEaseAutoScrollUnsupported(
+                "netease", "该 歌词 不支持 自动滚动"));
+        assertFalse(MusicStateStore.isNetEaseAutoScrollUnsupported(
+                "qqmusic", "该歌词不支持自动滚动"));
+        assertFalse(MusicStateStore.isNetEaseAutoScrollUnsupported("netease", "正常歌词"));
+    }
+
+    @Test public void playerCatalogRuleOverridesOnlyThatPlayersDefault() {
+        assertEquals("qqmusic", AppPreferences.resolveLyricCatalog("qqmusic", "netease"));
+        assertEquals("netease", AppPreferences.resolveLyricCatalog("", "netease"));
+        assertEquals("auto", AppPreferences.resolveLyricCatalog(null, "unknown"));
+    }
+
     private static void assertSource(String expected, String packageName, String label) {
         MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, label);
         assertEquals(expected, app.sourceId);
