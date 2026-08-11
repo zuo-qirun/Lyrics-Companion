@@ -6,8 +6,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.Color;
@@ -65,6 +67,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager.LayoutParams statusLyricParams;
     private boolean settingsVisible;
     private boolean overlaysHiddenForPlayback;
+    private boolean screenReceiverRegistered;
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
     private final Handler notificationHandler = new Handler(Looper.getMainLooper());
@@ -78,6 +81,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         @Override public void run() {
             refreshPlaybackNotification();
             notificationHandler.postDelayed(this, NOTIFICATION_POLL_MS);
+        }
+    };
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_SCREEN_ON.equals(intent == null ? null : intent.getAction())) {
+                startRememberedFromSystem(context, "screen_on");
+            }
         }
     };
 
@@ -112,9 +122,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     static boolean startRememberedFromLauncher(Context context) {
-        if (!AppPreferences.mainEnabled(context) && !AppPreferences.secondaryEnabled(context)) {
-            return false;
-        }
+        return startRemembered(context, "launcher");
+    }
+
+    static void startRememberedFromSystem(Context context, String reason) {
+        if (!AppPreferences.autoStartOverlays(context)) return;
+        startRemembered(context, reason);
+    }
+
+    private static boolean startRemembered(Context context, String reason) {
+        if (!hasRememberedOverlayTarget(context)) return false;
         AppPreferences.setServiceStoppedByUser(context, false);
         Intent intent = new Intent(context, LyricsDisplayService.class).setAction(ACTION_REFRESH);
         try {
@@ -126,7 +143,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             return true;
         } catch (Throwable error) {
             Log.w(TAG, "Unable to launch remembered overlays", error);
-            DiagnosticLog.record(context, "Overlay", "launcher start failed="
+            DiagnosticLog.record(context, "Overlay", reason + " start failed="
                     + error.getClass().getSimpleName() + ": " + error.getMessage());
             return false;
         }
@@ -140,13 +157,14 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     static void stopAndRememberOverlays(Context context) {
         AppPreferences.get(context).edit()
                 .putBoolean(AppPreferences.KEY_NOTIFICATION_LYRICS, false)
-                .putBoolean(AppPreferences.KEY_TOP_LYRIC_STRIP, false)
+                .putBoolean(AppPreferences.KEY_AUTO_START_OVERLAYS, false)
                 .putBoolean(AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH, false)
                 .putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH, false)
                 .putBoolean(AppPreferences.KEY_SERVICE_STOPPED_BY_USER, true)
                 .remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)
                 .apply();
         context.stopService(new Intent(context, LyricsDisplayService.class));
+        MusicNotificationListener.stopObservation();
     }
 
     private static void startCommand(Context context, Intent intent) {
@@ -173,6 +191,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         AudioSpectrumSource.sync(this);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
+        syncScreenReceiver();
         notificationHandler.post(notificationRefresh);
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         if (displayManager != null) displayManager.registerDisplayListener(this, null);
@@ -181,6 +200,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        syncScreenReceiver();
         String action = intent == null ? "" : intent.getAction();
         refreshPlaybackNotification();
         Log.i(TAG, "Command=" + action + " main=" + AppPreferences.mainEnabled(this)
@@ -215,6 +235,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 + (secondaryPanel != null && secondaryPanel.getParent() != null));
         communityHandler.removeCallbacks(communityHeartbeat);
         notificationHandler.removeCallbacks(notificationRefresh);
+        unregisterScreenReceiver();
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
         dismissSecondary();
@@ -797,6 +818,33 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 || AppPreferences.secondaryEnabled(context)
                 || AppPreferences.notificationLyrics(context)
                 || AppPreferences.topLyricStrip(context));
+    }
+
+    private static boolean hasRememberedOverlayTarget(Context context) {
+        return AppPreferences.mainEnabled(context) || AppPreferences.secondaryEnabled(context)
+                || AppPreferences.topLyricStrip(context);
+    }
+
+    private void syncScreenReceiver() {
+        if (AppPreferences.autoStartOverlays(this)) {
+            if (screenReceiverRegistered) return;
+            IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(screenReceiver, filter);
+            }
+            screenReceiverRegistered = true;
+        } else {
+            unregisterScreenReceiver();
+        }
+    }
+
+    private void unregisterScreenReceiver() {
+        if (!screenReceiverRegistered) return;
+        try { unregisterReceiver(screenReceiver); }
+        catch (Throwable ignored) { }
+        screenReceiverRegistered = false;
     }
 
     private void refreshPlaybackNotification() {

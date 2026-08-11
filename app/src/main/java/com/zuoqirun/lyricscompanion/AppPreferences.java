@@ -77,6 +77,7 @@ final class AppPreferences {
     static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
     static final String KEY_LAUNCH_OVERLAY_ON_ICON = "launch_overlay_on_icon";
     static final String KEY_LAUNCH_OVERLAY_LAST_AT = "launch_overlay_last_at";
+    static final String KEY_AUTO_START_OVERLAYS = "auto_start_overlays";
     static final String KEY_SERVICE_STOPPED_BY_USER = "service_stopped_by_user";
     static final String KEY_MAIN_OVERLAY_TOUCH_THROUGH = "main_overlay_touch_through";
     static final String KEY_SECONDARY_OVERLAY_TOUCH_THROUGH =
@@ -586,6 +587,10 @@ final class AppPreferences {
 
     static boolean launchOverlayOnIcon(Context context) {
         return get(context).getBoolean(KEY_LAUNCH_OVERLAY_ON_ICON, false);
+    }
+
+    static boolean autoStartOverlays(Context context) {
+        return get(context).getBoolean(KEY_AUTO_START_OVERLAYS, false);
     }
 
     static boolean serviceStoppedByUser(Context context) {

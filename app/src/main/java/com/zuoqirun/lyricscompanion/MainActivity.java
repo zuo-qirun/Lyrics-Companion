@@ -84,6 +84,7 @@ public final class MainActivity extends AppCompatActivity {
     private MaterialSwitch mainOverlaySwitch;
     private MaterialSwitch secondaryOverlaySwitch;
     private MaterialSwitch launchOverlaySwitch;
+    private MaterialSwitch autoStartSwitch;
     private MaterialButton mainRefinedSettingsButton;
     private MaterialButton secondaryRefinedSettingsButton;
     private MaterialButton mainCompactSettingsButton;
@@ -343,7 +344,7 @@ public final class MainActivity extends AppCompatActivity {
         lyricCard.addView(playerCatalogFallback);
 
         LinearLayout outputCard = card();
-        outputCard.addView(sectionLabel("显示位置"));
+        outputCard.addView(sectionLabel("显示与启动"));
         mainOverlaySwitch = toggle("主屏悬浮窗",
                 "离开设置页后显示；可拖动，双击强制返回，长按锁定并开启触摸穿透；点击圆形 × 按钮可恢复");
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
@@ -368,7 +369,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         outputCard.addView(secondaryOverlaySwitch);
         launchOverlaySwitch = toggle("点击图标启动悬浮窗",
-                "开启后首次点击图标按已保存的主屏、副屏开关恢复悬浮窗；30 秒内再次点击进入主界面，关闭后直接打开主界面");
+                "开启后首次点击图标按已记忆的主屏、副屏和通知栏歌词恢复显示；30 秒内再次点击进入主界面");
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         launchOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -378,6 +379,17 @@ public final class MainActivity extends AppCompatActivity {
                     .apply();
         });
         outputCard.addView(launchOverlaySwitch);
+        autoStartSwitch = toggle("开机 / 亮屏自启动悬浮窗",
+                "在重启或每次亮屏时恢复已记忆的主屏、副屏和通知栏歌词。关闭服务并退出会同时关闭此项。");
+        autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
+        autoStartSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_AUTO_START_OVERLAYS, checked).apply();
+            if (checked) AppPreferences.setServiceStoppedByUser(this, false);
+            LyricsDisplayService.startOrRefresh(this);
+        });
+        outputCard.addView(autoStartSwitch);
         MaterialSwitch returnToPlayer = toggle("轻触悬浮窗返回播放器",
                 "关闭时打开歌词伴侣；无法打开播放器时会自动回到歌词伴侣");
         returnToPlayer.setChecked(AppPreferences.tapOverlayReturnsToPlayer(this));
@@ -393,41 +405,21 @@ public final class MainActivity extends AppCompatActivity {
         visibilityRuleParams.topMargin = dp(10);
         outputCard.addView(visibilityRules, visibilityRuleParams);
 
-        MaterialSwitch notificationLyrics = toggle("通知栏显示歌词",
-                "仅在系统通知卡片中显示歌词；锁屏歌词也依赖此开关，不创建桌面悬浮条");
-        notificationLyrics.setChecked(AppPreferences.notificationLyrics(this));
-        outputCard.addView(notificationLyrics);
-        MaterialSwitch topLyricStrip = toggle("顶部歌词条",
-                "在桌面顶部透明显示紧凑双行歌词（本句/下句、居中、逐字高亮）；需要悬浮窗权限，不改变通知内容");
+        MaterialSwitch topLyricStrip = toggle("通知栏显示歌词",
+                "在桌面顶部透明显示紧凑双行歌词（本句/下句、居中、逐字高亮）；需要悬浮窗权限，并会被图标启动和自启动记忆");
         topLyricStrip.setChecked(AppPreferences.topLyricStrip(this));
         outputCard.addView(topLyricStrip);
-        MaterialSwitch lockscreenLyrics = toggle("锁屏显示歌词",
-                "允许在锁屏通知中显示歌曲、歌手和歌词；关闭时使用隐私占位内容");
-        lockscreenLyrics.setChecked(AppPreferences.lockscreenLyrics(this));
-        updateLockscreenLyricsEnabled(lockscreenLyrics, notificationLyrics.isChecked());
-        outputCard.addView(lockscreenLyrics);
-        notificationLyrics.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit()
-                    .putBoolean(AppPreferences.KEY_NOTIFICATION_LYRICS, checked).apply();
-            updateLockscreenLyricsEnabled(lockscreenLyrics, checked);
-            AppPreferences.changed(this);
-        });
         topLyricStrip.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit()
                     .putBoolean(AppPreferences.KEY_TOP_LYRIC_STRIP, checked).apply();
             AppPreferences.changed(this);
         });
-        MaterialButton statusLyricSettings = button("顶部歌词条详细设置", false);
+        MaterialButton statusLyricSettings = button("通知栏歌词详细设置", false);
         statusLyricSettings.setOnClickListener(v -> startActivity(
                 new Intent(this, StatusLyricSettingsActivity.class)));
         LinearLayout.LayoutParams statusLyricSettingsParams = new LinearLayout.LayoutParams(-1, dp(48));
         statusLyricSettingsParams.topMargin = dp(8);
         outputCard.addView(statusLyricSettings, statusLyricSettingsParams);
-        lockscreenLyrics.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit()
-                    .putBoolean(AppPreferences.KEY_LOCKSCREEN_LYRICS, checked).apply();
-            AppPreferences.changed(this);
-        });
 
         MaterialButton stopService = button("关闭服务并退出", false);
         stopService.setOnClickListener(v -> confirmStopServiceAndExit());
@@ -595,14 +587,14 @@ public final class MainActivity extends AppCompatActivity {
             rightParams.leftMargin = dp(14);
             columns.addView(rightColumn, rightParams);
             leftColumn.addView(previewCard, cardMargins());
-            leftColumn.addView(styleCard, cardMargins());
             rightColumn.addView(accessCard, cardMargins());
             rightColumn.addView(lyricCard, cardMargins());
+            leftColumn.addView(outputCard, cardMargins());
+            leftColumn.addView(stateCard, cardMargins());
+            leftColumn.addView(updateCard, cardMargins());
+            rightColumn.addView(styleCard, cardMargins());
             rightColumn.addView(communityCard, cardMargins());
-            rightColumn.addView(updateCard, cardMargins());
             rightColumn.addView(openSourceCard, cardMargins());
-            rightColumn.addView(outputCard, cardMargins());
-            rightColumn.addView(stateCard, cardMargins());
             root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
         } else {
             root.addView(previewCard, cardMargins());
@@ -626,7 +618,7 @@ public final class MainActivity extends AppCompatActivity {
     private void confirmStopServiceAndExit() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("关闭歌词服务")
-                .setMessage("将完全关闭悬浮窗、通知歌词和前台同步服务并退出应用。主屏、副屏开关会保留，供下次点击图标恢复。")
+                .setMessage("将移除所有悬浮歌词、停止前台服务和音乐监听，并关闭开机/亮屏自启动。主屏、副屏开关会保留；下次手动打开应用后可重新启动。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("关闭并退出", (dialog, which) -> stopServiceAndExit())
                 .show();
@@ -821,6 +813,7 @@ public final class MainActivity extends AppCompatActivity {
         mainOverlaySwitch.setChecked(AppPreferences.mainEnabled(this));
         secondaryOverlaySwitch.setChecked(AppPreferences.secondaryEnabled(this));
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
+        autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
         bindingUi = false;
     }
 
