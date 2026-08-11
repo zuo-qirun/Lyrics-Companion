@@ -632,7 +632,7 @@ public final class MainActivity extends AppCompatActivity {
     private void confirmStopServiceAndExit() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("关闭歌词服务")
-                .setMessage("将移除所有悬浮歌词、停止前台服务和音乐监听。主屏、副屏与开机/亮屏自启动开关会保留；重启后会按自启动设置恢复。")
+                .setMessage("将移除所有悬浮歌词并停止音乐监听。若保留开机/亮屏自启动，会留下最小启动待命服务以接收亮屏事件；关闭该选项才会完全停止所有服务。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("关闭并退出", (dialog, which) -> stopServiceAndExit())
                 .show();

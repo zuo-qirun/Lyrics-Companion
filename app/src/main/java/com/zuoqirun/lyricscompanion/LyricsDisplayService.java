@@ -175,7 +175,15 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 .putBoolean(AppPreferences.KEY_SERVICE_STOPPED_BY_USER, true)
                 .remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)
                 .apply();
-        context.stopService(new Intent(context, LyricsDisplayService.class));
+        // ACTION_SCREEN_ON can only be received by a context-registered receiver.  When the
+        // user keeps auto-start enabled, retain this foreground service in a no-overlay standby
+        // state so it can receive the next wake event; otherwise stop it completely.
+        if (AppPreferences.autoStartOverlays(context)) {
+            startCommand(context, new Intent(context, LyricsDisplayService.class)
+                    .setAction(ACTION_REFRESH));
+        } else {
+            context.stopService(new Intent(context, LyricsDisplayService.class));
+        }
         MusicNotificationListener.stopObservation();
     }
 
@@ -282,6 +290,14 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 + " overlayPermission=" + canDrawOverlays());
         if (!hasServiceWork(this)) {
             stopSelf();
+            return;
+        }
+        if (AppPreferences.serviceStoppedByUser(this)) {
+            // Keep only the screen-on receiver and foreground-service lifecycle for an enabled
+            // auto-start option.  No overlay or music/session listener remains active here.
+            dismissMain();
+            dismissSecondary();
+            dismissStatusLyricStrip();
             return;
         }
         if (!canDrawOverlays()) {
@@ -825,7 +841,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private static boolean hasServiceWork(Context context) {
-        return !AppPreferences.serviceStoppedByUser(context)
+        return AppPreferences.autoStartOverlays(context)
+                || !AppPreferences.serviceStoppedByUser(context)
                 && (AppPreferences.mainEnabled(context)
                 || AppPreferences.secondaryEnabled(context)
                 || AppPreferences.notificationLyrics(context)
