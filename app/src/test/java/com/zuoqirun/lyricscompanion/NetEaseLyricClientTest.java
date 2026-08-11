@@ -2,6 +2,7 @@ package com.zuoqirun.lyricscompanion;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class NetEaseLyricClientTest {
@@ -20,5 +21,14 @@ public class NetEaseLyricClientTest {
         int accompaniment = NetEaseLyricClient.matchScore("晴天", "周杰伦", 269_000L,
                 "晴天 (KTV版伴奏)", "周杰伦", 269_000L);
         assertTrue(original > accompaniment);
+    }
+
+    @Test public void parsesOnlyStandaloneNetEaseSongIds() {
+        assertEquals(123456L, NetEaseLyricClient.parseSongId("123456"));
+        assertEquals(123456L, NetEaseLyricClient.parseSongId("song:123456"));
+        assertEquals(-1L, NetEaseLyricClient.parseSongId(
+                "497605AF857F4122A09B0FFDFE3471D5"));
+        assertEquals(-1L, NetEaseLyricClient.parseSongId(
+                "media-497605AF857F4122A09B0FFDFE3471D5"));
     }
 }

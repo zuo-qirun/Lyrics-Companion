@@ -24,7 +24,15 @@ final class NetEaseLyricClient {
     private static final String SEARCH_URL = "https://music.163.com/api/search/get/web";
     private static final String LYRIC_URL = "https://music.163.com/api/song/lyric";
     private static final long CACHE_MAX_AGE_MS = 30L * 24L * 60L * 60L * 1000L;
-    private static final Pattern LONG_NUMBER = Pattern.compile("(\\d{4,})");
+    /**
+     * Matches a song id only when it is a standalone numeric token.  Automotive
+     * MediaSession implementations commonly publish opaque hexadecimal ids such
+     * as 497605AF857F4122A09B0FFDFE3471D5; extracting the leading digits from
+     * those ids makes us load an unrelated NetEase song and stop before title
+     * and artist search can run.
+     */
+    private static final Pattern STANDALONE_LONG_NUMBER =
+            Pattern.compile("(?<![A-Za-z0-9])(\\d{4,})(?![A-Za-z0-9])");
     private final File cacheDirectory;
 
     NetEaseLyricClient(Context context) {
@@ -111,7 +119,7 @@ final class NetEaseLyricClient {
 
     static long parseSongId(String value) {
         if (value == null) return -1L;
-        Matcher matcher = LONG_NUMBER.matcher(value);
+        Matcher matcher = STANDALONE_LONG_NUMBER.matcher(value.trim());
         if (matcher.find()) {
             try { return Long.parseLong(matcher.group(1)); }
             catch (NumberFormatException ignored) { }
