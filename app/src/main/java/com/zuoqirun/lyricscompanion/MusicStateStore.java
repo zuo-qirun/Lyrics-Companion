@@ -92,6 +92,8 @@ final class MusicStateStore {
         String normalizedSourcePackage = newSourcePackage == null ? "" : newSourcePackage.trim();
         String selectedCatalog = AppPreferences.lyricCatalog(context, normalizedSource,
                 normalizedSourcePackage);
+        boolean forcedPlayerCatalog = AppPreferences.hasForcedPlayerPackageCatalog(context,
+                normalizedSourcePackage);
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
@@ -246,7 +248,8 @@ final class MusicStateStore {
         }
         if (generationToLoad >= 0L && !TextUtils.isEmpty(newTitle)) {
             scheduleLyricLoad(generationToLoad, normalizedSource, newMediaId,
-                    newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback);
+                    newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback,
+                    forcedPlayerCatalog);
             if (newAlbumArt == null && TextUtils.isEmpty(newAlbumArtUri)) {
                 scheduleCatalogAlbumArtLoad(generationToLoad, newTitle, newArtist, newDuration);
             }
@@ -348,12 +351,15 @@ final class MusicStateStore {
         long requestedDuration;
         String selectedCatalog;
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
+        boolean forcedPlayerCatalog;
         synchronized (LOCK) {
             if (TextUtils.isEmpty(title)) return;
             requestedSource = source;
             selectedCatalog = selectedCatalogOverride == null
                     ? AppPreferences.lyricCatalog(context, requestedSource, sourcePackage)
                     : selectedCatalogOverride;
+            forcedPlayerCatalog = selectedCatalogOverride == null
+                    && AppPreferences.hasForcedPlayerPackageCatalog(context, sourcePackage);
             requestedMediaId = mediaId;
             requestedTitle = TextUtils.isEmpty(overrideTitle) ? title : overrideTitle.trim();
             requestedArtist = overrideArtist == null ? artist : overrideArtist.trim();
@@ -373,7 +379,8 @@ final class MusicStateStore {
                 + " source=" + requestedSource + " selected=" + selectedCatalog
                 + " playerFallback=" + playerCatalogFallback + " title=" + requestedTitle);
         scheduleLyricLoad(generation, requestedSource, requestedMediaId, requestedTitle,
-                requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback);
+                requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback,
+                forcedPlayerCatalog);
     }
 
     static String describe(Context context) {
@@ -418,7 +425,8 @@ final class MusicStateStore {
                                           String requestedMediaId,
                                           String requestedTitle, String requestedArtist,
                                           long requestedDuration, String selectedCatalog,
-                                          boolean playerCatalogFallback) {
+                                          boolean playerCatalogFallback,
+                                          boolean forcedPlayerCatalog) {
         synchronized (LOCK) {
             if (generation != trackGeneration) return;
             lyricLoadTask = LYRIC_EXECUTOR.submit(() -> {
@@ -427,7 +435,8 @@ final class MusicStateStore {
                         + generation + " source=" + requestedSource + " title=" + requestedTitle);
                 try {
                     MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
-                            selectedCatalog, playerCatalogFallback, requestedMediaId,
+                            selectedCatalog, playerCatalogFallback, forcedPlayerCatalog,
+                            requestedMediaId,
                             requestedTitle, requestedArtist, requestedDuration);
                     synchronized (LOCK) {
                         if (generation != trackGeneration) {

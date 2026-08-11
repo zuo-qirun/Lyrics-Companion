@@ -28,10 +28,13 @@ final class MultiSourceLyricClient {
     }
 
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
+                boolean forceSelectedCatalog,
                 String mediaId, String title, String artist, long durationMs) throws Exception {
-        CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback);
+        CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback,
+                forceSelectedCatalog);
         DiagnosticLog.record(appContext, "Lyrics", "lookup start source=" + currentSource
                 + " selected=" + selectedCatalog + " playerFallback=" + playerCatalogFallback
+                + " forced=" + forceSelectedCatalog
                 + " providers=" + plan.providers + " title=" + title + " artist=" + artist
                 + " durationMs=" + durationMs + " directMediaId="
                 + (!directMediaId(currentSource, currentSource, mediaId).isEmpty()));
@@ -114,12 +117,22 @@ final class MultiSourceLyricClient {
 
     static CatalogPlan catalogPlan(String currentSource, String selectedCatalog,
                                    boolean playerCatalogFallback) {
+        return catalogPlan(currentSource, selectedCatalog, playerCatalogFallback, false);
+    }
+
+    static CatalogPlan catalogPlan(String currentSource, String selectedCatalog,
+                                   boolean playerCatalogFallback, boolean forceSelectedCatalog) {
         List<String> providers = new ArrayList<>(Arrays.asList(
                 "netease", "qqmusic", "kugou", "kuwo", "soda"));
         List<String> ordered = new ArrayList<>();
         List<String> priority = new ArrayList<>();
         String selected = MusicAppRegistry.lyricCatalogForSource(selectedCatalog);
         String player = MusicAppRegistry.lyricCatalogForSource(currentSource);
+        if (forceSelectedCatalog && !selected.isEmpty()) {
+            priority.add(selected);
+            ordered.add(selected);
+            return new CatalogPlan(ordered, priority, true);
+        }
         if (selected.isEmpty()) {
             if (!player.isEmpty()) {
                 priority.add(player);

@@ -384,6 +384,11 @@ final class AppPreferences {
         return value == null || value.trim().isEmpty() ? "" : normalizeLyricCatalog(value);
     }
 
+    /** A package selected from the catalog-centred app list must not fall through to another catalog. */
+    static boolean hasForcedPlayerPackageCatalog(Context context, String packageName) {
+        return !playerPackageLyricCatalogOverride(context, packageName).isEmpty();
+    }
+
     static void rememberPlayerPackage(Context context, String packageName) {
         String normalized = normalizePackageName(packageName);
         if (normalized.isEmpty()) return;

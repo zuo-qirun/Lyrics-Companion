@@ -99,6 +99,14 @@ public class MusicAppRegistryTest {
         assertTrue(plan.providers.contains("kugou"));
     }
 
+    @Test public void forcedAppCatalogDoesNotFallBackToOtherCatalogs() {
+        MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
+                "qqmusic", "netease", true, true);
+        assertEquals(Arrays.asList("netease"), plan.priority);
+        assertEquals(Arrays.asList("netease"), plan.providers);
+        assertTrue(plan.manualSelection);
+    }
+
     @Test public void automaticCatalogStillUsesRecognizedPlayerFirst() {
         MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
                 "kuwo", "auto", false);

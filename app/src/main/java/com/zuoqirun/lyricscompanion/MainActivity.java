@@ -7,6 +7,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -27,6 +28,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.util.TypedValue;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -45,8 +47,11 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -382,7 +387,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         outputCard.addView(launchOverlaySwitch);
         autoStartSwitch = toggle("开机 / 亮屏自启动悬浮窗",
-                "在重启或每次亮屏时恢复已记忆的主屏、副屏和通知栏歌词。关闭服务并退出会同时关闭此项。");
+                "在重启或每次亮屏时恢复已记忆的主屏、副屏和通知栏歌词。关闭服务并退出不会改变此项。");
         autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
         autoStartSwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -620,7 +625,7 @@ public final class MainActivity extends AppCompatActivity {
     private void confirmStopServiceAndExit() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("关闭歌词服务")
-                .setMessage("将移除所有悬浮歌词、停止前台服务和音乐监听，并关闭开机/亮屏自启动。主屏、副屏开关会保留；下次手动打开应用后可重新启动。")
+                .setMessage("将移除所有悬浮歌词、停止前台服务和音乐监听。主屏、副屏与开机/亮屏自启动开关会保留；重启后会按自启动设置恢复。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("关闭并退出", (dialog, which) -> stopServiceAndExit())
                 .show();
@@ -744,7 +749,7 @@ public final class MainActivity extends AppCompatActivity {
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
-        MaterialButton rules = button("为每个播放器应用设置词库", false);
+        MaterialButton rules = button("按词库强制匹配应用", false);
         rules.setOnClickListener(v -> showPlayerLyricCatalogRulesDialog());
         LinearLayout.LayoutParams rulesParams = new LinearLayout.LayoutParams(-1, dp(46));
         rulesParams.topMargin = dp(8);
@@ -758,89 +763,132 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showPlayerLyricCatalogRulesDialog() {
-        final String[] catalogLabels = {"跟随默认规则", "自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
-        final String[] catalogValues = {"", "auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
-        final List<MusicAppRegistry.App> players = configuredPlayerApps();
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(4), 0, dp(4), 0);
-        TextView note = text("每个应用按包名独立保存词库，不会与其他播放器共用设置；“跟随默认规则”会使用上方的默认设置。播放过但未预置的播放器也会自动出现在这里。",
+        TextView note = text("选择一个词库后，可从所有已安装应用中多选。被选中的应用将只从该词库匹配歌词；同一应用只能归属一个强制词库。未选择的应用继续使用上方默认规则。",
                 13, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         content.addView(note);
-        final Spinner[] spinners = new Spinner[players.size()];
-        for (int i = 0; i < players.size(); i++) {
-            MusicAppRegistry.App app = players.get(i);
-            TextView player = text(playerRuleLabel(app), 14, 0xFFD7E1EE, true);
-            player.setPadding(0, dp(14), 0, dp(4));
-            content.addView(player);
-            Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
-            spinner.setAdapter(new ArrayAdapter<>(this,
-                    android.R.layout.simple_spinner_dropdown_item, catalogLabels));
-            String saved = AppPreferences.playerPackageLyricCatalogOverride(this,
-                    app.packagePrefix);
-            int selection = 0;
-            for (int index = 0; index < catalogValues.length; index++) {
-                if (catalogValues[index].equals(saved)) { selection = index; break; }
-            }
-            spinner.setSelection(selection, false);
-            content.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
-            spinners[i] = spinner;
+        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
+        String[] catalogs = {"netease", "qqmusic", "kugou", "kuwo", "soda"};
+        for (int i = 0; i < catalogs.length; i++) {
+            final String catalog = catalogs[i];
+            final String catalogLabel = labels[i];
+            MaterialButton chooseApps = button(catalogLabel + " · 选择应用", false);
+            chooseApps.setOnClickListener(v -> showCatalogAppPicker(catalog, catalogLabel));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+            params.topMargin = dp(10);
+            content.addView(chooseApps, params);
         }
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
         new MaterialAlertDialogBuilder(this)
-                .setTitle("播放器应用词库")
+                .setTitle("按词库强制匹配应用")
+                .setView(scroll)
+                .setPositiveButton("完成", null)
+                .show();
+    }
+
+    private void showCatalogAppPicker(String catalog, String catalogLabel) {
+        LinearLayout loading = new LinearLayout(this);
+        loading.setPadding(dp(24), dp(16), dp(24), dp(16));
+        loading.addView(text("正在读取已安装应用…", 14, 0xFFD8E1EE, false));
+        AlertDialog loadingDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(catalogLabel + "词库")
+                .setView(loading)
+                .setNegativeButton("取消", null)
+                .show();
+        UPDATE_EXECUTOR.execute(() -> {
+            List<AppChoice> apps = loadLaunchableApps();
+            handler.post(() -> {
+                if (loadingDialog.isShowing()) loadingDialog.dismiss();
+                if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                showLoadedCatalogAppPicker(catalog, catalogLabel, apps);
+            });
+        });
+    }
+
+    private void showLoadedCatalogAppPicker(String catalog, String catalogLabel,
+                                            List<AppChoice> apps) {
+        Set<String> selected = new LinkedHashSet<>();
+        for (AppChoice app : apps) {
+            if (catalog.equals(AppPreferences.playerPackageLyricCatalogOverride(this,
+                    app.packageName))) selected.add(app.packageName);
+        }
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(4), 0, dp(4), 0);
+        for (AppChoice app : apps) addCatalogAppChoiceRow(list, app, selected);
+        scroll.addView(list);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(catalogLabel + "词库 · 强制匹配")
                 .setView(scroll)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", (dialog, which) -> {
-                    for (int i = 0; i < players.size(); i++) {
-                        AppPreferences.putPlayerPackageLyricCatalog(this, players.get(i).packagePrefix,
-                                catalogValues[spinners[i].getSelectedItemPosition()]);
+                    for (AppChoice app : apps) {
+                        String current = AppPreferences.playerPackageLyricCatalogOverride(this,
+                                app.packageName);
+                        if (selected.contains(app.packageName)) {
+                            AppPreferences.putPlayerPackageLyricCatalog(this, app.packageName,
+                                    catalog);
+                        } else if (catalog.equals(current)) {
+                            AppPreferences.putPlayerPackageLyricCatalog(this, app.packageName, "");
+                        }
                     }
                     AppPreferences.changed(this);
                     MusicStateStore.reloadLyrics(this);
                     refreshPreview();
-                    Toast.makeText(this, "已保存各播放器应用的词库", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "已保存 " + catalogLabel + " 强制匹配应用", Toast.LENGTH_SHORT).show();
                 })
                 .show();
     }
 
-    private List<MusicAppRegistry.App> configuredPlayerApps() {
-        Set<String> packageNames = new LinkedHashSet<>();
-        for (MusicAppRegistry.App app : MusicAppRegistry.knownApps()) {
-            if (isPackageInstalled(app.packagePrefix)) packageNames.add(app.packagePrefix);
+    private void addCatalogAppChoiceRow(LinearLayout parent, AppChoice app, Set<String> selected) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(app.label, 14, 0xFFF3F7FC, true));
+        labels.addView(text(app.packageName, 11, 0xFFA9B6C8, false));
+        row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
+        CheckBox check = new CheckBox(this);
+        check.setChecked(selected.contains(app.packageName));
+        check.setOnCheckedChangeListener((button, checked) -> {
+            if (checked) selected.add(app.packageName); else selected.remove(app.packageName);
+        });
+        row.addView(check, new LinearLayout.LayoutParams(-2, -2));
+        row.setOnClickListener(v -> check.setChecked(!check.isChecked()));
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private List<AppChoice> loadLaunchableApps() {
+        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> resolved;
+        try {
+            resolved = getPackageManager().queryIntentActivities(launcher, 0);
+        } catch (Throwable ignored) {
+            resolved = Collections.emptyList();
         }
-        packageNames.addAll(AppPreferences.observedPlayerPackages(this));
-        List<MusicAppRegistry.App> apps = new ArrayList<>();
-        for (String packageName : packageNames) {
-            apps.add(MusicAppRegistry.resolve(packageName, applicationLabel(packageName)));
+        Map<String, AppChoice> unique = new LinkedHashMap<>();
+        for (ResolveInfo info : resolved) {
+            if (info == null || info.activityInfo == null) continue;
+            String packageName = info.activityInfo.packageName;
+            if (packageName == null || packageName.equals(getPackageName())) continue;
+            CharSequence label = info.loadLabel(getPackageManager());
+            unique.put(packageName, new AppChoice(packageName,
+                    label == null ? packageName : label.toString().trim()));
         }
+        for (String packageName : AppPreferences.observedPlayerPackages(this)) {
+            if (!unique.containsKey(packageName)) unique.put(packageName,
+                    new AppChoice(packageName, packageName));
+        }
+        List<AppChoice> apps = new ArrayList<>(unique.values());
+        Collections.sort(apps, (left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
+                left.label, right.label));
         return apps;
-    }
-
-    private boolean isPackageInstalled(String packageName) {
-        try {
-            getPackageManager().getApplicationInfo(packageName, 0);
-            return true;
-        } catch (PackageManager.NameNotFoundException ignored) {
-            return false;
-        }
-    }
-
-    private String applicationLabel(String packageName) {
-        try {
-            return String.valueOf(getPackageManager().getApplicationLabel(
-                    getPackageManager().getApplicationInfo(packageName, 0)));
-        } catch (PackageManager.NameNotFoundException ignored) {
-            return "";
-        }
-    }
-
-    private String playerRuleLabel(MusicAppRegistry.App app) {
-        String label = applicationLabel(app.packagePrefix);
-        if (label.isEmpty()) label = app.displayName;
-        return label + "\n" + app.packagePrefix;
     }
 
     private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {
@@ -1895,5 +1943,15 @@ public final class MainActivity extends AppCompatActivity {
         final String label;
         DisplayChoice(int id, String label) { this.id = id; this.label = label; }
         @Override public String toString() { return label; }
+    }
+
+    private static final class AppChoice {
+        final String packageName;
+        final String label;
+
+        AppChoice(String packageName, String label) {
+            this.packageName = packageName;
+            this.label = label == null || label.isEmpty() ? packageName : label;
+        }
     }
 }

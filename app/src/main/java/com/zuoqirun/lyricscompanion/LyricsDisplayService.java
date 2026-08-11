@@ -157,7 +157,6 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     static void stopAndRememberOverlays(Context context) {
         AppPreferences.get(context).edit()
                 .putBoolean(AppPreferences.KEY_NOTIFICATION_LYRICS, false)
-                .putBoolean(AppPreferences.KEY_AUTO_START_OVERLAYS, false)
                 .putBoolean(AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH, false)
                 .putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH, false)
                 .putBoolean(AppPreferences.KEY_SERVICE_STOPPED_BY_USER, true)
