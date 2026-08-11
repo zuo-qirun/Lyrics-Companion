@@ -29,12 +29,14 @@ final class MultiSourceLyricClient {
 
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
                 boolean forceSelectedCatalog,
-                String mediaId, String title, String artist, long durationMs) throws Exception {
+                String sourcePackage, String mediaId, String title, String artist,
+                long durationMs) throws Exception {
         CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback,
                 forceSelectedCatalog);
         DiagnosticLog.record(appContext, "Lyrics", "lookup start source=" + currentSource
                 + " selected=" + selectedCatalog + " playerFallback=" + playerCatalogFallback
                 + " forced=" + forceSelectedCatalog
+                + " package=" + sourcePackage
                 + " providers=" + plan.providers + " title=" + title + " artist=" + artist
                 + " durationMs=" + durationMs + " directMediaId="
                 + (!directMediaId(currentSource, currentSource, mediaId).isEmpty()));
@@ -53,7 +55,7 @@ final class MultiSourceLyricClient {
                         + query.title + " / " + query.artist);
                 String providerMediaId = queryIndex == 0
                         ? directMediaId(currentSource, provider, mediaId) : "";
-                Result result = tryProvider(provider, providerMediaId,
+                Result result = tryProvider(provider, sourcePackage, providerMediaId,
                         query.title, query.artist, durationMs);
                 if (!result.timeline.isEmpty()) return result;
                 Log.i(TAG, "No lyric in catalog " + provider + ": " + query.title);
@@ -62,8 +64,8 @@ final class MultiSourceLyricClient {
         return Result.EMPTY;
     }
 
-    private Result tryProvider(String provider, String mediaId, String title, String artist,
-                               long durationMs) {
+    private Result tryProvider(String provider, String sourcePackage, String mediaId,
+                               String title, String artist, long durationMs) {
         long startedAt = SystemClock.elapsedRealtime();
         try {
             LrcTimeline timeline;
@@ -86,7 +88,7 @@ final class MultiSourceLyricClient {
                     label = "酷我音乐";
                     break;
                 case "soda":
-                    timeline = soda.load(mediaId, title, artist, durationMs);
+                    timeline = soda.load(sourcePackage, mediaId, title, artist, durationMs);
                     label = "汽水音乐";
                     break;
                 default:

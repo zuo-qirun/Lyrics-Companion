@@ -247,7 +247,8 @@ final class MusicStateStore {
             DiagnosticLog.record(context, "Playback", "mode changed " + playbackStateForLog);
         }
         if (generationToLoad >= 0L && !TextUtils.isEmpty(newTitle)) {
-            scheduleLyricLoad(generationToLoad, normalizedSource, newMediaId,
+            scheduleLyricLoad(generationToLoad, normalizedSource, normalizedSourcePackage,
+                    newMediaId,
                     newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback,
                     forcedPlayerCatalog);
             if (newAlbumArt == null && TextUtils.isEmpty(newAlbumArtUri)) {
@@ -345,6 +346,7 @@ final class MusicStateStore {
         initialize(context);
         long generation;
         String requestedSource;
+        String requestedSourcePackage;
         String requestedMediaId;
         String requestedTitle;
         String requestedArtist;
@@ -355,6 +357,7 @@ final class MusicStateStore {
         synchronized (LOCK) {
             if (TextUtils.isEmpty(title)) return;
             requestedSource = source;
+            requestedSourcePackage = sourcePackage;
             selectedCatalog = selectedCatalogOverride == null
                     ? AppPreferences.lyricCatalog(context, requestedSource, sourcePackage)
                     : selectedCatalogOverride;
@@ -378,7 +381,8 @@ final class MusicStateStore {
         DiagnosticLog.record(context, "Lyrics", "manual reload generation=" + generation
                 + " source=" + requestedSource + " selected=" + selectedCatalog
                 + " playerFallback=" + playerCatalogFallback + " title=" + requestedTitle);
-        scheduleLyricLoad(generation, requestedSource, requestedMediaId, requestedTitle,
+        scheduleLyricLoad(generation, requestedSource, requestedSourcePackage,
+                requestedMediaId, requestedTitle,
                 requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback,
                 forcedPlayerCatalog);
     }
@@ -422,6 +426,7 @@ final class MusicStateStore {
     }
 
     private static void scheduleLyricLoad(long generation, String requestedSource,
+                                          String requestedSourcePackage,
                                           String requestedMediaId,
                                           String requestedTitle, String requestedArtist,
                                           long requestedDuration, String selectedCatalog,
@@ -436,7 +441,7 @@ final class MusicStateStore {
                 try {
                     MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
                             selectedCatalog, playerCatalogFallback, forcedPlayerCatalog,
-                            requestedMediaId,
+                            requestedSourcePackage, requestedMediaId,
                             requestedTitle, requestedArtist, requestedDuration);
                     synchronized (LOCK) {
                         if (generation != trackGeneration) {
@@ -653,7 +658,7 @@ final class MusicStateStore {
     static boolean isLiveSessionLyricFallbackAvailable(String source, boolean loadFinished,
                                                         LrcTimeline catalogTimeline,
                                                         String liveLyric) {
-        return usesLiveTitleMetadata(source) && loadFinished
+        return usesLiveTitleMetadata(source) && (loadFinished || "soda".equals(source))
                 && (catalogTimeline == null || catalogTimeline.isEmpty())
                 && !TextUtils.isEmpty(liveLyric);
     }

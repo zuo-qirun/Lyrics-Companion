@@ -35,4 +35,37 @@ public class SodaLyricClientTest {
         assertEquals("slows ", at.currentWord);
         assertEquals("时间变慢", at.translatedLyric);
     }
+
+    @Test public void extractsWordTimedLyricsFromPublicSharePage() throws Exception {
+        String html = "<script>_ROUTER_DATA = {\"loaderData\":{\"track_page\":{"
+                + "\"audioWithLyricsOption\":{\"lyrics\":{\"sentences\":["
+                + "{\"startMs\":6700,\"endMs\":10730,\"text\":\"Time slows\","
+                + "\"words\":[{\"text\":\"Time \",\"startMs\":6700,\"endMs\":7050},"
+                + "{\"text\":\"slows\",\"startMs\":7050,\"endMs\":7530}]},"
+                + "{\"startMs\":11780,\"endMs\":15890,\"text\":\"I can feel\","
+                + "\"translation\":\"我能感受到\",\"words\":["
+                + "{\"text\":\"I \",\"startMs\":11780,\"endMs\":12120},"
+                + "{\"text\":\"can feel\",\"startMs\":12120,\"endMs\":15890}]}"
+                + "]}}}}};</script>";
+
+        SodaLyricClient.ShareLyrics parsed = SodaLyricClient.parseSharePage(html);
+        assertTrue(parsed.original.contains("[00:06.700]Time slows"));
+        assertTrue(parsed.translated.contains("[00:11.780]我能感受到"));
+        assertTrue(parsed.enhanced.contains("[6700,4030](6700,350,0)Time "));
+        assertTrue(parsed.enhanced.contains("(7050,480,0)slows"));
+
+        LrcTimeline.At at = LrcTimeline.parse(parsed.original, parsed.translated,
+                parsed.enhanced).at(12_300L);
+        assertTrue(at.wordTimed);
+        assertEquals("I ", at.completedLyric);
+        assertEquals("can feel", at.currentWord);
+        assertEquals("我能感受到", at.translatedLyric);
+    }
+
+    @Test public void usesDifferentOfficialShareHostsForMobileAndCar() throws Exception {
+        assertTrue(SodaLyricClient.shareAddress("com.luna.music", "7359456860514666513")
+                .startsWith("https://www.qishui.com/share/track"));
+        assertTrue(SodaLyricClient.shareAddress("com.luna.music.car", "7359456860514666513")
+                .startsWith("https://music.douyin.com/qishui/share/track"));
+    }
 }

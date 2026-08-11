@@ -245,8 +245,8 @@ public class MusicAppRegistryTest {
         assertEquals("", MusicStateStore.sodaTitleFromDynamicArtist("VALORANT​, Grabbitz"));
     }
 
-    @Test public void liveMetadataTitleBecomesLyricOnlyAfterCatalogsMiss() {
-        assertFalse(MusicStateStore.isLiveSessionLyricFallbackAvailable(
+    @Test public void sodaLiveMetadataDisplaysWhileCatalogLookupContinues() {
+        assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "soda", false, LrcTimeline.EMPTY, "You know I adore ya"));
         assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "soda", true, LrcTimeline.EMPTY, "You know I adore ya"));

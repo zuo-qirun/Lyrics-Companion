@@ -13,6 +13,19 @@ import static org.junit.Assert.assertTrue;
 
 /** Opt-in live smoke tests: LIVE_LYRIC_TEST=1 gradlew testDebugUnitTest. */
 public class LiveEnhancedLyricTest {
+    @Test public void sodaPublicSharePageReturnsWordTiming() throws Exception {
+        requireLive();
+        String address = SodaLyricClient.shareAddress(
+                "com.luna.music", "7359456860514666513");
+        SodaLyricClient.ShareLyrics parsed = SodaLyricClient.parseSharePage(
+                LyricHttp.get(address, "https://www.qishui.com/"));
+        LrcTimeline timeline = LrcTimeline.parse(parsed.original, parsed.translated,
+                parsed.enhanced);
+        assertFalse(parsed.enhanced.isEmpty());
+        assertFalse(timeline.isEmpty());
+        assertTrue(timeline.at(17_000L).wordTimed);
+    }
+
     @Test public void qqQrcContentTsReturnsChineseTranslation() throws Exception {
         requireLive();
         String response = LyricHttp.request("POST",

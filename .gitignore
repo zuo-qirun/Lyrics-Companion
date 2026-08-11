@@ -5,6 +5,7 @@ build/
 app/build/
 *.iml
 *.apk
+secret.md
 update_server/.env
 update_server/state/
 update_server/public/update.json
