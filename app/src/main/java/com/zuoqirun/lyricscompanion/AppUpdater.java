@@ -59,7 +59,9 @@ final class AppUpdater {
         String changelog = changelogText(manifest);
         String changelogUrl = resolveUrl(manifestUrl,
                 manifest.optString("changelogUrl", ""));
-        if (!TextUtils.isEmpty(changelogUrl)) {
+        // The manifest is the version-specific release note.  The hosted Markdown file is the
+        // full archive and must only be a fallback, otherwise a long archive hides this version.
+        if (TextUtils.isEmpty(changelog) && !TextUtils.isEmpty(changelogUrl)) {
             try {
                 String remote = readText(changelogUrl).trim();
                 if (!remote.isEmpty()) changelog = remote;

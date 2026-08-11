@@ -1734,7 +1734,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private static String updateChangelogBody(String raw) {
         String body = raw == null ? "" : raw.trim();
-        body = body.replaceFirst("(?s)^#\\s*更新日志\\s*\\n+", "");
+        body = body.replaceFirst("(?s)^#\\s*[^\\n]*更新日志[^\\n]*\\n+", "");
         return body.isEmpty() ? "本次版本包含体验优化与问题修复。" : body;
     }
 
