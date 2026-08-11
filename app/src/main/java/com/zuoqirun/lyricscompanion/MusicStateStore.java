@@ -23,6 +23,7 @@ final class MusicStateStore {
     private static boolean playing;
     private static String source = "media";
     private static String sourceName = "音乐播放器";
+    private static String sourcePackage = "";
     private static String mediaId = "";
     private static String title = "";
     private static String artist = "";
@@ -56,6 +57,11 @@ final class MusicStateStore {
 
     static void update(Context context, String newSource, String newSourceName,
                        MusicPlaybackData data) {
+        update(context, newSource, newSourceName, "", data);
+    }
+
+    static void update(Context context, String newSource, String newSourceName,
+                       String newSourcePackage, MusicPlaybackData data) {
         initialize(context);
         if (data == null) {
             clear();
@@ -83,7 +89,9 @@ final class MusicStateStore {
         float newSpeed = data.speed;
         String normalizedSourceName = TextUtils.isEmpty(newSourceName)
                 ? "音乐播放器" : newSourceName;
-        String selectedCatalog = AppPreferences.lyricCatalog(context, normalizedSource);
+        String normalizedSourcePackage = newSourcePackage == null ? "" : newSourcePackage.trim();
+        String selectedCatalog = AppPreferences.lyricCatalog(context, normalizedSource,
+                normalizedSourcePackage);
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
@@ -165,6 +173,7 @@ final class MusicStateStore {
             playing = newPlaying;
             source = normalizedSource;
             sourceName = normalizedSourceName;
+            sourcePackage = normalizedSourcePackage;
             mediaId = safe(newMediaId);
             title = safe(newTitle);
             artist = safe(newArtist);
@@ -255,6 +264,7 @@ final class MusicStateStore {
             playing = false;
             source = "media";
             sourceName = "音乐播放器";
+            sourcePackage = "";
             mediaId = "";
             title = "";
             artist = "";
@@ -342,7 +352,7 @@ final class MusicStateStore {
             if (TextUtils.isEmpty(title)) return;
             requestedSource = source;
             selectedCatalog = selectedCatalogOverride == null
-                    ? AppPreferences.lyricCatalog(context, requestedSource)
+                    ? AppPreferences.lyricCatalog(context, requestedSource, sourcePackage)
                     : selectedCatalogOverride;
             requestedMediaId = mediaId;
             requestedTitle = TextUtils.isEmpty(overrideTitle) ? title : overrideTitle.trim();
@@ -386,6 +396,7 @@ final class MusicStateStore {
                     : Math.max(0L, SystemClock.elapsedRealtime() - positionUpdatedAtElapsedMs);
             return "trackGeneration=" + trackGeneration
                     + "\nsourceId=" + source
+                    + "\nsourcePackage=" + sourcePackage
                     + "\nmediaIdPresent=" + !TextUtils.isEmpty(mediaId)
                     + "\nalbumArtLoaded=" + (albumArt != null)
                     + "\nalbumArtUriPresent=" + !TextUtils.isEmpty(albumArtUri)

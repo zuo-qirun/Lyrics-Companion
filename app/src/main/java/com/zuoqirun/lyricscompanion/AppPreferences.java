@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 final class AppPreferences {
@@ -39,8 +40,10 @@ final class AppPreferences {
     static final String KEY_LYRIC_COLOR = "lyric_color";
     static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
-    /** Optional per-player override. An absent value deliberately follows KEY_LYRIC_CATALOG. */
+    /** Optional per-player-category override kept for backward compatibility. */
     static final String KEY_PLAYER_LYRIC_CATALOG = "player_lyric_catalog";
+    /** Exact package names that have published a playable MediaSession on this device. */
+    static final String KEY_OBSERVED_PLAYER_PACKAGES = "observed_player_packages";
     static final String KEY_PLAYER_CATALOG_FALLBACK = "player_catalog_fallback";
     static final String KEY_MAIN_X = "main_x";
     static final String KEY_MAIN_Y = "main_y";
@@ -336,6 +339,15 @@ final class AppPreferences {
         return resolveLyricCatalog(override, lyricCatalog(context));
     }
 
+    /**
+     * Resolves the rule for one concrete player application.  Package-specific rules deliberately
+     * do not share a value with another application that happens to use the same provider type.
+     */
+    static String lyricCatalog(Context context, String sourceId, String packageName) {
+        String override = get(context).getString(playerPackageLyricCatalogKey(packageName), "");
+        return resolveLyricCatalog(override, lyricCatalog(context));
+    }
+
     static String resolveLyricCatalog(String playerOverride, String fallback) {
         return playerOverride == null || playerOverride.trim().isEmpty()
                 ? normalizeLyricCatalog(fallback) : normalizeLyricCatalog(playerOverride);
@@ -355,6 +367,37 @@ final class AppPreferences {
     static String playerLyricCatalogOverride(Context context, String sourceId) {
         String value = get(context).getString(playerLyricCatalogKey(sourceId), "");
         return value == null || value.trim().isEmpty() ? "" : normalizeLyricCatalog(value);
+    }
+
+    static void putPlayerPackageLyricCatalog(Context context, String packageName, String catalog) {
+        SharedPreferences.Editor editor = get(context).edit();
+        if (catalog == null || catalog.trim().isEmpty()) {
+            editor.remove(playerPackageLyricCatalogKey(packageName));
+        } else {
+            editor.putString(playerPackageLyricCatalogKey(packageName), normalizeLyricCatalog(catalog));
+        }
+        editor.apply();
+    }
+
+    static String playerPackageLyricCatalogOverride(Context context, String packageName) {
+        String value = get(context).getString(playerPackageLyricCatalogKey(packageName), "");
+        return value == null || value.trim().isEmpty() ? "" : normalizeLyricCatalog(value);
+    }
+
+    static void rememberPlayerPackage(Context context, String packageName) {
+        String normalized = normalizePackageName(packageName);
+        if (normalized.isEmpty()) return;
+        Set<String> current = get(context).getStringSet(KEY_OBSERVED_PLAYER_PACKAGES,
+                Collections.emptySet());
+        if (current.contains(normalized)) return;
+        Set<String> updated = new LinkedHashSet<>(current);
+        updated.add(normalized);
+        get(context).edit().putStringSet(KEY_OBSERVED_PLAYER_PACKAGES, updated).apply();
+    }
+
+    static Set<String> observedPlayerPackages(Context context) {
+        return new LinkedHashSet<>(get(context).getStringSet(KEY_OBSERVED_PLAYER_PACKAGES,
+                Collections.emptySet()));
     }
 
     private static String normalizeLyricCatalog(String value) {
@@ -725,5 +768,16 @@ final class AppPreferences {
         String safe = sourceId == null ? "media" : sourceId.trim().toLowerCase();
         if (!safe.matches("[a-z0-9_]+")) safe = "media";
         return KEY_PLAYER_LYRIC_CATALOG + "_" + safe;
+    }
+
+    private static String playerPackageLyricCatalogKey(String packageName) {
+        String safe = normalizePackageName(packageName).replace('.', '_');
+        if (safe.isEmpty()) safe = "unknown";
+        return KEY_PLAYER_LYRIC_CATALOG + "_app_" + safe;
+    }
+
+    private static String normalizePackageName(String packageName) {
+        String normalized = packageName == null ? "" : packageName.trim().toLowerCase();
+        return normalized.matches("[a-z0-9_.]+") ? normalized : "";
     }
 }

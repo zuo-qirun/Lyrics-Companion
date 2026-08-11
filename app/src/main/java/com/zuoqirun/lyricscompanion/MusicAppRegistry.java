@@ -30,6 +30,10 @@ final class MusicAppRegistry {
 
     private MusicAppRegistry() {}
 
+    static App[] knownApps() {
+        return KNOWN_APPS.clone();
+    }
+
     static App resolve(String packageName, String applicationLabel) {
         String normalizedPackage = safe(packageName).toLowerCase(Locale.ROOT);
         for (App app : KNOWN_APPS) {

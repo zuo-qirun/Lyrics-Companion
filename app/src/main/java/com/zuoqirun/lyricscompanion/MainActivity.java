@@ -45,7 +45,9 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -742,7 +744,7 @@ public final class MainActivity extends AppCompatActivity {
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
-        MaterialButton rules = button("按播放器自定义词库规则", false);
+        MaterialButton rules = button("为每个播放器应用设置词库", false);
         rules.setOnClickListener(v -> showPlayerLyricCatalogRulesDialog());
         LinearLayout.LayoutParams rulesParams = new LinearLayout.LayoutParams(-1, dp(46));
         rulesParams.topMargin = dp(8);
@@ -756,26 +758,27 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showPlayerLyricCatalogRulesDialog() {
-        final String[] playerLabels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "其他播放器"};
-        final String[] playerSources = {"netease", "qqmusic", "kugou", "kuwo", "soda", "media"};
         final String[] catalogLabels = {"跟随默认规则", "自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
         final String[] catalogValues = {"", "auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
+        final List<MusicAppRegistry.App> players = configuredPlayerApps();
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(4), 0, dp(4), 0);
-        TextView note = text("可让每个播放器优先查询指定词库；“跟随默认规则”会使用上方的默认设置。保存后会立即重新匹配当前歌曲。",
+        TextView note = text("每个应用按包名独立保存词库，不会与其他播放器共用设置；“跟随默认规则”会使用上方的默认设置。播放过但未预置的播放器也会自动出现在这里。",
                 13, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         content.addView(note);
-        final Spinner[] spinners = new Spinner[playerSources.length];
-        for (int i = 0; i < playerSources.length; i++) {
-            TextView player = text(playerLabels[i], 14, 0xFFD7E1EE, true);
+        final Spinner[] spinners = new Spinner[players.size()];
+        for (int i = 0; i < players.size(); i++) {
+            MusicAppRegistry.App app = players.get(i);
+            TextView player = text(playerRuleLabel(app), 14, 0xFFD7E1EE, true);
             player.setPadding(0, dp(14), 0, dp(4));
             content.addView(player);
             Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
             spinner.setAdapter(new ArrayAdapter<>(this,
                     android.R.layout.simple_spinner_dropdown_item, catalogLabels));
-            String saved = AppPreferences.playerLyricCatalogOverride(this, playerSources[i]);
+            String saved = AppPreferences.playerPackageLyricCatalogOverride(this,
+                    app.packagePrefix);
             int selection = 0;
             for (int index = 0; index < catalogValues.length; index++) {
                 if (catalogValues[index].equals(saved)) { selection = index; break; }
@@ -787,20 +790,57 @@ public final class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
         new MaterialAlertDialogBuilder(this)
-                .setTitle("按播放器自定义词库")
+                .setTitle("播放器应用词库")
                 .setView(scroll)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", (dialog, which) -> {
-                    for (int i = 0; i < playerSources.length; i++) {
-                        AppPreferences.putPlayerLyricCatalog(this, playerSources[i],
+                    for (int i = 0; i < players.size(); i++) {
+                        AppPreferences.putPlayerPackageLyricCatalog(this, players.get(i).packagePrefix,
                                 catalogValues[spinners[i].getSelectedItemPosition()]);
                     }
                     AppPreferences.changed(this);
                     MusicStateStore.reloadLyrics(this);
                     refreshPreview();
-                    Toast.makeText(this, "已保存播放器词库规则", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "已保存各播放器应用的词库", Toast.LENGTH_SHORT).show();
                 })
                 .show();
+    }
+
+    private List<MusicAppRegistry.App> configuredPlayerApps() {
+        Set<String> packageNames = new LinkedHashSet<>();
+        for (MusicAppRegistry.App app : MusicAppRegistry.knownApps()) {
+            if (isPackageInstalled(app.packagePrefix)) packageNames.add(app.packagePrefix);
+        }
+        packageNames.addAll(AppPreferences.observedPlayerPackages(this));
+        List<MusicAppRegistry.App> apps = new ArrayList<>();
+        for (String packageName : packageNames) {
+            apps.add(MusicAppRegistry.resolve(packageName, applicationLabel(packageName)));
+        }
+        return apps;
+    }
+
+    private boolean isPackageInstalled(String packageName) {
+        try {
+            getPackageManager().getApplicationInfo(packageName, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
+        }
+    }
+
+    private String applicationLabel(String packageName) {
+        try {
+            return String.valueOf(getPackageManager().getApplicationLabel(
+                    getPackageManager().getApplicationInfo(packageName, 0)));
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return "";
+        }
+    }
+
+    private String playerRuleLabel(MusicAppRegistry.App app) {
+        String label = applicationLabel(app.packagePrefix);
+        if (label.isEmpty()) label = app.displayName;
+        return label + "\n" + app.packagePrefix;
     }
 
     private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {

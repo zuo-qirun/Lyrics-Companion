@@ -83,8 +83,9 @@ public final class MusicNotificationListener extends NotificationListenerService
             }
             activePlayerPackageName = nextPackage;
             MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, applicationLabel);
+            AppPreferences.rememberPlayerPackage(MusicNotificationListener.this, nextPackage);
             MusicStateStore.update(MusicNotificationListener.this,
-                    app.sourceId, app.displayName, data);
+                    app.sourceId, app.displayName, nextPackage, data);
         }
 
         @Override public void onNoSession() {
