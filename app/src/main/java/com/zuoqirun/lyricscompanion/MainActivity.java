@@ -6,10 +6,11 @@ import android.content.ComponentName;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
@@ -29,7 +30,9 @@ import android.view.ViewGroup;
 import android.util.TypedValue;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -47,11 +50,8 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -75,6 +75,7 @@ public final class MainActivity extends AppCompatActivity {
     private static final String THIRD_PARTY_NOTICES_URL =
             SOURCE_REPOSITORY_URL + "/blob/main/THIRD_PARTY_NOTICES.md";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final ExecutorService APP_ICON_EXECUTOR = Executors.newFixedThreadPool(2);
     private static final long LISTENER_HEALTH_MAX_AGE_MS = 3_000L;
     private static final long LISTENER_INITIAL_RECONNECT_DELAY_MS = 2_500L;
     private static final long LISTENER_RECONNECT_INTERVAL_MS = 1_000L;
@@ -800,7 +801,8 @@ public final class MainActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .show();
         UPDATE_EXECUTOR.execute(() -> {
-            List<AppChoice> apps = loadLaunchableApps();
+            List<InstalledAppListCache.AppChoice> apps = InstalledAppListCache.load(this,
+                    AppPreferences.observedPlayerPackages(this));
             handler.post(() -> {
                 if (loadingDialog.isShowing()) loadingDialog.dismiss();
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
@@ -810,9 +812,9 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showLoadedCatalogAppPicker(String catalog, String catalogLabel,
-                                            List<AppChoice> apps) {
+                                            List<InstalledAppListCache.AppChoice> apps) {
         Set<String> selected = new LinkedHashSet<>();
-        for (AppChoice app : apps) {
+        for (InstalledAppListCache.AppChoice app : apps) {
             if (catalog.equals(AppPreferences.playerPackageLyricCatalogOverride(this,
                     app.packageName))) selected.add(app.packageName);
         }
@@ -820,14 +822,16 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(4), 0, dp(4), 0);
-        for (AppChoice app : apps) addCatalogAppChoiceRow(list, app, selected);
+        for (InstalledAppListCache.AppChoice app : apps) {
+            addCatalogAppChoiceRow(list, app, selected);
+        }
         scroll.addView(list);
         new MaterialAlertDialogBuilder(this)
                 .setTitle(catalogLabel + "词库 · 强制匹配")
                 .setView(scroll)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", (dialog, which) -> {
-                    for (AppChoice app : apps) {
+                    for (InstalledAppListCache.AppChoice app : apps) {
                         String current = AppPreferences.playerPackageLyricCatalogOverride(this,
                                 app.packageName);
                         if (selected.contains(app.packageName)) {
@@ -845,10 +849,21 @@ public final class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void addCatalogAppChoiceRow(LinearLayout parent, AppChoice app, Set<String> selected) {
+    private void addCatalogAppChoiceRow(LinearLayout parent, InstalledAppListCache.AppChoice app,
+                                        Set<String> selected) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(android.R.drawable.sym_def_app_icon);
+        icon.setTag(app.packageName);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        ProgressBar iconLoading = new ProgressBar(this);
+        iconLoading.setIndeterminate(true);
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        spinnerParams.leftMargin = dp(-29);
+        spinnerParams.rightMargin = dp(7);
+        row.addView(iconLoading, spinnerParams);
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
         labels.addView(text(app.label, 14, 0xFFF3F7FC, true));
@@ -862,33 +877,23 @@ public final class MainActivity extends AppCompatActivity {
         row.addView(check, new LinearLayout.LayoutParams(-2, -2));
         row.setOnClickListener(v -> check.setChecked(!check.isChecked()));
         parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        APP_ICON_EXECUTOR.execute(() -> {
+            Drawable drawable = loadApplicationIcon(app.packageName);
+            handler.post(() -> {
+                if (!app.packageName.equals(icon.getTag())) return;
+                iconLoading.setVisibility(View.GONE);
+                if (drawable != null) icon.setImageDrawable(drawable);
+            });
+        });
     }
 
-    private List<AppChoice> loadLaunchableApps() {
-        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> resolved;
+    private Drawable loadApplicationIcon(String packageName) {
         try {
-            resolved = getPackageManager().queryIntentActivities(launcher, 0);
+            ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
+            return info.loadIcon(getPackageManager());
         } catch (Throwable ignored) {
-            resolved = Collections.emptyList();
+            return null;
         }
-        Map<String, AppChoice> unique = new LinkedHashMap<>();
-        for (ResolveInfo info : resolved) {
-            if (info == null || info.activityInfo == null) continue;
-            String packageName = info.activityInfo.packageName;
-            if (packageName == null || packageName.equals(getPackageName())) continue;
-            CharSequence label = info.loadLabel(getPackageManager());
-            unique.put(packageName, new AppChoice(packageName,
-                    label == null ? packageName : label.toString().trim()));
-        }
-        for (String packageName : AppPreferences.observedPlayerPackages(this)) {
-            if (!unique.containsKey(packageName)) unique.put(packageName,
-                    new AppChoice(packageName, packageName));
-        }
-        List<AppChoice> apps = new ArrayList<>(unique.values());
-        Collections.sort(apps, (left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
-                left.label, right.label));
-        return apps;
     }
 
     private static void updateLockscreenLyricsEnabled(MaterialSwitch view, boolean enabled) {
@@ -1945,13 +1950,4 @@ public final class MainActivity extends AppCompatActivity {
         @Override public String toString() { return label; }
     }
 
-    private static final class AppChoice {
-        final String packageName;
-        final String label;
-
-        AppChoice(String packageName, String label) {
-            this.packageName = packageName;
-            this.label = label == null || label.isEmpty() ? packageName : label;
-        }
-    }
 }

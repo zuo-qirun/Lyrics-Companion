@@ -3,7 +3,6 @@ package com.zuoqirun.lyricscompanion;
 import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
@@ -33,11 +32,8 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -192,7 +188,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .show();
         APP_LIST_EXECUTOR.execute(() -> {
-            List<AppChoice> apps = loadLaunchableApps();
+            List<InstalledAppListCache.AppChoice> apps = InstalledAppListCache.load(this,
+                    AppPreferences.hiddenOverlayApps(this));
             mainHandler.post(() -> {
                 if (loadingDialog.isShowing()) loadingDialog.dismiss();
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
@@ -205,14 +202,14 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         });
     }
 
-    private void showLoadedHiddenAppPicker(List<AppChoice> apps) {
+    private void showLoadedHiddenAppPicker(List<InstalledAppListCache.AppChoice> apps) {
         Set<String> selected = new HashSet<>(AppPreferences.hiddenOverlayApps(this));
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(4), 0, dp(4), 0);
         scroll.addView(list, new ScrollView.LayoutParams(-1, -2));
-        for (AppChoice app : apps) addAppChoiceRow(list, app, selected);
+        for (InstalledAppListCache.AppChoice app : apps) addAppChoiceRow(list, app, selected);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("在哪些应用上隐藏歌词")
                 .setView(scroll)
@@ -221,7 +218,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void addAppChoiceRow(LinearLayout parent, AppChoice app, Set<String> selected) {
+    private void addAppChoiceRow(LinearLayout parent, InstalledAppListCache.AppChoice app,
+                                 Set<String> selected) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(12), dp(8), dp(12), dp(8));
@@ -270,37 +268,6 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         }
     }
 
-    @SuppressWarnings("deprecation")
-    private List<AppChoice> loadLaunchableApps() {
-        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> resolved;
-        try {
-            resolved = getPackageManager().queryIntentActivities(launcher, 0);
-        } catch (Throwable ignored) {
-            resolved = Collections.emptyList();
-        }
-        Map<String, AppChoice> unique = new LinkedHashMap<>();
-        for (ResolveInfo info : resolved) {
-            if (info == null || info.activityInfo == null) continue;
-            String packageName = info.activityInfo.packageName;
-            if (packageName == null || packageName.equals(getPackageName())) continue;
-            CharSequence label = info.loadLabel(getPackageManager());
-            unique.put(packageName, new AppChoice(packageName,
-                    label == null ? packageName : label.toString().trim()));
-        }
-        for (String packageName : AppPreferences.hiddenOverlayApps(this)) {
-            if (!unique.containsKey(packageName)) {
-                unique.put(packageName, new AppChoice(packageName, packageName));
-            }
-        }
-        List<AppChoice> apps = new ArrayList<>(unique.values());
-        Collections.sort(apps, new java.util.Comparator<AppChoice>() {
-            @Override public int compare(AppChoice left, AppChoice right) {
-                return String.CASE_INSENSITIVE_ORDER.compare(left.label, right.label);
-            }
-        });
-        return apps;
-    }
 
     private Drawable loadApplicationIcon(String packageName) {
         try {
@@ -372,13 +339,4 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private static final class AppChoice {
-        final String packageName;
-        final String label;
-
-        AppChoice(String packageName, String label) {
-            this.packageName = packageName;
-            this.label = label == null || label.isEmpty() ? packageName : label;
-        }
-    }
 }
