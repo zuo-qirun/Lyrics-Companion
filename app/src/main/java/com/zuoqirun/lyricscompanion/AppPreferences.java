@@ -38,6 +38,8 @@ final class AppPreferences {
     static final String KEY_NEXT_LYRIC_SCALE = "next_lyric_scale";
     static final String KEY_NEXT_LYRIC_OPACITY = "next_lyric_opacity";
     static final String KEY_LYRIC_COLOR = "lyric_color";
+    static final String KEY_LYRIC_LIGHT_COLOR = "lyric_light_color";
+    static final String KEY_LYRIC_DARK_COLOR = "lyric_dark_color";
     static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
     /** Optional per-player-category override kept for backward compatibility. */
@@ -77,6 +79,9 @@ final class AppPreferences {
     static final String KEY_COMPACT_SHOW_NEXT_LINE = "compact_show_next_line";
     static final String KEY_COMPACT_USE_REAL_SPECTRUM = "compact_use_real_spectrum";
     static final String KEY_COMPACT_SPECTRUM_COLOR = "compact_spectrum_color";
+    static final String KEY_SPECTRUM_ENABLED = "spectrum_enabled";
+    static final String KEY_SPECTRUM_STYLE = "spectrum_style";
+    static final String KEY_SPECTRUM_COLOR_MODE = "spectrum_color_mode";
     static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
     static final String KEY_LAUNCH_OVERLAY_ON_ICON = "launch_overlay_on_icon";
     static final String KEY_LAUNCH_OVERLAY_LAST_AT = "launch_overlay_last_at";
@@ -92,14 +97,25 @@ final class AppPreferences {
     static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
     static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
     static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
+    static final String KEY_PLAYBACK_CONTROL_SCALE = "playback_control_scale";
+    static final String KEY_PLAYBACK_CONTROL_X = "playback_control_x";
+    static final String KEY_PLAYBACK_CONTROL_Y = "playback_control_y";
+    static final String KEY_FULLSCREEN_CLOSE_MODE = "fullscreen_close_mode";
+    static final String KEY_OVERLAY_CLOSE_MODE = "overlay_close_mode";
     static final String KEY_NOTIFICATION_LYRICS = "notification_lyrics";
     static final String KEY_TOP_LYRIC_STRIP = "top_lyric_strip";
     /** Zero keeps the top lyric strip white so it stays legible over most wallpapers. */
     static final String KEY_STATUS_LYRIC_COLOR = "status_lyric_color";
+    static final String KEY_STATUS_LYRIC_FOLLOW_THEME = "status_lyric_follow_theme";
+    static final String KEY_STATUS_LYRIC_LIGHT_COLOR = "status_lyric_light_color";
+    static final String KEY_STATUS_LYRIC_DARK_COLOR = "status_lyric_dark_color";
     static final String KEY_TOP_LYRIC_FONT_SCALE = "top_lyric_font_scale";
     static final String KEY_TOP_LYRIC_REGION_PERCENT = "top_lyric_region_percent";
     static final String KEY_TOP_LYRIC_OFFSET_X_DP = "top_lyric_offset_x_dp";
     static final String KEY_TOP_LYRIC_OFFSET_Y_DP = "top_lyric_offset_y_dp";
+    static final String KEY_TOP_LYRIC_SHOW_TRANSLATION = "top_lyric_show_translation";
+    static final String KEY_TOP_LYRIC_BACKGROUND = "top_lyric_background";
+    static final String KEY_TOP_LYRIC_SPECTRUM = "top_lyric_spectrum";
     static final String KEY_LOCKSCREEN_LYRICS = "lockscreen_lyrics";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
@@ -323,6 +339,28 @@ final class AppPreferences {
     static void setLyricColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_LYRIC_COLOR,
                 color == 0 ? 0 : (color | 0xFF000000));
+    }
+
+    static int lyricLightColor(Context context, boolean secondary) {
+        int legacy = lyricColor(context, secondary);
+        return displayInt(context, secondary, KEY_LYRIC_LIGHT_COLOR,
+                legacy == 0 ? 0xFF17212E : legacy);
+    }
+
+    static int lyricDarkColor(Context context, boolean secondary) {
+        int legacy = lyricColor(context, secondary);
+        return displayInt(context, secondary, KEY_LYRIC_DARK_COLOR,
+                legacy == 0 ? 0xFFF5F8FF : legacy);
+    }
+
+    static void setLyricLightColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_LYRIC_LIGHT_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static void setLyricDarkColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_LYRIC_DARK_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
     }
 
     static boolean smoothLyricScroll(Context context, boolean secondary) {
@@ -629,6 +667,46 @@ final class AppPreferences {
                 color == 0 ? 0 : (color | 0xFF000000));
     }
 
+    static boolean spectrumEnabled(Context context, boolean secondary) {
+        String style = overlayStyle(context, secondary);
+        boolean legacy = "compact".equals(style) && compactShowBars(context, secondary);
+        return displayBoolean(context, secondary, KEY_SPECTRUM_ENABLED, legacy);
+    }
+
+    static String spectrumStyle(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_SPECTRUM_STYLE, "bars");
+        return "mirror".equals(value) || "capsule".equals(value)
+                || "dots".equals(value) || "wave".equals(value) ? value : "bars";
+    }
+
+    static String spectrumColorMode(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_SPECTRUM_COLOR_MODE, "lyric");
+        return "custom".equals(value) || "rainbow".equals(value)
+                || "artwork".equals(value) ? value : "lyric";
+    }
+
+    static int playbackControlScale(Context context) {
+        return Math.max(60, Math.min(160, get(context).getInt(KEY_PLAYBACK_CONTROL_SCALE, 100)));
+    }
+
+    static int playbackControlX(Context context) {
+        return Math.max(-40, Math.min(40, get(context).getInt(KEY_PLAYBACK_CONTROL_X, 0)));
+    }
+
+    static int playbackControlY(Context context) {
+        return Math.max(-40, Math.min(40, get(context).getInt(KEY_PLAYBACK_CONTROL_Y, 0)));
+    }
+
+    static String fullscreenCloseMode(Context context) {
+        String value = get(context).getString(KEY_FULLSCREEN_CLOSE_MODE, "fade");
+        return "always".equals(value) || "hidden".equals(value) ? value : "fade";
+    }
+
+    static String overlayCloseMode(Context context) {
+        String value = get(context).getString(KEY_OVERLAY_CLOSE_MODE, "fade");
+        return "always".equals(value) || "hidden".equals(value) ? value : "fade";
+    }
+
     static boolean tapOverlayReturnsToPlayer(Context context) {
         return get(context).getBoolean(KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, false);
     }
@@ -699,6 +777,32 @@ final class AppPreferences {
                 color == 0 ? 0 : (color | 0xFF000000)).apply();
     }
 
+    static boolean statusLyricFollowTheme(Context context) {
+        return get(context).getBoolean(KEY_STATUS_LYRIC_FOLLOW_THEME, false);
+    }
+
+    static int statusLyricLightColor(Context context) {
+        int legacy = statusLyricColor(context);
+        return get(context).getInt(KEY_STATUS_LYRIC_LIGHT_COLOR,
+                legacy == 0 ? 0xFF17212E : legacy);
+    }
+
+    static int statusLyricDarkColor(Context context) {
+        int legacy = statusLyricColor(context);
+        return get(context).getInt(KEY_STATUS_LYRIC_DARK_COLOR,
+                legacy == 0 ? 0xFFF5F8FF : legacy);
+    }
+
+    static void setStatusLyricLightColor(Context context, int color) {
+        get(context).edit().putInt(KEY_STATUS_LYRIC_LIGHT_COLOR,
+                color == 0 ? 0 : (color | 0xFF000000)).apply();
+    }
+
+    static void setStatusLyricDarkColor(Context context, int color) {
+        get(context).edit().putInt(KEY_STATUS_LYRIC_DARK_COLOR,
+                color == 0 ? 0 : (color | 0xFF000000)).apply();
+    }
+
     static int topLyricFontScale(Context context) {
         return Math.max(60, Math.min(200,
                 get(context).getInt(KEY_TOP_LYRIC_FONT_SCALE, 100)));
@@ -717,6 +821,22 @@ final class AppPreferences {
     static int topLyricOffsetYDp(Context context) {
         return Math.max(-240, Math.min(240,
                 get(context).getInt(KEY_TOP_LYRIC_OFFSET_Y_DP, 0)));
+    }
+
+    static boolean topLyricShowTranslation(Context context) {
+        return get(context).getBoolean(KEY_TOP_LYRIC_SHOW_TRANSLATION, false);
+    }
+
+    static String topLyricBackground(Context context) {
+        String value = get(context).getString(KEY_TOP_LYRIC_BACKGROUND, "transparent");
+        // Old "glass" was cover-based rather than a real blurred window. Preserve its
+        // appearance under the renamed compact-card option; "blur" is the real material.
+        if ("glass".equals(value)) return "compact";
+        return "blur".equals(value) || "compact".equals(value) ? value : "transparent";
+    }
+
+    static boolean topLyricSpectrum(Context context) {
+        return get(context).getBoolean(KEY_TOP_LYRIC_SPECTRUM, false);
     }
 
     static void setTopLyricInt(Context context, String key, int value) {

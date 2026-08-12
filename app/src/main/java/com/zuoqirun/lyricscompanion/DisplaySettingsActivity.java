@@ -1,6 +1,8 @@
 package com.zuoqirun.lyricscompanion;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
@@ -96,6 +98,59 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_LYRIC_OFFSET, value));
         addCard(root, panel);
+
+        LinearLayout spectrum = card("律动与频谱");
+        addToggle(spectrum, "在当前歌词模式显示律动", AppPreferences.KEY_SPECTRUM_ENABLED,
+                AppPreferences.spectrumEnabled(this, secondary));
+        addToggle(spectrum, "使用真实音频频谱（关闭为虚拟律动）",
+                AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
+                AppPreferences.compactUseRealSpectrum(this, secondary));
+        addChoice(spectrum, "频谱样式",
+                new String[]{"经典柱状", "中心镜像", "胶囊律动", "点阵跳动", "连续波形"},
+                new String[]{"bars", "mirror", "capsule", "dots", "wave"},
+                AppPreferences.spectrumStyle(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_SPECTRUM_STYLE, value));
+        addChoice(spectrum, "频谱颜色",
+                new String[]{"跟随歌词", "自定义单色", "HSL 彩虹", "跟随封面"},
+                new String[]{"lyric", "custom", "rainbow", "artwork"},
+                AppPreferences.spectrumColorMode(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_SPECTRUM_COLOR_MODE, value));
+        ColorPaletteControls.add(this, spectrum, "自定义频谱颜色",
+                "关闭手动调色时会跟随歌词颜色。",
+                AppPreferences.compactSpectrumColor(this, secondary), 0xFFFFCA66,
+                color -> AppPreferences.setCompactSpectrumColor(this, secondary, color), this::changed);
+        addCard(root, spectrum);
+
+        if (!secondary) {
+            LinearLayout controls = card("播放控制与全屏按钮");
+            addSeek(controls, "播放按钮大小", 60, 160,
+                    AppPreferences.playbackControlScale(this), "%",
+                    value -> AppPreferences.get(this).edit()
+                            .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_SCALE, value).apply());
+            addSeek(controls, "播放按钮水平位置", -40, 40,
+                    AppPreferences.playbackControlX(this), "%",
+                    value -> AppPreferences.get(this).edit()
+                            .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_X, value).apply());
+            addSeek(controls, "播放按钮垂直位置", -40, 40,
+                    AppPreferences.playbackControlY(this), "%",
+                    value -> AppPreferences.get(this).edit()
+                            .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_Y, value).apply());
+            addChoice(controls, "全屏右上角关闭按钮",
+                    new String[]{"自动弱化", "始终显示", "隐藏"},
+                    new String[]{"fade", "always", "hidden"},
+                    AppPreferences.fullscreenCloseMode(this),
+                    value -> AppPreferences.get(this).edit()
+                            .putString(AppPreferences.KEY_FULLSCREEN_CLOSE_MODE, value).apply());
+            addChoice(controls, "桌面歌词右上角叉",
+                    new String[]{"弱化显示", "始终显示", "隐藏"},
+                    new String[]{"fade", "always", "hidden"},
+                    AppPreferences.overlayCloseMode(this),
+                    value -> AppPreferences.get(this).edit()
+                            .putString(AppPreferences.KEY_OVERLAY_CLOSE_MODE, value).apply());
+            addCard(root, controls);
+        }
 
         LinearLayout sourceCorrection = card("按播放器校正");
         addSourceCorrection(sourceCorrection);
@@ -220,15 +275,61 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putDisplayBoolean(this, secondary, key, checked);
+            if (checked && (AppPreferences.KEY_SPECTRUM_ENABLED.equals(key)
+                    || AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM.equals(key))) {
+                requestSpectrumPermissionIfNeeded();
+            }
             changed();
         });
         parent.addView(toggle);
+    }
+
+    private void requestSpectrumPermissionIfNeeded() {
+        if (!AppPreferences.compactUseRealSpectrum(this, secondary)
+                || android.os.Build.VERSION.SDK_INT < 23
+                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) return;
+        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2418);
     }
 
     private void addLyricColorControls(LinearLayout parent) {
         ColorPaletteControls.add(this, parent, "歌词颜色", "自动模式会跟随所选歌词样式的配色。",
                 AppPreferences.lyricColor(this, secondary), 0xFFFFCA66,
                 color -> AppPreferences.setLyricColor(this, secondary, color), this::changed);
+        if (!AppPreferences.lyricsFollowTheme(this)) return;
+        ColorPaletteControls.add(this, parent, "浅色环境歌词颜色",
+                "当前为浅色环境时使用。",
+                AppPreferences.lyricLightColor(this, secondary), 0xFF17212E,
+                color -> AppPreferences.setLyricLightColor(this, secondary, color), this::changed);
+        ColorPaletteControls.add(this, parent, "深色环境歌词颜色",
+                "当前为深色环境时使用。",
+                AppPreferences.lyricDarkColor(this, secondary), 0xFFF5F8FF,
+                color -> AppPreferences.setLyricDarkColor(this, secondary, color), this::changed);
+    }
+
+    private void addChoice(LinearLayout parent, String title, String[] labels, String[] values,
+                           String initial, StringConsumer consumer) {
+        TextView label = text(title, 14, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(12), 0, dp(4));
+        parent.addView(label);
+        Spinner spinner = new Spinner(this);
+        spinner.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels));
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(initial)) { spinner.setSelection(i, false); break; }
+        }
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            String selected = initial;
+            @Override public void onItemSelected(AdapterView<?> parentView, View view,
+                                                  int position, long id) {
+                if (values[position].equals(selected)) return;
+                selected = values[position];
+                consumer.accept(values[position]);
+                changed();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(44)));
     }
 
     private void addSourceCorrection(LinearLayout parent) {
@@ -327,4 +428,5 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
     }
 
     private interface IntConsumer { void accept(int value); }
+    private interface StringConsumer { void accept(String value); }
 }

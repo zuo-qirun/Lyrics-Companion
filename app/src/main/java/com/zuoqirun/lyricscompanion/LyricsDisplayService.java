@@ -624,9 +624,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         handle.setContentDescription("点击取消悬浮窗穿透");
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(0xCC202124);
-        circle.setStroke(dp(handle.getContext(), 1), 0xAAFFFFFF);
+        boolean weakened = "fade".equals(AppPreferences.overlayCloseMode(this));
+        circle.setColor(weakened ? 0x55202124 : 0xCC202124);
+        circle.setStroke(dp(handle.getContext(), 1), weakened ? 0x55FFFFFF : 0xAAFFFFFF);
         handle.setBackground(circle);
+        handle.setAlpha(weakened ? 0.42f : 1f);
+        if ("hidden".equals(AppPreferences.overlayCloseMode(this))) handle.setVisibility(View.GONE);
         int size = dp(handle.getContext(), 36);
         int height = size;
         final WindowManager.LayoutParams handleParams = new WindowManager.LayoutParams(
@@ -775,8 +778,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         int regionPercent = AppPreferences.topLyricRegionPercent(this);
         int stripWidth = Math.max(dp(this, 160), screenWidth * regionPercent / 100);
         int topInset = statusBarHeightPx();
+        int contentHeight = AppPreferences.topLyricSpectrum(this) ? 66 : 44;
         WindowManager.LayoutParams params = overlayParams(screenWidth,
-                topInset + dp(this, 44));
+                topInset + dp(this, contentHeight));
+        applyTopLyricBlur(params);
         // Keep the transparent renderer in the status area. System icons remain on top and
         // the two lyric lines are centered through the remaining horizontal space.
         params.width = stripWidth;
@@ -815,6 +820,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private void updateStatusLyricStrip(MusicSnapshot snapshot) {
         if (statusLyricStrip != null) statusLyricStrip.postInvalidateOnAnimation();
+    }
+
+    private void applyTopLyricBlur(WindowManager.LayoutParams params) {
+        if (Build.VERSION.SDK_INT < 31
+                || !"blur".equals(AppPreferences.topLyricBackground(this))) return;
+        try {
+            params.setBlurBehindRadius(dp(this, 28));
+            params.flags |= WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+        } catch (Throwable error) {
+            Log.w(TAG, "Window blur unavailable for top lyric strip", error);
+        }
     }
 
     private void dismissStatusLyricStrip() {

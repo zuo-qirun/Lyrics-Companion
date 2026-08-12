@@ -26,6 +26,21 @@ public class LrcTimelineTest {
         assertEquals(500, at.wordProgressPermille);
     }
 
+    @Test public void yrcTrimsTimedEdgesWithoutShiftingKaraokeBoundaries() {
+        LrcTimeline timeline = LrcTimeline.parse("", "",
+                "[1000,1500](1000,500,0) 你(1500,500,0)好(2000,500,0) ");
+
+        LrcTimeline.At first = timeline.at(1_250L);
+        assertEquals("你好", first.lyric);
+        assertEquals("", first.completedLyric);
+        assertEquals("你", first.currentWord);
+        assertEquals(500, first.wordProgressPermille);
+
+        LrcTimeline.At second = timeline.at(1_750L);
+        assertEquals("你", second.completedLyric);
+        assertEquals("好", second.currentWord);
+    }
+
     @Test public void yrcTranslationUsesMatchingLrcLineWhenFirstWordStartsLate() {
         LrcTimeline timeline = LrcTimeline.parse(
                 "[00:01.00]Catch my breath\n[00:04.00]Next line",

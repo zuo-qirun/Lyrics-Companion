@@ -58,6 +58,15 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CUSTOM_FONT = 2417;
     private static final int REQUEST_RECORD_AUDIO = 2418;
+    private static final String STATE_SELECTED_SECTION = "selected_section";
+    private static final String[] SECTION_LABELS = {"首页", "显示", "歌词", "系统"};
+    private static final String[] SECTION_TITLES = {"首页概览", "显示设置", "歌词设置", "系统与支持"};
+    private static final String[] SECTION_DESCRIPTIONS = {
+            "查看实时效果、连接状态与必要权限",
+            "管理悬浮窗、屏幕、样式和播放控件",
+            "选择歌词来源，并检查匹配与播放状态",
+            "更新应用、发送反馈并查看开源信息"
+    };
     private static final String UPDATE_MANIFEST_URL =
             "https://lyrics-companion.zuoqirun.top/update.json";
     private static final String UPDATE_HISTORY_URL =
@@ -97,6 +106,12 @@ public final class MainActivity extends AppCompatActivity {
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private TextView globalFontSummary;
+    private TextView sectionHeading;
+    private TextView sectionDescription;
+    private ScrollView mainScroll;
+    private final List<View> sectionPages = new ArrayList<>();
+    private final List<MaterialButton> sectionButtons = new ArrayList<>();
+    private int selectedSection;
     private boolean bindingUi;
     private boolean updateBusy;
     private boolean onlineBusy;
@@ -147,6 +162,9 @@ public final class MainActivity extends AppCompatActivity {
         // Overlay lyrics can still use the separately selected light/dark environment.
         getDelegate().setLocalNightMode(AppCompatDelegate.MODE_NIGHT_YES);
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            selectedSection = savedInstanceState.getInt(STATE_SELECTED_SECTION, 0);
+        }
         boolean launcherIntent = isLauncherIntent();
         if (launcherIntent) {
             AppPreferences.get(this).edit().remove("launch_overlay_target").apply();
@@ -167,6 +185,11 @@ public final class MainActivity extends AppCompatActivity {
         requestNotificationPermissionIfNeeded();
         handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
         handler.postDelayed(() -> checkForUpdates(false), 2_000L);
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        outState.putInt(STATE_SELECTED_SECTION, selectedSection);
+        super.onSaveInstanceState(outState);
     }
 
     @Override protected void onResume() {
@@ -282,32 +305,20 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View buildContent() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(themeColor(com.google.android.material.R.attr.colorSurface,
-                0xFF07111F));
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(34));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-        MaterialToolbar toolbar = new MaterialToolbar(this);
+        sectionPages.clear();
+        sectionButtons.clear();
+        View shell = getLayoutInflater().inflate(R.layout.activity_main, null, false);
+        LinearLayout root = shell.findViewById(R.id.main_content);
+        LinearLayout pageHost = shell.findViewById(R.id.main_page_host);
+        mainScroll = shell.findViewById(R.id.main_scroll);
+        MaterialToolbar toolbar = shell.findViewById(R.id.main_toolbar);
         toolbar.setTitle("歌词伴侣");
         toolbar.setSubtitle("主屏悬浮窗 · 副屏歌词");
         toolbar.setTitleTextColor(Color.WHITE);
         toolbar.setSubtitleTextColor(0xFFA9B6C8);
-        toolbar.setBackgroundColor(Color.TRANSPARENT);
-        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(64)));
-
-        TextView eyebrow = text("LYRICS · COMPANION", 12, 0xFF6EE7F2, true);
-        root.addView(eyebrow);
-        TextView title = text("让歌词自然地出现在每块屏幕上", 28, Color.WHITE, true);
-        title.setPadding(0, dp(6), 0, dp(5));
-        root.addView(title);
-        TextView intro = text("读取系统媒体控制中的封面与播放状态，并从网易云、QQ 音乐、酷狗、酷我等来源匹配逐字或逐行歌词。", 14,
-                0xFFA9B6C8, false);
-        intro.setLineSpacing(0f, 1.18f);
-        root.addView(intro);
+        sectionHeading = shell.findViewById(R.id.main_section_heading);
+        sectionDescription = shell.findViewById(R.id.main_section_description);
+        sectionDescription.setLineSpacing(0f, 1.18f);
 
         LinearLayout previewCard = card();
         TextView previewLabel = sectionLabel("实时预览");
@@ -349,7 +360,7 @@ public final class MainActivity extends AppCompatActivity {
         lyricCard.addView(playerCatalogFallback);
 
         LinearLayout outputCard = card();
-        outputCard.addView(sectionLabel("显示与启动"));
+        outputCard.addView(sectionLabel("悬浮歌词"));
         mainOverlaySwitch = toggle("主屏悬浮窗",
                 "离开设置页后显示；可拖动，双击强制返回，长按锁定并开启触摸穿透；点击圆形 × 按钮可恢复");
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
@@ -373,6 +384,9 @@ public final class MainActivity extends AppCompatActivity {
             LyricsDisplayService.setSettingsVisible(this, true);
         });
         outputCard.addView(secondaryOverlaySwitch);
+
+        LinearLayout startupCard = card();
+        startupCard.addView(sectionLabel("启动与交互"));
         launchOverlaySwitch = toggle("点击图标启动悬浮窗",
                 "开启后首次点击图标按已记忆的主屏、副屏和通知栏歌词恢复显示；30 秒内再次点击进入主界面");
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
@@ -383,7 +397,7 @@ public final class MainActivity extends AppCompatActivity {
                     .remove(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)
                     .apply();
         });
-        outputCard.addView(launchOverlaySwitch);
+        startupCard.addView(launchOverlaySwitch);
         autoStartSwitch = toggle("开机 / 亮屏自启动悬浮窗",
                 "在重启或每次亮屏时恢复已记忆的主屏、副屏和通知栏歌词。关闭服务并退出不会改变此项。");
         autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
@@ -400,14 +414,14 @@ public final class MainActivity extends AppCompatActivity {
             }
             LyricsDisplayService.startOrRefresh(this);
         });
-        outputCard.addView(autoStartSwitch);
+        startupCard.addView(autoStartSwitch);
         MaterialSwitch returnToPlayer = toggle("轻触悬浮窗返回播放器",
                 "关闭时打开歌词伴侣；无法打开播放器时会自动回到歌词伴侣");
         returnToPlayer.setChecked(AppPreferences.tapOverlayReturnsToPlayer(this));
         returnToPlayer.setOnCheckedChangeListener((button, checked) -> AppPreferences.get(this)
                 .edit().putBoolean(AppPreferences.KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, checked)
                 .apply());
-        outputCard.addView(returnToPlayer);
+        startupCard.addView(returnToPlayer);
 
         MaterialButton visibilityRules = button("悬浮窗隐藏规则", false);
         visibilityRules.setOnClickListener(v -> startActivity(
@@ -436,30 +450,32 @@ public final class MainActivity extends AppCompatActivity {
         stopService.setOnClickListener(v -> confirmStopServiceAndExit());
         LinearLayout.LayoutParams stopServiceParams = new LinearLayout.LayoutParams(-1, dp(48));
         stopServiceParams.topMargin = dp(12);
-        outputCard.addView(stopService, stopServiceParams);
+        startupCard.addView(stopService, stopServiceParams);
 
+        LinearLayout screenCard = card();
+        screenCard.addView(sectionLabel("副屏与位置"));
         TextView displayLabel = text("投屏屏幕", 13, 0xFF93A4B9, true);
         displayLabel.setPadding(0, dp(14), 0, dp(5));
-        outputCard.addView(displayLabel);
+        screenCard.addView(displayLabel);
         displaySpinner = new Spinner(this, Spinner.MODE_DIALOG);
         displaySpinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
-        outputCard.addView(displaySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        screenCard.addView(displaySpinner, new LinearLayout.LayoutParams(-1, dp(52)));
         displayStatus = text("", 13, 0xFF8392A8, false);
         displayStatus.setPadding(0, dp(5), 0, 0);
-        outputCard.addView(displayStatus);
+        screenCard.addView(displayStatus);
 
         TextView joystickLabel = text("副屏位置微调", 13, 0xFF93A4B9, true);
         joystickLabel.setPadding(0, dp(16), 0, 0);
-        outputCard.addView(joystickLabel);
+        screenCard.addView(joystickLabel);
         TextView joystickHelp = text("按住摇杆持续移动；松手后自动回中。副屏接入并开启后生效。", 12,
                 0xFF74869D, false);
         joystickHelp.setPadding(0, dp(4), 0, dp(4));
-        outputCard.addView(joystickHelp);
+        screenCard.addView(joystickHelp);
         SecondaryPositionJoystickView joystick = new SecondaryPositionJoystickView(this);
         joystick.setListener((dx, dy) -> LyricsDisplayService.moveSecondaryBy(this, dx, dy));
         LinearLayout.LayoutParams joystickParams = new LinearLayout.LayoutParams(dp(148), dp(148));
         joystickParams.gravity = Gravity.CENTER_HORIZONTAL;
-        outputCard.addView(joystick, joystickParams);
+        screenCard.addView(joystick, joystickParams);
 
         LinearLayout styleCard = card();
         styleCard.addView(sectionLabel("主屏 / 副屏样式"));
@@ -496,10 +512,13 @@ public final class MainActivity extends AppCompatActivity {
                         .putExtra(CompactSettingsActivity.EXTRA_SECONDARY, true)));
         styleCard.addView(secondaryCompactSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
         updateRefinedSettingsVisibility();
-        addThemeSelector(styleCard);
-        addGlobalFontControls(styleCard);
         addDisplaySettingsLaunchers(styleCard);
-        addPlaybackControlToggles(styleCard);
+
+        LinearLayout appearanceCard = card();
+        appearanceCard.addView(sectionLabel("主题、字体与控件"));
+        addThemeSelector(appearanceCard);
+        addGlobalFontControls(appearanceCard);
+        addPlaybackControlToggles(appearanceCard);
 
         LinearLayout updateCard = card();
         updateCard.addView(sectionLabel("应用更新"));
@@ -585,45 +604,110 @@ public final class MainActivity extends AppCompatActivity {
         rematchParams.topMargin = dp(12);
         stateCard.addView(rematchLyrics, rematchParams);
 
-        if (useTwoColumnLayout()) {
-            LinearLayout columns = new LinearLayout(this);
-            columns.setOrientation(LinearLayout.HORIZONTAL);
-            columns.setBaselineAligned(false);
-            LinearLayout leftColumn = new LinearLayout(this);
-            leftColumn.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout rightColumn = new LinearLayout(this);
-            rightColumn.setOrientation(LinearLayout.VERTICAL);
-            columns.addView(leftColumn, new LinearLayout.LayoutParams(0, -2, 1f));
-            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1f);
-            rightParams.leftMargin = dp(14);
-            columns.addView(rightColumn, rightParams);
-            leftColumn.addView(previewCard, cardMargins());
-            rightColumn.addView(accessCard, cardMargins());
-            rightColumn.addView(lyricCard, cardMargins());
+        LinearLayout homePage = sectionPage();
+        homePage.addView(previewCard, cardMargins());
+        homePage.addView(accessCard, cardMargins());
+
+        LinearLayout displayPage = sectionPage();
+        if (useSideNavigation()) {
+            LinearLayout displayColumns = new LinearLayout(this);
+            displayColumns.setOrientation(LinearLayout.HORIZONTAL);
+            displayColumns.setBaselineAligned(false);
+            LinearLayout leftColumn = sectionPage();
+            LinearLayout rightColumn = sectionPage();
             leftColumn.addView(outputCard, cardMargins());
-            leftColumn.addView(stateCard, cardMargins());
-            leftColumn.addView(updateCard, cardMargins());
+            leftColumn.addView(startupCard, cardMargins());
+            leftColumn.addView(screenCard, cardMargins());
             rightColumn.addView(styleCard, cardMargins());
-            rightColumn.addView(communityCard, cardMargins());
-            rightColumn.addView(openSourceCard, cardMargins());
-            root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
+            rightColumn.addView(appearanceCard, cardMargins());
+            displayColumns.addView(leftColumn, new LinearLayout.LayoutParams(0, -2, 1f));
+            LinearLayout.LayoutParams rightColumnParams =
+                    new LinearLayout.LayoutParams(0, -2, 1f);
+            rightColumnParams.leftMargin = dp(14);
+            displayColumns.addView(rightColumn, rightColumnParams);
+            displayPage.addView(displayColumns, new LinearLayout.LayoutParams(-1, -2));
         } else {
-            root.addView(previewCard, cardMargins());
-            root.addView(accessCard, cardMargins());
-            root.addView(lyricCard, cardMargins());
-            root.addView(communityCard, cardMargins());
-            root.addView(updateCard, cardMargins());
-            root.addView(openSourceCard, cardMargins());
-            root.addView(outputCard, cardMargins());
-            root.addView(styleCard, cardMargins());
-            root.addView(stateCard, cardMargins());
+            displayPage.addView(outputCard, cardMargins());
+            displayPage.addView(startupCard, cardMargins());
+            displayPage.addView(screenCard, cardMargins());
+            displayPage.addView(styleCard, cardMargins());
+            displayPage.addView(appearanceCard, cardMargins());
         }
+
+        LinearLayout lyricsPage = sectionPage();
+        lyricsPage.addView(lyricCard, cardMargins());
+        lyricsPage.addView(stateCard, cardMargins());
+
+        LinearLayout systemPage = sectionPage();
+        systemPage.addView(communityCard, cardMargins());
+        systemPage.addView(updateCard, cardMargins());
+        systemPage.addView(openSourceCard, cardMargins());
 
         TextView footnote = text("提示：支持发布 MediaSession 的在线、本地和 U 盘音乐播放器；文件名会自动清理路径、序号、扩展名和音质标记，仍不准确时可用“修正歌曲信息并重新匹配”。歌词伴侣不会向 iPhone CarPlay 仪表盘注入媒体信息。", 12,
                 0xFF66788F, false);
         footnote.setLineSpacing(0f, 1.25f);
-        root.addView(footnote);
-        return scroll;
+        LinearLayout.LayoutParams footnoteParams = new LinearLayout.LayoutParams(-1, -2);
+        footnoteParams.topMargin = dp(16);
+        systemPage.addView(footnote, footnoteParams);
+
+        sectionPages.add(homePage);
+        sectionPages.add(displayPage);
+        sectionPages.add(lyricsPage);
+        sectionPages.add(systemPage);
+        for (View page : sectionPages) {
+            pageHost.addView(page, new LinearLayout.LayoutParams(-1, -2));
+        }
+
+        bindSectionNavigation(shell);
+        selectSection(Math.max(0, Math.min(selectedSection, sectionPages.size() - 1)));
+        return shell;
+    }
+
+    private LinearLayout sectionPage() {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        return page;
+    }
+
+    private void bindSectionNavigation(View shell) {
+        int[] ids = {R.id.nav_home, R.id.nav_display, R.id.nav_lyrics, R.id.nav_system};
+        for (int index = 0; index < ids.length; index++) {
+            final int section = index;
+            MaterialButton item = shell.findViewById(ids[index]);
+            item.setTextSize(12f);
+            item.setMinWidth(0);
+            item.setMinimumWidth(0);
+            item.setMinHeight(0);
+            item.setMinimumHeight(0);
+            item.setCornerRadius(dp(16));
+            item.setContentDescription("打开" + SECTION_LABELS[index] + "分类");
+            item.setOnClickListener(v -> selectSection(section));
+            sectionButtons.add(item);
+        }
+    }
+
+    private void selectSection(int section) {
+        if (section < 0 || section >= sectionPages.size()) return;
+        boolean sectionChanged = selectedSection != section;
+        selectedSection = section;
+        for (int index = 0; index < sectionPages.size(); index++) {
+            sectionPages.get(index).setVisibility(index == section ? View.VISIBLE : View.GONE);
+        }
+        for (int index = 0; index < sectionButtons.size(); index++) {
+            boolean selected = index == section;
+            MaterialButton item = sectionButtons.get(index);
+            item.setSelected(selected);
+            item.setTextColor(selected ? 0xFF07111F : 0xFFA9B6C8);
+            item.setBackgroundTintList(ColorStateList.valueOf(
+                    selected ? 0xFF6EE7F2 : Color.TRANSPARENT));
+        }
+        if (sectionHeading != null) sectionHeading.setText(SECTION_TITLES[section]);
+        if (sectionDescription != null) {
+            sectionDescription.setText(SECTION_DESCRIPTIONS[section]);
+        }
+        if (sectionChanged && mainScroll != null) {
+            mainScroll.post(() -> mainScroll.scrollTo(0, 0));
+        }
     }
 
     private void confirmStopServiceAndExit() {
@@ -1394,21 +1478,16 @@ public final class MainActivity extends AppCompatActivity {
     private int previewHeightPx() {
         float density = getResources().getDisplayMetrics().density;
         float screenWidthDp = getResources().getDisplayMetrics().widthPixels / density;
-        float availableWidthDp = useTwoColumnLayout()
-                ? (screenWidthDp - 40f - 14f) / 2f - 32f
-                : screenWidthDp - 72f;
+        float availableWidthDp = screenWidthDp - (useSideNavigation() ? 104f : 0f) - 72f;
         float aspectHeightDp = availableWidthDp * AppPreferences.panelHeightDp(this)
                 / (float) AppPreferences.panelWidthDp(this);
         return dp(Math.max(AppPreferences.minimumPanelHeightDp(this),
                 Math.min(420f, aspectHeightDp)));
     }
 
-    private boolean useTwoColumnLayout() {
-        float widthDp = getResources().getDisplayMetrics().widthPixels
-                / getResources().getDisplayMetrics().density;
+    private boolean useSideNavigation() {
         return getResources().getConfiguration().orientation
-                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                && widthDp >= 600f;
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
     }
 
     private LinearLayout card() {

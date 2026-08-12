@@ -59,13 +59,16 @@ public final class CompactSettingsActivity extends AppCompatActivity {
         LinearLayout content = card("歌词内容");
         addToggle(content, "显示下一句歌词（双行）", AppPreferences.KEY_COMPACT_SHOW_NEXT_LINE,
                 AppPreferences.compactShowNextLine(this, secondary));
+        addToggle(content, "显示歌词翻译（替代下一句）",
+                AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
+                AppPreferences.refinedShowTranslation(this, secondary));
         addToggle(content, "显示封面、歌名和歌手", AppPreferences.KEY_COMPACT_SHOW_COVER,
                 AppPreferences.compactShowCover(this, secondary));
         addCard(root, content);
 
         LinearLayout spectrum = card("底部律动");
-        addToggle(spectrum, "显示底部律动条", AppPreferences.KEY_COMPACT_SHOW_BARS,
-                AppPreferences.compactShowBars(this, secondary));
+        addToggle(spectrum, "显示底部律动条", AppPreferences.KEY_SPECTRUM_ENABLED,
+                AppPreferences.spectrumEnabled(this, secondary));
         MaterialSwitch realSpectrum = new MaterialSwitch(this);
         realSpectrum.setText("真实音频律动（关闭为虚拟律动）");
         styleToggle(realSpectrum);

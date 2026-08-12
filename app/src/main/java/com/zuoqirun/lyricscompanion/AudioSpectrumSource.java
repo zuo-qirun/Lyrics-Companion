@@ -19,14 +19,21 @@ final class AudioSpectrumSource {
     private AudioSpectrumSource() { }
 
     static synchronized void sync(Context context) {
-        boolean requested = (AppPreferences.mainEnabled(context)
-                && "compact".equals(AppPreferences.overlayStyle(context, false))
-                && AppPreferences.compactShowBars(context, false)
-                && AppPreferences.compactUseRealSpectrum(context, false))
-                || (AppPreferences.secondaryEnabled(context)
-                && "compact".equals(AppPreferences.overlayStyle(context, true))
-                && AppPreferences.compactShowBars(context, true)
-                && AppPreferences.compactUseRealSpectrum(context, true));
+        sync(context, false);
+    }
+
+    static synchronized void sync(Context context, boolean fullscreen) {
+        boolean requested = fullscreen && AppPreferences.spectrumEnabled(context, false)
+                && AppPreferences.compactUseRealSpectrum(context, false)
+                || AppPreferences.mainEnabled(context)
+                && AppPreferences.spectrumEnabled(context, false)
+                && AppPreferences.compactUseRealSpectrum(context, false)
+                || AppPreferences.secondaryEnabled(context)
+                && AppPreferences.spectrumEnabled(context, true)
+                && AppPreferences.compactUseRealSpectrum(context, true)
+                || AppPreferences.topLyricStrip(context)
+                && AppPreferences.topLyricSpectrum(context)
+                && AppPreferences.compactUseRealSpectrum(context, false);
         if (!requested) {
             stop("待命");
             return;

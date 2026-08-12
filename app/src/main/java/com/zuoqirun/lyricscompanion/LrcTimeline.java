@@ -240,9 +240,13 @@ final class LrcTimeline {
             if (previousStart >= 0L && textStart >= 0) {
                 words.add(new Word(previousStart, previousDuration, content.substring(textStart)));
             }
+            // Keep the word list and the displayed line on the same UTF-16 coordinate system.
+            // Some providers include untimed padding inside the first/last YRC word. Trimming
+            // only the concatenated line shifts every subsequent karaoke boundary.
+            trimTimedWordEdges(words);
             StringBuilder text = new StringBuilder();
             for (Word word : words) text.append(word.text);
-            String lineText = text.toString().trim();
+            String lineText = text.toString();
             if (!lineText.isEmpty()) {
                 result.add(new Line(lineStart, Long.parseLong(lineMatcher.group(2)), lineText,
                         enhancedTranslation(originalLines, translations, lineStart, lineText),
@@ -250,6 +254,51 @@ final class LrcTimeline {
             }
         }
         return result;
+    }
+
+    private static void trimTimedWordEdges(List<Word> words) {
+        if (words.isEmpty()) return;
+        int first = 0;
+        while (first < words.size() && words.get(first).text.trim().isEmpty()) first++;
+        if (first >= words.size()) {
+            words.clear();
+            return;
+        }
+        int last = words.size() - 1;
+        while (last >= first && words.get(last).text.trim().isEmpty()) last--;
+        if (last + 1 < words.size()) words.subList(last + 1, words.size()).clear();
+        if (first > 0) words.subList(0, first).clear();
+        Word leading = words.get(0);
+        String leadingText = trimLeadingWhitespace(leading.text);
+        if (!leadingText.equals(leading.text)) {
+            words.set(0, new Word(leading.startMs, leading.durationMs, leadingText));
+        }
+        int end = words.size() - 1;
+        Word trailing = words.get(end);
+        String trailingText = trimTrailingWhitespace(trailing.text);
+        if (!trailingText.equals(trailing.text)) {
+            words.set(end, new Word(trailing.startMs, trailing.durationMs, trailingText));
+        }
+    }
+
+    private static String trimLeadingWhitespace(String value) {
+        int start = 0;
+        while (start < value.length()) {
+            int codePoint = value.codePointAt(start);
+            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) break;
+            start += Character.charCount(codePoint);
+        }
+        return value.substring(start);
+    }
+
+    private static String trimTrailingWhitespace(String value) {
+        int end = value.length();
+        while (end > 0) {
+            int codePoint = value.codePointBefore(end);
+            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) break;
+            end -= Character.charCount(codePoint);
+        }
+        return value.substring(0, end);
     }
 
     private static long toMilliseconds(String minutes, String seconds, String fraction) {

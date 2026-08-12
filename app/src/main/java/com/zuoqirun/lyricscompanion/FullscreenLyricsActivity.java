@@ -7,6 +7,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -21,6 +23,13 @@ import androidx.appcompat.widget.AppCompatImageButton;
 /** Full-bleed host for the currently selected main-display lyric style. */
 public final class FullscreenLyricsActivity extends AppCompatActivity {
     private LyricsPanelView panel;
+    private AppCompatImageButton exitButton;
+    private final Handler closeHandler = new Handler(Looper.getMainLooper());
+    private final Runnable weakenClose = () -> {
+        if (exitButton != null && "fade".equals(AppPreferences.fullscreenCloseMode(this))) {
+            exitButton.animate().alpha(0.15f).setDuration(420L).start();
+        }
+    };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -31,6 +40,7 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.BLACK);
         panel = new LyricsPanelView(this, false, true);
         root.setPanel(panel);
+        root.setInteractionListener(this::showCloseTemporarily);
         root.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         addExitButton(root);
@@ -40,6 +50,7 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
 
     private void addExitButton(FrameLayout root) {
         AppCompatImageButton exit = new AppCompatImageButton(this);
+        exitButton = exit;
         exit.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
         exit.setColorFilter(Color.WHITE);
         exit.setBackground(closeButtonBackground());
@@ -53,6 +64,7 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
                 Gravity.TOP | Gravity.END);
         params.setMargins(margin, margin, margin, margin);
         root.addView(exit, params);
+        applyCloseMode();
         if (Build.VERSION.SDK_INT >= 28) {
             root.setOnApplyWindowInsetsListener((view, insets) -> {
                 android.view.DisplayCutout cutout = insets.getDisplayCutout();
@@ -92,13 +104,32 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
         super.onResume();
         hideSystemUi();
         if (panel != null) panel.reloadStyle();
-        AudioSpectrumSource.sync(this);
+        AudioSpectrumSource.sync(this, true);
         LyricsDisplayService.setSettingsVisible(this, true);
+        applyCloseMode();
     }
 
     @Override protected void onPause() {
+        closeHandler.removeCallbacks(weakenClose);
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
+    }
+
+    private void applyCloseMode() {
+        if (exitButton == null) return;
+        closeHandler.removeCallbacks(weakenClose);
+        String mode = AppPreferences.fullscreenCloseMode(this);
+        exitButton.setVisibility("hidden".equals(mode) ? View.GONE : View.VISIBLE);
+        exitButton.setAlpha(1f);
+        if ("fade".equals(mode)) closeHandler.postDelayed(weakenClose, 3_000L);
+    }
+
+    private void showCloseTemporarily() {
+        if (exitButton == null || !"fade".equals(AppPreferences.fullscreenCloseMode(this))) return;
+        closeHandler.removeCallbacks(weakenClose);
+        exitButton.setVisibility(View.VISIBLE);
+        exitButton.animate().alpha(1f).setDuration(140L).start();
+        closeHandler.postDelayed(weakenClose, 3_000L);
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -144,6 +175,7 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
     private static final class FullscreenGestureLayout extends FrameLayout {
         private final GestureDetector detector;
         private LyricsPanelView panel;
+        private Runnable interactionListener;
 
         FullscreenGestureLayout(Context context) {
             super(context);
@@ -162,8 +194,12 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
         }
 
         void setPanel(LyricsPanelView panel) { this.panel = panel; }
+        void setInteractionListener(Runnable listener) { interactionListener = listener; }
 
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN && interactionListener != null) {
+                interactionListener.run();
+            }
             detector.onTouchEvent(event);
             return super.dispatchTouchEvent(event);
         }
