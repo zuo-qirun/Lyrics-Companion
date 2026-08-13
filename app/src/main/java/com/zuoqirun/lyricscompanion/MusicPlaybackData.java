@@ -22,6 +22,7 @@ final class MusicPlaybackData {
     final String artist;
     final Bitmap albumArt;
     final String albumArtUri;
+    final String mediaUri;
     final long durationMs;
     final boolean statePresent;
     final int state;
@@ -32,11 +33,20 @@ final class MusicPlaybackData {
     MusicPlaybackData(String mediaId, String title, String artist, Bitmap albumArt,
                       String albumArtUri, long durationMs, boolean statePresent, int state,
                       long positionMs, long positionUpdatedAtElapsedMs, float speed) {
+        this(mediaId, title, artist, albumArt, albumArtUri, "", durationMs, statePresent, state,
+                positionMs, positionUpdatedAtElapsedMs, speed);
+    }
+
+    MusicPlaybackData(String mediaId, String title, String artist, Bitmap albumArt,
+                      String albumArtUri, String mediaUri, long durationMs,
+                      boolean statePresent, int state, long positionMs,
+                      long positionUpdatedAtElapsedMs, float speed) {
         this.mediaId = value(mediaId);
         this.title = value(title);
         this.artist = value(artist);
         this.albumArt = albumArt;
         this.albumArtUri = value(albumArtUri);
+        this.mediaUri = value(mediaUri);
         this.durationMs = durationMs;
         this.statePresent = statePresent;
         this.state = state;

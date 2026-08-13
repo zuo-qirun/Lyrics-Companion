@@ -1,8 +1,6 @@
 package com.zuoqirun.lyricscompanion;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
@@ -11,7 +9,6 @@ import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -86,7 +83,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 AppPreferences.nextLyricOpacity(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
-        addLyricColorControls(panel);
         addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
                 AppPreferences.smoothLyricScroll(this, secondary));
         addSeek(panel, "歌词显示行数", 1, 3,
@@ -117,10 +113,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 AppPreferences.spectrumColorMode(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_SPECTRUM_COLOR_MODE, value));
-        ColorPaletteControls.add(this, spectrum, "自定义频谱颜色",
-                "关闭手动调色时会跟随歌词颜色。",
-                AppPreferences.compactSpectrumColor(this, secondary), 0xFFFFCA66,
-                color -> AppPreferences.setCompactSpectrumColor(this, secondary, color), this::changed);
         addCard(root, spectrum);
 
         if (!secondary) {
@@ -275,36 +267,17 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putDisplayBoolean(this, secondary, key, checked);
-            if (checked && (AppPreferences.KEY_SPECTRUM_ENABLED.equals(key)
-                    || AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM.equals(key))) {
-                requestSpectrumPermissionIfNeeded();
+            if (checked && AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM.equals(key)
+                    && android.os.Build.VERSION.SDK_INT >= 23
+                    && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                android.widget.Toast.makeText(this,
+                        "请在首页“使用权限”中授予录音频谱权限",
+                        android.widget.Toast.LENGTH_LONG).show();
             }
             changed();
         });
         parent.addView(toggle);
-    }
-
-    private void requestSpectrumPermissionIfNeeded() {
-        if (!AppPreferences.compactUseRealSpectrum(this, secondary)
-                || android.os.Build.VERSION.SDK_INT < 23
-                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED) return;
-        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2418);
-    }
-
-    private void addLyricColorControls(LinearLayout parent) {
-        ColorPaletteControls.add(this, parent, "歌词颜色", "自动模式会跟随所选歌词样式的配色。",
-                AppPreferences.lyricColor(this, secondary), 0xFFFFCA66,
-                color -> AppPreferences.setLyricColor(this, secondary, color), this::changed);
-        if (!AppPreferences.lyricsFollowTheme(this)) return;
-        ColorPaletteControls.add(this, parent, "浅色环境歌词颜色",
-                "当前为浅色环境时使用。",
-                AppPreferences.lyricLightColor(this, secondary), 0xFF17212E,
-                color -> AppPreferences.setLyricLightColor(this, secondary, color), this::changed);
-        ColorPaletteControls.add(this, parent, "深色环境歌词颜色",
-                "当前为深色环境时使用。",
-                AppPreferences.lyricDarkColor(this, secondary), 0xFFF5F8FF,
-                color -> AppPreferences.setLyricDarkColor(this, secondary, color), this::changed);
     }
 
     private void addChoice(LinearLayout parent, String title, String[] labels, String[] values,
@@ -313,8 +286,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         label.setPadding(0, dp(12), 0, dp(4));
         parent.addView(label);
         Spinner spinner = new Spinner(this);
-        spinner.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels));
+        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         for (int i = 0; i < values.length; i++) {
             if (values[i].equals(initial)) { spinner.setSelection(i, false); break; }
         }
@@ -344,9 +316,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         final String[] selectedSource = {sourceIds[initialIndex]};
 
         Spinner picker = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels);
-        picker.setAdapter(adapter);
+        picker.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         picker.setSelection(initialIndex);
         parent.addView(picker, new LinearLayout.LayoutParams(-1, dp(44)));
 

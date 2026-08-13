@@ -8,7 +8,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
-import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.view.View;
 
@@ -75,14 +74,6 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         background.addView(backgroundNote);
         addCard(root, background);
 
-        LinearLayout color = card("歌词颜色");
-        TextView description = text("顶部歌词条可独立决定是否跟随深浅环境；开启后可分别设置浅色与深色环境的歌词颜色。", 12,
-                0xFF8392A8, false);
-        description.setLineSpacing(0f, 1.2f);
-        description.setPadding(0, dp(9), 0, dp(3));
-        color.addView(description);
-        addColorControls(color);
-        addCard(root, color);
         setContentView(scroll);
         CustomFontStore.applyToViewTree(this, scroll);
     }
@@ -95,52 +86,6 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
     @Override protected void onPause() {
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
-    }
-
-    private void addColorControls(LinearLayout parent) {
-        com.google.android.material.materialswitch.MaterialSwitch followTheme =
-                new com.google.android.material.materialswitch.MaterialSwitch(this);
-        followTheme.setText("歌词跟随深浅色");
-        followTheme.setTextColor(0xFFF1F5FA);
-        followTheme.setPadding(0, dp(10), 0, 0);
-        followTheme.setChecked(AppPreferences.statusLyricFollowTheme(this));
-        parent.addView(followTheme);
-
-        LinearLayout fixedColors = new LinearLayout(this);
-        fixedColors.setOrientation(LinearLayout.VERTICAL);
-        ColorPaletteControls.add(this, fixedColors, "歌词颜色",
-                "自动模式使用高对比白色，适合大多数桌面。",
-                AppPreferences.statusLyricColor(this), 0xFFF5F8FF,
-                color -> AppPreferences.setStatusLyricColor(this, color), () -> {
-                    updatePreview();
-                    AppPreferences.changed(this);
-                });
-        parent.addView(fixedColors);
-
-        LinearLayout themedColors = new LinearLayout(this);
-        themedColors.setOrientation(LinearLayout.VERTICAL);
-        ColorPaletteControls.add(this, themedColors, "浅色环境歌词颜色",
-                "自动使用深色歌词。", AppPreferences.statusLyricLightColor(this),
-                0xFF17212E, color -> AppPreferences.setStatusLyricLightColor(this, color),
-                () -> { updatePreview(); AppPreferences.changed(this); });
-        ColorPaletteControls.add(this, themedColors, "深色环境歌词颜色",
-                "自动使用浅色歌词。", AppPreferences.statusLyricDarkColor(this),
-                0xFFF5F8FF, color -> AppPreferences.setStatusLyricDarkColor(this, color),
-                () -> { updatePreview(); AppPreferences.changed(this); });
-        parent.addView(themedColors);
-        updateColorControlVisibility(fixedColors, themedColors, followTheme.isChecked());
-        followTheme.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit()
-                    .putBoolean(AppPreferences.KEY_STATUS_LYRIC_FOLLOW_THEME, checked).apply();
-            updateColorControlVisibility(fixedColors, themedColors, checked);
-            updatePreview();
-            AppPreferences.changed(this);
-        });
-    }
-
-    private static void updateColorControlVisibility(View fixed, View themed, boolean follows) {
-        fixed.setVisibility(follows ? View.GONE : View.VISIBLE);
-        themed.setVisibility(follows ? View.VISIBLE : View.GONE);
     }
 
     private void addSeek(LinearLayout parent, String title, int min, int max, int initial,
@@ -190,8 +135,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         String[] labels = {"完全透明", "毛玻璃", "紧凑单行背景"};
         String[] values = {"transparent", "blur", "compact"};
         Spinner spinner = new Spinner(this);
-        spinner.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels));
+        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         String initial = AppPreferences.topLyricBackground(this);
         for (int i = 0; i < values.length; i++) if (values[i].equals(initial)) {
             spinner.setSelection(i, false); break;

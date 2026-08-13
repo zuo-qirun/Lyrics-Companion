@@ -40,6 +40,12 @@ final class AppPreferences {
     static final String KEY_LYRIC_COLOR = "lyric_color";
     static final String KEY_LYRIC_LIGHT_COLOR = "lyric_light_color";
     static final String KEY_LYRIC_DARK_COLOR = "lyric_dark_color";
+    static final String KEY_TITLE_COLOR = "title_color";
+    static final String KEY_ARTIST_COLOR = "artist_color";
+    static final String KEY_PLAYER_COLOR = "player_color";
+    static final String KEY_LYRIC_SOURCE_COLOR = "lyric_source_color";
+    static final String KEY_BACKGROUND_LIGHT_COLOR = "background_light_color";
+    static final String KEY_BACKGROUND_DARK_COLOR = "background_dark_color";
     static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
     /** Optional per-player-category override kept for backward compatibility. */
@@ -82,6 +88,7 @@ final class AppPreferences {
     static final String KEY_SPECTRUM_ENABLED = "spectrum_enabled";
     static final String KEY_SPECTRUM_STYLE = "spectrum_style";
     static final String KEY_SPECTRUM_COLOR_MODE = "spectrum_color_mode";
+    static final String KEY_REAL_SPECTRUM_CAPTURE_RATE = "real_spectrum_capture_rate";
     static final String KEY_TAP_OVERLAY_RETURNS_TO_PLAYER = "tap_overlay_returns_to_player";
     static final String KEY_LAUNCH_OVERLAY_ON_ICON = "launch_overlay_on_icon";
     static final String KEY_LAUNCH_OVERLAY_LAST_AT = "launch_overlay_last_at";
@@ -116,6 +123,11 @@ final class AppPreferences {
     static final String KEY_TOP_LYRIC_SHOW_TRANSLATION = "top_lyric_show_translation";
     static final String KEY_TOP_LYRIC_BACKGROUND = "top_lyric_background";
     static final String KEY_TOP_LYRIC_SPECTRUM = "top_lyric_spectrum";
+    static final String KEY_BOTTOM_SPECTRUM = "bottom_spectrum";
+    static final String KEY_BOTTOM_SPECTRUM_HEIGHT_DP = "bottom_spectrum_height_dp";
+    static final String KEY_LOCAL_LYRIC_ENABLED = "local_lyric_enabled";
+    static final String KEY_LOCAL_LYRIC_DIRECTORY_URI = "local_lyric_directory_uri";
+    static final String KEY_AVRCP_ENABLED = "avrcp_enabled";
     static final String KEY_LOCKSCREEN_LYRICS = "lockscreen_lyrics";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
@@ -363,6 +375,41 @@ final class AppPreferences {
                 color == 0 ? 0 : color | 0xFF000000);
     }
 
+    /** Zero leaves the active style in control of metadata colors. */
+    static int titleColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_TITLE_COLOR, 0);
+    }
+
+    static int artistColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_ARTIST_COLOR, 0);
+    }
+
+    static int playerColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_PLAYER_COLOR, 0);
+    }
+
+    static int lyricSourceColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_LYRIC_SOURCE_COLOR, 0);
+    }
+
+    static void setMetadataColor(Context context, boolean secondary, String key, int color) {
+        putDisplayInt(context, secondary, key, color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static int backgroundLightColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_BACKGROUND_LIGHT_COLOR, 0);
+    }
+
+    static int backgroundDarkColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_BACKGROUND_DARK_COLOR, 0);
+    }
+
+    static void setBackgroundColor(Context context, boolean secondary, boolean light, int color) {
+        putDisplayInt(context, secondary,
+                light ? KEY_BACKGROUND_LIGHT_COLOR : KEY_BACKGROUND_DARK_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
     static boolean smoothLyricScroll(Context context, boolean secondary) {
         return displayBoolean(context, secondary, KEY_SMOOTH_LYRIC_SCROLL, true);
     }
@@ -477,7 +524,7 @@ final class AppPreferences {
     private static String normalizeOverlayStyle(String style) {
         if ("default".equals(style) || "refined".equals(style)
                 || "compact".equals(style) || "pip".equals(style)
-                || "custom".equals(style) || "amll".equals(style)) {
+                || "custom".equals(style) || "amll".equals(style) || "pure".equals(style)) {
             return style;
         }
         return "refined";
@@ -654,7 +701,7 @@ final class AppPreferences {
     }
 
     static boolean compactUseRealSpectrum(Context context, boolean secondary) {
-        return displayBoolean(context, secondary, KEY_COMPACT_USE_REAL_SPECTRUM, true);
+        return displayBoolean(context, secondary, KEY_COMPACT_USE_REAL_SPECTRUM, false);
     }
 
     /** Zero keeps the spectrum bars following the current lyric color. */
@@ -683,6 +730,11 @@ final class AppPreferences {
         String value = displayString(context, secondary, KEY_SPECTRUM_COLOR_MODE, "lyric");
         return "custom".equals(value) || "rainbow".equals(value)
                 || "artwork".equals(value) ? value : "lyric";
+    }
+
+    static String realSpectrumCaptureRate(Context context) {
+        String value = get(context).getString(KEY_REAL_SPECTRUM_CAPTURE_RATE, "low");
+        return "high".equals(value) ? "high" : "low";
     }
 
     static int playbackControlScale(Context context) {
@@ -719,9 +771,53 @@ final class AppPreferences {
         return get(context).getBoolean(KEY_AUTO_START_OVERLAYS, false);
     }
 
+    static boolean bottomSpectrum(Context context) {
+        return get(context).getBoolean(KEY_BOTTOM_SPECTRUM, false);
+    }
+
+    static int bottomSpectrumHeightDp(Context context) {
+        return Math.max(24, Math.min(120,
+                get(context).getInt(KEY_BOTTOM_SPECTRUM_HEIGHT_DP, 54)));
+    }
+
+    static boolean localLyricEnabled(Context context) {
+        return get(context).getBoolean(KEY_LOCAL_LYRIC_ENABLED, true);
+    }
+
+    static String localLyricDirectoryUri(Context context) {
+        return get(context).getString(KEY_LOCAL_LYRIC_DIRECTORY_URI, "");
+    }
+
+    static boolean avrcpEnabled(Context context) {
+        return get(context).getBoolean(KEY_AVRCP_ENABLED, true);
+    }
+
+    /** Restores product settings while retaining the anonymous support identity and replies. */
+    static int resetUserSettings(Context context) {
+        Set<String> preserved = new HashSet<>();
+        preserved.add(KEY_COMMUNITY_CLIENT_ID);
+        preserved.add(KEY_FEEDBACK_TICKETS);
+        preserved.add(KEY_LAST_FEEDBACK_ID);
+        preserved.add(KEY_FEEDBACK_READ_REPLY_IDS);
+        preserved.add(KEY_FAQ_CACHE);
+        preserved.add(KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED);
+        preserved.add(KEY_SAFETY_NOTICE_SEEN);
+        SharedPreferences preferences = get(context);
+        SharedPreferences.Editor editor = preferences.edit();
+        int removed = 0;
+        for (String key : preferences.getAll().keySet()) {
+            if (preserved.contains(key)) continue;
+            editor.remove(key);
+            removed++;
+        }
+        editor.commit();
+        return removed;
+    }
+
     /** An enabled auto-start option must always have a visible target to restore. */
     static boolean ensureAutoStartOverlayTarget(Context context) {
-        if (mainEnabled(context) || secondaryEnabled(context) || topLyricStrip(context)) {
+        if (mainEnabled(context) || secondaryEnabled(context) || topLyricStrip(context)
+                || bottomSpectrum(context)) {
             return false;
         }
         get(context).edit().putBoolean(KEY_MAIN_OVERLAY, true).apply();

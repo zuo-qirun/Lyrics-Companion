@@ -1,10 +1,7 @@
 package com.zuoqirun.lyricscompanion;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -12,6 +9,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -76,12 +74,16 @@ public final class CompactSettingsActivity extends AppCompatActivity {
         realSpectrum.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putDisplayBoolean(this, secondary,
                     AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM, checked);
-            if (checked) requestSpectrumPermissionIfNeeded();
+            if (checked && android.os.Build.VERSION.SDK_INT >= 23
+                    && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "请在首页“使用权限”中授予录音频谱权限",
+                        Toast.LENGTH_LONG).show();
+            }
             changed();
             updateSpectrumStatus();
         });
         spectrum.addView(realSpectrum);
-        addSpectrumColorControls(spectrum);
         spectrumStatus = text(spectrumStatusText(), 12, 0xFF8392A8, false);
         spectrumStatus.setPadding(0, dp(7), 0, 0);
         spectrum.addView(spectrumStatus);
@@ -106,15 +108,6 @@ public final class CompactSettingsActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                                                      int[] grants) {
-        super.onRequestPermissionsResult(requestCode, permissions, grants);
-        if (requestCode == 2418) {
-            changed();
-            updateSpectrumStatus();
-        }
-    }
-
     private void addToggle(LinearLayout parent, String title, String key, boolean initial) {
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setText(title);
@@ -125,19 +118,6 @@ public final class CompactSettingsActivity extends AppCompatActivity {
             changed();
         });
         parent.addView(toggle);
-    }
-
-    private void addSpectrumColorControls(LinearLayout parent) {
-        ColorPaletteControls.add(this, parent, "律动颜色",
-                "自动模式跟随歌词颜色；手动模式只改变律动条。",
-                AppPreferences.compactSpectrumColor(this, secondary), 0xFFFFCA66,
-                color -> AppPreferences.setCompactSpectrumColor(this, secondary, color), this::changed);
-    }
-
-    private void requestSpectrumPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 23 || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED) return;
-        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2418);
     }
 
     private String spectrumStatusText() {

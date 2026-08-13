@@ -95,6 +95,16 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
     const replies = await post("/api/feedback/replies", {tickets: [{id: ticket.id, token: ticket.replyToken}]});
     assert.equal((await replies.json()).replies[0].message, "已收到，正在排查。");
 
+    const share = await post("/api/config/share", {description: "双屏紧凑样式",
+      config: {schemaVersion: 1, settings: {main_overlay_style: {type: "string", value: "compact"}}}});
+    assert.equal(share.status, 201);
+    const shareBody = await share.json();
+    assert.match(shareBody.code, /^[A-HJ-NP-Z2-9]{8}$/);
+    const imported = await post("/api/config/import", {code: shareBody.code.toLowerCase()});
+    const importedBody = await imported.json();
+    assert.equal(importedBody.description, "双屏紧凑样式");
+    assert.equal(importedBody.config.settings.main_overlay_style.value, "compact");
+
     const largeDetails = `stack trace\n${"x".repeat(200_000)}`;
     const diagnostic = await post("/api/diagnostics/crash", {clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       appVersion: "test", summary: "IllegalStateException", details: largeDetails});

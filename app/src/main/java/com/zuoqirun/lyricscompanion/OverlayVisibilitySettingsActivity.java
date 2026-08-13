@@ -1,15 +1,12 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.annotation.SuppressLint;
-import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -44,8 +41,6 @@ import java.util.concurrent.Executors;
 public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     private static final ExecutorService APP_LIST_EXECUTOR = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private TextView usageAccessStatus;
-    private MaterialButton usageAccessButton;
     private TextView hiddenAppsSummary;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -92,25 +87,14 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         appRules.addView(chooseApps, new LinearLayout.LayoutParams(-1, dp(48)));
         addCard(root, appRules);
 
-        LinearLayout access = card("播放器前台识别");
-        usageAccessStatus = text("", 14, 0xFFD8E1EE, false);
-        usageAccessStatus.setPadding(0, dp(10), 0, dp(10));
-        access.addView(usageAccessStatus);
-        usageAccessButton = button("授权使用情况访问");
-        usageAccessButton.setOnClickListener(v -> openUsageAccessSettings());
-        access.addView(usageAccessButton, new LinearLayout.LayoutParams(-1, dp(48)));
-        addCard(root, access);
-
         setContentView(scroll);
         CustomFontStore.applyToViewTree(this, scroll);
         refreshHiddenAppsSummary();
-        refreshUsageAccessState();
     }
 
     @Override protected void onResume() {
         super.onResume();
         LyricsDisplayService.setSettingsVisible(this, true);
-        refreshUsageAccessState();
         if (AppPreferences.hideOverlaysInPlayer(this)
                 || !AppPreferences.hiddenOverlayApps(this).isEmpty()) {
             AppPreferences.changed(this);
@@ -136,41 +120,11 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
             AppPreferences.get(this).edit().putBoolean(key, checked).apply();
             AppPreferences.changed(this);
             if (checked && needsUsageAccess && !ForegroundAppDetector.hasUsageAccess(this)) {
-                openUsageAccessSettings();
+                Toast.makeText(this, "请在首页“使用权限”中授权使用情况访问",
+                        Toast.LENGTH_LONG).show();
             }
         });
         parent.addView(toggle);
-    }
-
-    private void refreshUsageAccessState() {
-        if (usageAccessStatus == null || usageAccessButton == null) return;
-        boolean granted = ForegroundAppDetector.hasUsageAccess(this);
-        if (Build.VERSION.SDK_INT < 21) {
-            usageAccessStatus.setText("当前 Android 版本可直接识别前台播放器");
-            usageAccessStatus.setTextColor(0xFF6EE7F2);
-            usageAccessButton.setText("无需额外授权");
-            usageAccessButton.setEnabled(false);
-            return;
-        }
-        usageAccessStatus.setText(granted
-                ? "使用情况访问已授权，可识别当前前台应用"
-                : "使用情况访问未授权，按前台应用隐藏的规则暂不生效");
-        usageAccessStatus.setTextColor(granted ? 0xFF6EE7F2 : 0xFFFFCA66);
-        usageAccessButton.setText(granted ? "已授权" : "授权使用情况访问");
-        usageAccessButton.setEnabled(!granted);
-        usageAccessButton.setAlpha(granted ? 0.55f : 1f);
-    }
-
-    private void openUsageAccessSettings() {
-        if (Build.VERSION.SDK_INT < 21) return;
-        Intent direct = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS,
-                Uri.parse("package:" + getPackageName()));
-        if (startSettingsActivity(direct)) return;
-        if (startSettingsActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))) return;
-        if (startSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:" + getPackageName())))) return;
-        Toast.makeText(this, "无法打开使用情况访问设置，请在系统设置中手动授权。",
-                Toast.LENGTH_LONG).show();
     }
 
     private void showHiddenAppPicker() {
@@ -255,7 +209,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         AppPreferences.changed(this);
         refreshHiddenAppsSummary();
         if (!packages.isEmpty() && !ForegroundAppDetector.hasUsageAccess(this)) {
-            openUsageAccessSettings();
+            Toast.makeText(this, "请在首页“使用权限”中授权使用情况访问",
+                    Toast.LENGTH_LONG).show();
         }
     }
 
@@ -265,16 +220,6 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         hiddenAppsSummary.setText(count == 0
                 ? "未选择应用，歌词不会因打开其它应用而隐藏"
                 : "已选择 " + count + " 个应用，进入时自动隐藏，离开后恢复");
-    }
-
-    private boolean startSettingsActivity(Intent intent) {
-        try {
-            if (intent.resolveActivity(getPackageManager()) == null) return false;
-            startActivity(intent);
-            return true;
-        } catch (Throwable ignored) {
-            return false;
-        }
     }
 
     private LinearLayout card(String title) {

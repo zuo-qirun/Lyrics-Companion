@@ -89,6 +89,7 @@ public final class MusicNotificationListener extends NotificationListenerService
         }
 
         @Override public void onNoSession() {
+            if (BluetoothAvrcpReceiver.ownsCurrentState()) return;
             long now = SystemClock.elapsedRealtime();
             if (shouldClearAfterEmpty(lastNonEmptySessionElapsedMs, now)) {
                 if (!activePlayerPackageName.isEmpty()) {

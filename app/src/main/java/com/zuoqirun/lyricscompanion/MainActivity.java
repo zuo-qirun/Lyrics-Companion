@@ -58,6 +58,8 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CUSTOM_FONT = 2417;
     private static final int REQUEST_RECORD_AUDIO = 2418;
+    private static final int REQUEST_LOCAL_LYRIC_DIRECTORY = 2419;
+    private static final int REQUEST_BLUETOOTH_CONNECT = 2420;
     private static final String STATE_SELECTED_SECTION = "selected_section";
     private static final String[] SECTION_LABELS = {"首页", "显示", "歌词", "系统"};
     private static final String[] SECTION_TITLES = {"首页概览", "显示设置", "歌词设置", "系统与支持"};
@@ -182,7 +184,6 @@ public final class MainActivity extends AppCompatActivity {
         setContentView(buildContent());
         CustomFontStore.applyToViewTree(this, getWindow().getDecorView());
         MusicStateStore.initialize(this);
-        requestNotificationPermissionIfNeeded();
         handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
         handler.postDelayed(() -> checkForUpdates(false), 2_000L);
     }
@@ -248,6 +249,19 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_LOCAL_LYRIC_DIRECTORY) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+            Uri uri = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignored) { }
+            AppPreferences.get(this).edit().putString(
+                    AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI, uri.toString()).apply();
+            MusicStateStore.reloadLyrics(this);
+            Toast.makeText(this, "已授权本地歌词目录", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (requestCode != REQUEST_CUSTOM_FONT || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
@@ -334,17 +348,20 @@ public final class MainActivity extends AppCompatActivity {
         permissionStatus = text("", 14, 0xFFD8E1EE, false);
         permissionStatus.setPadding(0, dp(8), 0, dp(12));
         accessCard.addView(permissionStatus);
-        LinearLayout permissionButtons = new LinearLayout(this);
-        permissionButtons.setOrientation(LinearLayout.HORIZONTAL);
-        MaterialButton notificationAccess = button("音乐读取权限", true);
-        notificationAccess.setOnClickListener(v -> openNotificationAccess());
-        permissionButtons.addView(notificationAccess, weightedButton());
-        MaterialButton overlayAccess = button("悬浮窗权限", false);
-        overlayAccess.setOnClickListener(v -> openOverlayPermission());
-        LinearLayout.LayoutParams secondButton = weightedButton();
-        secondButton.leftMargin = dp(10);
-        permissionButtons.addView(overlayAccess, secondButton);
-        accessCard.addView(permissionButtons);
+        addPermissionRow(accessCard, "音乐读取权限", true, v -> openNotificationAccess(),
+                "悬浮窗权限", false, v -> openOverlayPermission());
+        addPermissionRow(accessCard, "录音频谱权限", false, v -> requestRecordAudioPermission(),
+                "蓝牙读取权限", false, v -> requestBluetoothPermission());
+        addPermissionRow(accessCard, "使用情况访问", false, v -> openUsageAccessSettings(),
+                "通知显示权限", false, v -> requestPostNotificationPermission());
+        addPermissionRow(accessCard, "安装更新权限", false, v -> openUnknownAppSources(),
+                "默认应用设置", false, v -> openDefaultAppsSettings());
+        MaterialButton appPermissionSettings = button("应用权限 / 自启动设置", false);
+        appPermissionSettings.setOnClickListener(v -> openApplicationDetails());
+        LinearLayout.LayoutParams appPermissionParams = new LinearLayout.LayoutParams(-1, dp(48));
+        appPermissionParams.topMargin = dp(8);
+        accessCard.addView(appPermissionSettings, appPermissionParams);
+        addRealSpectrumRateSelector(accessCard);
 
         LinearLayout lyricCard = card();
         lyricCard.addView(sectionLabel("歌词匹配"));
@@ -358,6 +375,35 @@ public final class MainActivity extends AppCompatActivity {
             MusicStateStore.reloadLyrics(this);
         });
         lyricCard.addView(playerCatalogFallback);
+        MaterialSwitch localLyrics = toggle("优先匹配本地 .lrc",
+                "在已授权的音乐目录中按歌曲文件名、歌名或“歌手 - 歌名”查找同目录歌词");
+        localLyrics.setChecked(AppPreferences.localLyricEnabled(this));
+        localLyrics.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_LOCAL_LYRIC_ENABLED, checked).apply();
+            MusicStateStore.reloadLyrics(this);
+        });
+        lyricCard.addView(localLyrics);
+        MaterialButton localLyricDirectory = button("选择本地音乐目录", false);
+        localLyricDirectory.setOnClickListener(v -> openLocalLyricDirectoryPicker());
+        LinearLayout.LayoutParams localDirectoryParams = new LinearLayout.LayoutParams(-1, dp(48));
+        localDirectoryParams.topMargin = dp(8);
+        lyricCard.addView(localLyricDirectory, localDirectoryParams);
+        MaterialSwitch avrcp = toggle("蓝牙 AVRCP 歌曲识别",
+                "车机作为蓝牙音频接收端时，读取手机通过 AVRCP 提供的歌名和歌手，再进入现有歌词匹配链");
+        avrcp.setChecked(AppPreferences.avrcpEnabled(this));
+        avrcp.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_AVRCP_ENABLED, checked).apply();
+            if (checked && Build.VERSION.SDK_INT >= 31
+                    && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "请在首页“使用权限”中授予蓝牙读取权限",
+                        Toast.LENGTH_LONG).show();
+            } else if (!checked && BluetoothAvrcpReceiver.ownsCurrentState()) {
+                MusicStateStore.clear();
+            }
+        });
+        lyricCard.addView(avrcp);
 
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("悬浮歌词"));
@@ -366,8 +412,7 @@ public final class MainActivity extends AppCompatActivity {
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
-            if (checked && !canDrawOverlays()) openOverlayPermission();
-            if (checked) requestSpectrumPermissionIfNeeded(false);
+            if (checked && !canDrawOverlays()) showPermissionHomeHint("悬浮窗");
             AppPreferences.changed(this);
             AudioSpectrumSource.sync(this);
             LyricsDisplayService.setSettingsVisible(this, true);
@@ -377,8 +422,7 @@ public final class MainActivity extends AppCompatActivity {
         secondaryOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_SECONDARY_OVERLAY, checked).apply();
-            if (checked && !canDrawOverlays()) openOverlayPermission();
-            if (checked) requestSpectrumPermissionIfNeeded(true);
+            if (checked && !canDrawOverlays()) showPermissionHomeHint("悬浮窗");
             AppPreferences.changed(this);
             AudioSpectrumSource.sync(this);
             LyricsDisplayService.setSettingsVisible(this, true);
@@ -437,8 +481,20 @@ public final class MainActivity extends AppCompatActivity {
         topLyricStrip.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit()
                     .putBoolean(AppPreferences.KEY_TOP_LYRIC_STRIP, checked).apply();
+            if (checked && !canDrawOverlays()) showPermissionHomeHint("悬浮窗");
             AppPreferences.changed(this);
         });
+        MaterialSwitch bottomSpectrum = toggle("独立底部频谱条",
+                "固定在屏幕底边，不随歌词悬浮窗移动；频谱样式与主屏显示参数一致");
+        bottomSpectrum.setChecked(AppPreferences.bottomSpectrum(this));
+        bottomSpectrum.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_BOTTOM_SPECTRUM, checked).apply();
+            if (checked && !canDrawOverlays()) showPermissionHomeHint("悬浮窗");
+            AppPreferences.changed(this);
+            LyricsDisplayService.startOrRefresh(this);
+        });
+        outputCard.addView(bottomSpectrum);
         MaterialButton statusLyricSettings = button("通知栏歌词详细设置", false);
         statusLyricSettings.setOnClickListener(v -> startActivity(
                 new Intent(this, StatusLyricSettingsActivity.class)));
@@ -517,6 +573,11 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout appearanceCard = card();
         appearanceCard.addView(sectionLabel("主题、字体与控件"));
         addThemeSelector(appearanceCard);
+        MaterialButton colors = button("自定义颜色", true);
+        colors.setOnClickListener(v -> startActivity(new Intent(this, ColorSettingsActivity.class)));
+        LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, dp(48));
+        colorParams.topMargin = dp(10);
+        appearanceCard.addView(colors, colorParams);
         addGlobalFontControls(appearanceCard);
         addPlaybackControlToggles(appearanceCard);
 
@@ -573,6 +634,17 @@ public final class MainActivity extends AppCompatActivity {
         noticesParams.topMargin = dp(6);
         openSourceCard.addView(notices, noticesParams);
 
+        LinearLayout resetCard = card();
+        resetCard.addView(sectionLabel("数据与重置"));
+        TextView resetSummary = text(
+                "恢复显示、歌词、启动、频谱、蓝牙、本地目录和字体等默认设置；反馈记录与官方回复会保留。",
+                12, 0xFF8392A8, false);
+        resetSummary.setPadding(0, dp(9), 0, dp(10));
+        resetCard.addView(resetSummary);
+        MaterialButton resetSettings = button("恢复默认设置", false);
+        resetSettings.setOnClickListener(v -> confirmResetSettings());
+        resetCard.addView(resetSettings, new LinearLayout.LayoutParams(-1, dp(48)));
+
         LinearLayout communityCard = card();
         communityCard.addView(sectionLabel("社区与反馈"));
         onlineStatus = text("当前在线：正在连接…", 14, 0xFFD8E1EE, true);
@@ -585,6 +657,11 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton feedback = button("意见反馈", false);
         feedback.setOnClickListener(v -> showFeedbackDialog());
         communityCard.addView(feedback, new LinearLayout.LayoutParams(-1, dp(48)));
+        MaterialButton configurationShare = button("配置分享码", false);
+        configurationShare.setOnClickListener(v -> showConfigurationShareDialog());
+        LinearLayout.LayoutParams configurationShareParams = new LinearLayout.LayoutParams(-1, dp(48));
+        configurationShareParams.topMargin = dp(10);
+        communityCard.addView(configurationShare, configurationShareParams);
         MaterialButton safety = button("车机使用须知", false);
         safety.setOnClickListener(v -> showSafetyNotice());
         LinearLayout.LayoutParams safetyParams = new LinearLayout.LayoutParams(-1, dp(48));
@@ -641,6 +718,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout systemPage = sectionPage();
         systemPage.addView(communityCard, cardMargins());
         systemPage.addView(updateCard, cardMargins());
+        systemPage.addView(resetCard, cardMargins());
         systemPage.addView(openSourceCard, cardMargins());
 
         TextView footnote = text("提示：支持发布 MediaSession 的在线、本地和 U 盘音乐播放器；文件名会自动清理路径、序号、扩展名和音质标记，仍不准确时可用“修正歌曲信息并重新匹配”。歌词伴侣不会向 iPhone CarPlay 仪表盘注入媒体信息。", 12,
@@ -730,24 +808,10 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow"};
-        String[] values = {"refined", "amll", "default", "compact", "pip"};
+        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow", "纯净歌词"};
+        String[] values = {"refined", "amll", "default", "compact", "pip", "pure"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels) {
-            @Override public View getView(int position, View convertView, ViewGroup parentView) {
-                TextView view = (TextView) super.getView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-            @Override public View getDropDownView(int position, View convertView,
-                                                  ViewGroup parentView) {
-                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-        };
-        spinner.setAdapter(adapter);
+        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         String saved = AppPreferences.overlayStyle(this, secondary);
         int selection = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
@@ -801,21 +865,7 @@ public final class MainActivity extends AppCompatActivity {
         String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels) {
-            @Override public View getView(int position, View convertView, ViewGroup parentView) {
-                TextView view = (TextView) super.getView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-            @Override public View getDropDownView(int position, View convertView,
-                                                  ViewGroup parentView) {
-                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-        };
-        spinner.setAdapter(adapter);
+        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         String saved = AppPreferences.lyricCatalog(this);
         int selection = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
@@ -979,33 +1029,42 @@ public final class MainActivity extends AppCompatActivity {
         bindingUi = false;
     }
 
-    private void requestSpectrumPermissionIfNeeded(boolean secondary) {
-        if (!"compact".equals(AppPreferences.overlayStyle(this, secondary))
-                || !AppPreferences.compactShowBars(this, secondary)
-                || !AppPreferences.compactUseRealSpectrum(this, secondary)
-                || Build.VERSION.SDK_INT < 23
-                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED) return;
-        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
-    }
-
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                                       int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_RECORD_AUDIO) {
+        if (requestCode == REQUEST_RECORD_AUDIO || requestCode == REQUEST_BLUETOOTH_CONNECT
+                || requestCode == 101) {
             AudioSpectrumSource.sync(this);
             LyricsDisplayService.startOrRefresh(this);
             refreshPreview();
+            refreshStatus();
         }
     }
 
     private void refreshStatus() {
         boolean notificationAccess = hasNotificationAccess();
         boolean overlay = canDrawOverlays();
+        boolean recordAudio = Build.VERSION.SDK_INT < 23
+                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean bluetooth = Build.VERSION.SDK_INT < 31
+                || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean postNotifications = Build.VERSION.SDK_INT < 33
+                || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean usageAccess = ForegroundAppDetector.hasUsageAccess(this);
+        boolean installUpdates = Build.VERSION.SDK_INT < 26
+                || getPackageManager().canRequestPackageInstalls();
         String listenerState = listenerState(notificationAccess);
         permissionStatus.setText("通知读取  " + (notificationAccess ? "已授权" : "未授权")
                 + "     监听器  " + listenerState
-                + "     悬浮窗  " + (overlay ? "已授权" : "未授权"));
+                + "     悬浮窗  " + permissionState(overlay)
+                + "\n录音频谱  " + permissionState(recordAudio)
+                + "     蓝牙读取  " + permissionState(bluetooth)
+                + "     通知显示  " + permissionState(postNotifications)
+                + "\n使用情况  " + permissionState(usageAccess)
+                + "     安装更新  " + permissionState(installUpdates));
         permissionStatus.setTextColor(notificationAccess && overlay
                 ? 0xFF6EE7F2 : 0xFFFFCA66);
         long lastRead = MusicNotificationListener.getLastSuccessfulSessionReadElapsedMs();
@@ -1034,20 +1093,7 @@ public final class MainActivity extends AppCompatActivity {
                 }
             }
         }
-        ArrayAdapter<DisplayChoice> adapter = new ArrayAdapter<DisplayChoice>(this,
-                android.R.layout.simple_spinner_dropdown_item, choices) {
-            @Override public View getView(int position, View convertView, ViewGroup parent) {
-                TextView view = (TextView) super.getView(position, convertView, parent);
-                styleSpinnerText(view);
-                return view;
-            }
-
-            @Override public View getDropDownView(int position, View convertView, ViewGroup parent) {
-                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
-                styleSpinnerText(view);
-                return view;
-            }
-        };
+        WhiteSpinnerAdapter<DisplayChoice> adapter = new WhiteSpinnerAdapter<>(this, choices);
         bindingUi = true;
         displaySpinner.setAdapter(adapter);
         int selectedId = AppPreferences.displayId(this);
@@ -1103,21 +1149,7 @@ public final class MainActivity extends AppCompatActivity {
         String[] labels = {"\u8ddf\u968f\u7cfb\u7edf", "\u767d\u5929", "\u591c\u665a"};
         String[] values = {"auto", "light", "dark"};
         spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
-        spinner.setAdapter(new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels) {
-            @Override public View getView(int position, View convertView,
-                                          ViewGroup parentView) {
-                TextView view = (TextView) super.getView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-            @Override public View getDropDownView(int position, View convertView,
-                                                  ViewGroup parentView) {
-                TextView view = (TextView) super.getDropDownView(position, convertView, parentView);
-                styleSpinnerText(view);
-                return view;
-            }
-        });
+        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         String current = AppPreferences.themeMode(this);
         for (int i = 0; i < values.length; i++) {
             if (values[i].equals(current)) {
@@ -1140,14 +1172,6 @@ public final class MainActivity extends AppCompatActivity {
                 0xFF74869D, false);
         mainThemeNote.setPadding(0, dp(3), 0, dp(2));
         parent.addView(mainThemeNote);
-        MaterialSwitch followLyrics = toggle("歌词跟随深浅色", "开启后，自动歌词色会随界面主题切换；关闭时主屏和副屏歌词保持原颜色，顶部歌词条始终使用自己的颜色设置。");
-        followLyrics.setChecked(AppPreferences.lyricsFollowTheme(this));
-        followLyrics.setOnCheckedChangeListener((button, enabled) -> {
-            AppPreferences.setLyricsFollowTheme(MainActivity.this, enabled);
-            refreshPreview();
-            AppPreferences.changed(MainActivity.this);
-        });
-        parent.addView(followLyrics);
     }
 
     private void addDisplaySettingsLaunchers(LinearLayout parent) {
@@ -1370,8 +1394,7 @@ public final class MainActivity extends AppCompatActivity {
         catalogLabelParams.topMargin = dp(12);
         content.addView(catalogLabel, catalogLabelParams);
         Spinner catalogSpinner = new Spinner(this);
-        catalogSpinner.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels));
+        catalogSpinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
         catalogSpinner.setSelection(selectedIndex);
         LinearLayout.LayoutParams catalogParams = new LinearLayout.LayoutParams(-1, dp(52));
         catalogParams.topMargin = dp(10);
@@ -1552,6 +1575,23 @@ public final class MainActivity extends AppCompatActivity {
                 Toast.LENGTH_LONG).show();
     }
 
+    private void openLocalLyricDirectoryPicker() {
+        if (Build.VERSION.SDK_INT < 21) {
+            Toast.makeText(this, "Android 4.4 会直接尝试歌曲同目录；无需选择目录。",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, REQUEST_LOCAL_LYRIC_DIRECTORY);
+        } catch (Throwable error) {
+            Toast.makeText(this, "此设备没有可用的目录选择器。", Toast.LENGTH_LONG).show();
+        }
+    }
+
     private boolean startDocumentPicker(Intent intent) {
         try {
             if (intent.resolveActivity(getPackageManager()) == null) return false;
@@ -1588,6 +1628,53 @@ public final class MainActivity extends AppCompatActivity {
         return button;
     }
 
+    private void addPermissionRow(LinearLayout parent, String firstLabel, boolean firstPrimary,
+                                  View.OnClickListener firstAction, String secondLabel,
+                                  boolean secondPrimary, View.OnClickListener secondAction) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton first = button(firstLabel, firstPrimary);
+        first.setOnClickListener(firstAction);
+        row.addView(first, weightedButton());
+        MaterialButton second = button(secondLabel, secondPrimary);
+        second.setOnClickListener(secondAction);
+        LinearLayout.LayoutParams secondParams = weightedButton();
+        secondParams.leftMargin = dp(10);
+        row.addView(second, secondParams);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(48));
+        if (parent.getChildCount() > 2) rowParams.topMargin = dp(8);
+        parent.addView(row, rowParams);
+    }
+
+    private void addRealSpectrumRateSelector(LinearLayout parent) {
+        TextView label = text("真实频谱采集频率", 13, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(14), 0, dp(4));
+        parent.addView(label);
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        String[] labels = {"低频率（10 Hz / 128 点，推荐老车机）",
+                "高频率（30 Hz / 512 点，更流畅）"};
+        String[] values = {"low", "high"};
+        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setSelection("high".equals(AppPreferences.realSpectrumCaptureRate(this)) ? 1 : 0,
+                false);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            String selected = AppPreferences.realSpectrumCaptureRate(MainActivity.this);
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                  View view, int position, long id) {
+                if (values[position].equals(selected)) return;
+                selected = values[position];
+                AppPreferences.get(MainActivity.this).edit()
+                        .putString(AppPreferences.KEY_REAL_SPECTRUM_CAPTURE_RATE,
+                                values[position]).apply();
+                AudioSpectrumSource.release();
+                AudioSpectrumSource.sync(MainActivity.this);
+                AppPreferences.changed(MainActivity.this);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+    }
+
     private LinearLayout.LayoutParams weightedButton() {
         return new LinearLayout.LayoutParams(0, dp(48), 1f);
     }
@@ -1597,14 +1684,6 @@ public final class MainActivity extends AppCompatActivity {
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radiusDp));
         return drawable;
-    }
-
-    private void styleSpinnerText(TextView view) {
-        view.setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurface, 0xFFF2F6FB));
-        view.setTextSize(14f);
-        view.setPadding(dp(12), dp(8), dp(12), dp(8));
-        view.setBackgroundColor(themeColor(com.google.android.material.R.attr.colorSurfaceContainer,
-                0xFF132238));
     }
 
     private int themeColor(int attribute, int fallback) {
@@ -1636,6 +1715,127 @@ public final class MainActivity extends AppCompatActivity {
                     : "当前在线：暂时无法获取");
             onlineStatus.setTextColor(result.available() ? 0xFF6EE7F2 : 0xFF8392A8);
         }));
+    }
+
+    private void showConfigurationShareDialog() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("配置分享")
+                .setItems(new String[]{"生成分享码", "输入分享码导入"}, (dialog, which) -> {
+                    if (which == 0) promptShareConfiguration();
+                    else promptImportConfiguration();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void confirmResetSettings() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("恢复默认设置？")
+                .setMessage("将清除当前显示布局、颜色、歌词匹配规则、启动方式、频谱、蓝牙识别、本地歌词目录和自定义字体。\n\n意见反馈、官方回复和匿名社区身份不会删除。")
+                .setPositiveButton("恢复默认", (dialog, which) -> resetSettingsToDefaults())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void resetSettingsToDefaults() {
+        String treeUri = AppPreferences.localLyricDirectoryUri(this);
+        if (!treeUri.isEmpty()) {
+            try {
+                getContentResolver().releasePersistableUriPermission(Uri.parse(treeUri),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignored) { }
+        }
+        CustomFontStore.clear(this);
+        int removed = AppPreferences.resetUserSettings(this);
+        AudioSpectrumSource.release();
+        MusicStateStore.reloadLyrics(this);
+        AppPreferences.changed(this);
+        Toast.makeText(this, "已恢复默认设置（重置 " + removed + " 项）",
+                Toast.LENGTH_SHORT).show();
+        recreate();
+    }
+
+    private void promptShareConfiguration() {
+        TextInputEditText input = new TextInputEditText(this);
+        input.setHint("配置简介（可选，最多 200 字）");
+        input.setSingleLine(false);
+        input.setMaxLines(3);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(200)});
+        input.setPadding(dp(20), dp(12), dp(20), dp(12));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("生成配置分享码")
+                .setMessage("只上传可分享的设置；不会上传歌曲、歌词、本地目录、字体文件、设备标识、反馈记录或诊断数据。")
+                .setView(input)
+                .setPositiveButton("上传", (dialog, which) -> {
+                    String description = input.getText() == null ? "" : input.getText().toString();
+                    ConfigurationShareClient.share(this, description, result -> runOnUiThread(() -> {
+                        if (!result.success) {
+                            Toast.makeText(this, "生成失败：" + result.error, Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        String code = result.value.optString("code");
+                        new MaterialAlertDialogBuilder(this)
+                                .setTitle("分享码已生成")
+                                .setMessage(code + "\n\n有效期至：" + result.value.optString("expiresAt"))
+                                .setPositiveButton("复制", (ignored, copyWhich) -> copyText("配置分享码", code))
+                                .setNegativeButton("完成", null)
+                                .show();
+                    }));
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void promptImportConfiguration() {
+        TextInputEditText input = new TextInputEditText(this);
+        input.setHint("8 位分享码");
+        input.setSingleLine(true);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(12)});
+        input.setPadding(dp(20), dp(12), dp(20), dp(12));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("导入配置")
+                .setView(input)
+                .setPositiveButton("查看", (dialog, which) -> {
+                    String code = input.getText() == null ? "" : input.getText().toString();
+                    ConfigurationShareClient.fetch(code, result -> runOnUiThread(() -> {
+                        if (!result.success) {
+                            Toast.makeText(this, "读取失败：" + result.error, Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        String description = result.value.optString("description", "未填写简介");
+                        if (description.trim().isEmpty()) description = "未填写简介";
+                        String finalDescription = description;
+                        new MaterialAlertDialogBuilder(this)
+                                .setTitle("确认导入 " + result.value.optString("code"))
+                                .setMessage("配置简介：\n" + finalDescription
+                                        + "\n\n导入会覆盖分享码中包含的设置，本机私密数据不受影响。")
+                                .setPositiveButton("导入", (ignored, importWhich) -> {
+                                    try {
+                                        int count = ConfigurationCodec.importConfiguration(this,
+                                                result.value.getJSONObject("config"));
+                                        AppPreferences.changed(this);
+                                        AudioSpectrumSource.sync(this);
+                                        LyricsDisplayService.startOrRefresh(this);
+                                        Toast.makeText(this, "已导入 " + count + " 项设置",
+                                                Toast.LENGTH_SHORT).show();
+                                        recreate();
+                                    } catch (Throwable error) {
+                                        Toast.makeText(this, "导入失败：" + error.getMessage(),
+                                                Toast.LENGTH_LONG).show();
+                                    }
+                                })
+                                .setNegativeButton("取消", null)
+                                .show();
+                    }));
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void copyText(String label, String value) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
+        Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show();
     }
 
     private void showFeedbackDialog() {
@@ -1995,11 +2195,92 @@ public final class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "无法打开系统悬浮窗权限设置，请在系统设置中手动开启。", Toast.LENGTH_LONG).show();
     }
 
-    private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+    private static String permissionState(boolean granted) {
+        return granted ? "已授权" : "未授权";
+    }
+
+    private void showPermissionHomeHint(String permission) {
+        Toast.makeText(this, "请在首页“使用权限”中授予" + permission + "权限",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private void requestRecordAudioPermission() {
+        if (Build.VERSION.SDK_INT < 23) {
+            Toast.makeText(this, "当前系统无需单独授予录音权限", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "录音频谱权限已授权", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
+    }
+
+    private void requestBluetoothPermission() {
+        if (Build.VERSION.SDK_INT < 31) {
+            Toast.makeText(this, "当前系统无需单独授予蓝牙读取权限", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                == PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "蓝牙读取权限已授权", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},
+                REQUEST_BLUETOOTH_CONNECT);
+    }
+
+    private void requestPostNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) {
+            Toast.makeText(this, "当前系统无需单独授予通知显示权限", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "通知显示权限已授权", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+    }
+
+    private void openUsageAccessSettings() {
+        if (Build.VERSION.SDK_INT < 21) {
+            Toast.makeText(this, "当前系统无需使用情况访问权限", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent direct = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
+        if (startSettingsActivity(direct)) return;
+        if (startSettingsActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))) return;
+        openApplicationDetails();
+    }
+
+    private void openUnknownAppSources() {
+        if (Build.VERSION.SDK_INT < 26) {
+            openApplicationDetails();
+            return;
+        }
+        Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + getPackageName()));
+        if (!startSettingsActivity(intent)) openApplicationDetails();
+    }
+
+    private void openDefaultAppsSettings() {
+        if (startSettingsActivity(new Intent("android.settings.MANAGE_DEFAULT_APPS_SETTINGS"))) {
+            return;
+        }
+        if (!startSettingsActivity(new Intent(Settings.ACTION_SETTINGS))) {
+            Toast.makeText(this, "无法打开默认应用设置，请在系统设置中手动进入。",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void openApplicationDetails() {
+        Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
+        if (!startSettingsActivity(details)) {
+            startSettingsActivity(new Intent(Settings.ACTION_SETTINGS));
         }
     }
 

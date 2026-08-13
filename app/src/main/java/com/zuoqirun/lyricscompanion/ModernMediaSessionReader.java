@@ -183,9 +183,10 @@ final class ModernMediaSessionReader implements MusicSessionReader {
                 MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON);
         String artUri = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
                 MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
+        String mediaUri = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_MEDIA_URI);
         long duration = metadata == null ? -1L
                 : metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
-        return new MusicPlaybackData(mediaId, title, artist, art, artUri, duration,
+        return new MusicPlaybackData(mediaId, title, artist, art, artUri, mediaUri, duration,
                 state != null,
                 state == null ? MusicPlaybackData.STATE_NONE : state.getState(),
                 state == null ? 0L : Math.max(0L, state.getPosition()),

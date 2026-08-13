@@ -8,6 +8,7 @@ const {spawn} = require("child_process");
 const {loadEnv} = require("./release-sync-config");
 const {DiagnosticStore, FeedbackStore, OnlineTracker, normalizeClientId} = require("./community");
 const {publicBaseUrl} = require("./server-address");
+const {ConfigShareStore} = require("./config-share");
 
 loadEnv(path.join(__dirname, ".env"));
 
@@ -23,6 +24,7 @@ const stateDir = process.env.STATE_DIR
 const feedbackPath = path.join(stateDir, "feedback.jsonl");
 const feedbackRepliesPath = path.join(stateDir, "feedback-replies.jsonl");
 const diagnosticsPath = path.join(stateDir, "diagnostics.jsonl");
+const configSharePath = path.join(stateDir, "config-shares");
 const autoSync = process.env.AUTO_SYNC !== "0";
 const syncIntervalMs = Math.max(60_000, Number(process.env.SYNC_INTERVAL_MS || 300_000));
 const onlineTtlMs = Math.max(30_000, Number(process.env.ONLINE_TTL_MS || 120_000));
@@ -34,6 +36,8 @@ const diagnosticRequestMaxBytes = 4 * 1024 * 1024;
 const onlineTracker = new OnlineTracker(onlineTtlMs);
 const feedbackStore = new FeedbackStore(feedbackPath, feedbackIntervalMs, feedbackRepliesPath);
 const diagnosticStore = new DiagnosticStore(diagnosticsPath, diagnosticIntervalMs);
+const configShareStore = new ConfigShareStore(configSharePath,
+  Number(process.env.CONFIG_SHARE_TTL_MS || 90 * 24 * 60 * 60 * 1000));
 let syncing = false;
 let lastSync = null;
 
@@ -263,6 +267,27 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         sendJson(res, error.code === "RATE_LIMITED" ? 429 : 400, {ok: false, error: error.message});
       }
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/config/share") {
+      let body;
+      try { body = await readJson(req, 96 * 1024); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      try {
+        const entry = configShareStore.create(body);
+        sendJson(res, 201, {ok: true, code: entry.code, description: entry.description,
+          expiresAt: entry.expiresAt});
+      } catch (error) { sendJson(res, 400, {ok: false, error: error.message}); }
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/config/import") {
+      let body;
+      try { body = await readJson(req); }
+      catch (error) { sendJson(res, 400, {ok: false, error: error.message}); return; }
+      const entry = configShareStore.get(body.code);
+      if (!entry) { sendJson(res, 404, {ok: false, error: "share code not found"}); return; }
+      sendJson(res, 200, {ok: true, code: entry.code, description: entry.description,
+        createdAt: entry.createdAt, expiresAt: entry.expiresAt, config: entry.config});
       return;
     }
     if (url.pathname === "/api/admin/feedback") {

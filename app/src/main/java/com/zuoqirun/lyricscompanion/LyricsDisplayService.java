@@ -65,6 +65,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager.LayoutParams secondaryUnlockParams;
     private LyricsPanelView statusLyricStrip;
     private WindowManager.LayoutParams statusLyricParams;
+    private WindowManager bottomSpectrumManager;
+    private BottomSpectrumView bottomSpectrumView;
     private boolean settingsVisible;
     private boolean overlaysHiddenForPlayback;
     private boolean screenReceiverRegistered;
@@ -260,6 +262,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         dismissMain();
         dismissSecondary();
         dismissStatusLyricStrip();
+        dismissBottomSpectrum();
         AudioSpectrumSource.release();
         super.onDestroy();
     }
@@ -298,16 +301,19 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             dismissMain();
             dismissSecondary();
             dismissStatusLyricStrip();
+            dismissBottomSpectrum();
             return;
         }
         if (!canDrawOverlays()) {
             dismissMain();
             dismissSecondary();
             dismissStatusLyricStrip();
+            dismissBottomSpectrum();
             return;
         }
         dismissMain();
         dismissSecondary();
+        dismissBottomSpectrum();
         if (overlaysHiddenForPlayback) {
             dismissStatusLyricStrip();
             return;
@@ -316,6 +322,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (AppPreferences.secondaryEnabled(this)) showSecondary();
         if (AppPreferences.topLyricStrip(this)) showStatusLyricStrip();
         else dismissStatusLyricStrip();
+        if (AppPreferences.bottomSpectrum(this)) showBottomSpectrum();
     }
 
     private void rebuildSecondary() {
@@ -523,6 +530,11 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 if (lyricGesture) {
                     boolean finished = event.getActionMasked() == MotionEvent.ACTION_UP
                             || event.getActionMasked() == MotionEvent.ACTION_CANCEL;
+                    if (event.getActionMasked() == MotionEvent.ACTION_UP && !moved && openOnTap) {
+                        v.performClick();
+                        tapHandler.removeCallbacks(singleTap);
+                        tapHandler.postDelayed(singleTap, ViewConfiguration.getDoubleTapTimeout());
+                    }
                     if (finished) lyricGesture = false;
                     return false;
                 }
@@ -818,6 +830,34 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
     }
 
+    private void showBottomSpectrum() {
+        bottomSpectrumManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        if (bottomSpectrumManager == null) return;
+        int width = displaySize(bottomSpectrumManager.getDefaultDisplay()).x;
+        if (width <= 0) return;
+        bottomSpectrumView = new BottomSpectrumView(this);
+        WindowManager.LayoutParams params = overlayParams(width,
+                dp(this, AppPreferences.bottomSpectrumHeightDp(this)));
+        params.gravity = Gravity.BOTTOM | Gravity.START;
+        params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        try {
+            bottomSpectrumManager.addView(bottomSpectrumView, params);
+        } catch (Throwable error) {
+            Log.w(TAG, "Unable to add bottom spectrum", error);
+            dismissBottomSpectrum();
+        }
+    }
+
+    private void dismissBottomSpectrum() {
+        if (bottomSpectrumManager != null && bottomSpectrumView != null
+                && bottomSpectrumView.getParent() != null) {
+            try { bottomSpectrumManager.removeViewImmediate(bottomSpectrumView); }
+            catch (Throwable ignored) { }
+        }
+        bottomSpectrumView = null;
+        bottomSpectrumManager = null;
+    }
+
     private void updateStatusLyricStrip(MusicSnapshot snapshot) {
         if (statusLyricStrip != null) statusLyricStrip.postInvalidateOnAnimation();
     }
@@ -862,12 +902,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 && (AppPreferences.mainEnabled(context)
                 || AppPreferences.secondaryEnabled(context)
                 || AppPreferences.notificationLyrics(context)
-                || AppPreferences.topLyricStrip(context));
+                || AppPreferences.topLyricStrip(context)
+                || AppPreferences.bottomSpectrum(context));
     }
 
     private static boolean hasRememberedOverlayTarget(Context context) {
         return AppPreferences.mainEnabled(context) || AppPreferences.secondaryEnabled(context)
-                || AppPreferences.topLyricStrip(context);
+                || AppPreferences.topLyricStrip(context) || AppPreferences.bottomSpectrum(context);
     }
 
     private void syncScreenReceiver() {
@@ -945,11 +986,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (shouldHide) {
             dismissMain();
             dismissSecondary();
+            dismissBottomSpectrum();
             return;
         }
         if (!canDrawOverlays()) return;
         if (AppPreferences.mainEnabled(this) && !settingsVisible && mainPanel == null) showMain();
         if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null) showSecondary();
+        if (AppPreferences.bottomSpectrum(this) && bottomSpectrumView == null) showBottomSpectrum();
     }
 
     private Notification createNotification() {

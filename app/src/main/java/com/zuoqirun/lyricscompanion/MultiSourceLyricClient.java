@@ -16,6 +16,7 @@ final class MultiSourceLyricClient {
     private final KugouLyricClient kugou;
     private final KuwoLyricClient kuwo;
     private final SodaLyricClient soda;
+    private final LocalLyricClient local;
     private final Context appContext;
 
     MultiSourceLyricClient(Context context) {
@@ -25,12 +26,21 @@ final class MultiSourceLyricClient {
         kugou = new KugouLyricClient(context);
         kuwo = new KuwoLyricClient(context);
         soda = new SodaLyricClient(context);
+        local = new LocalLyricClient(context);
     }
 
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
                 boolean forceSelectedCatalog,
-                String sourcePackage, String mediaId, String title, String artist,
+                String sourcePackage, String mediaId, String mediaUri, String title, String artist,
                 long durationMs) throws Exception {
+        if (AppPreferences.localLyricEnabled(appContext)) {
+            LrcTimeline localTimeline = local.load(mediaUri, title, artist);
+            if (!localTimeline.isEmpty()) {
+                DiagnosticLog.record(appContext, "Lyrics", "provider=local result=matched lines="
+                        + localTimeline.lineCount());
+                return new Result(localTimeline, "本地 LRC", "local");
+            }
+        }
         CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback,
                 forceSelectedCatalog);
         DiagnosticLog.record(appContext, "Lyrics", "lookup start source=" + currentSource

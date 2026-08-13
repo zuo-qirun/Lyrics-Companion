@@ -29,6 +29,7 @@ final class MusicStateStore {
     private static String artist = "";
     private static Bitmap albumArt;
     private static String albumArtUri = "";
+    private static String mediaUri = "";
     private static String loadingAlbumArtUri = "";
     private static long durationMs = -1L;
     private static long basePositionMs;
@@ -81,6 +82,7 @@ final class MusicStateStore {
         String newMediaId = data.mediaId;
         Bitmap newAlbumArt = data.albumArt;
         String newAlbumArtUri = data.albumArtUri;
+        String newMediaUri = data.mediaUri;
         long newDuration = data.durationMs;
         int stateValue = data.state;
         boolean statePresent = data.statePresent;
@@ -134,12 +136,14 @@ final class MusicStateStore {
                 newMediaId = mediaId;
                 newDuration = durationMs;
                 newAlbumArtUri = albumArtUri;
+                newMediaUri = mediaUri;
                 if (newAlbumArt == null) newAlbumArt = albumArt;
             } else if (sameSource && sameIdentityText(newTitle, title)) {
                 if (TextUtils.isEmpty(newArtist)) newArtist = artist;
                 if (TextUtils.isEmpty(newMediaId)) newMediaId = mediaId;
                 if (newDuration <= 0L) newDuration = durationMs;
                 if (TextUtils.isEmpty(newAlbumArtUri)) newAlbumArtUri = albumArtUri;
+                if (TextUtils.isEmpty(newMediaUri)) newMediaUri = mediaUri;
             }
             boolean newActive = isDisplayableSession(newTitle, stateValue);
             String newTrackKey = lyricTrackKey(normalizedSource, newTitle, newArtist,
@@ -181,6 +185,7 @@ final class MusicStateStore {
             artist = safe(newArtist);
             if (newAlbumArt != null) albumArt = newAlbumArt;
             albumArtUri = safe(newAlbumArtUri);
+            mediaUri = safe(newMediaUri);
             durationMs = newDuration > 0L ? newDuration : -1L;
             basePositionMs = positionToStore;
             lastReportedPositionMs = newPosition;
@@ -248,7 +253,7 @@ final class MusicStateStore {
         }
         if (generationToLoad >= 0L && !TextUtils.isEmpty(newTitle)) {
             scheduleLyricLoad(generationToLoad, normalizedSource, normalizedSourcePackage,
-                    newMediaId,
+                    newMediaId, newMediaUri,
                     newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback,
                     forcedPlayerCatalog);
             if (newAlbumArt == null && TextUtils.isEmpty(newAlbumArtUri)) {
@@ -258,6 +263,7 @@ final class MusicStateStore {
         if (generationForAlbumArt >= 0L) {
             scheduleAlbumArtLoad(generationForAlbumArt, newAlbumArtUri);
         }
+        AudioSpectrumSource.setPlaybackActive(context.getApplicationContext(), playing);
     }
 
     static void clear() {
@@ -274,6 +280,7 @@ final class MusicStateStore {
             artist = "";
             albumArt = null;
             albumArtUri = "";
+            mediaUri = "";
             loadingAlbumArtUri = "";
             durationMs = -1L;
             basePositionMs = 0L;
@@ -289,6 +296,7 @@ final class MusicStateStore {
             trackGeneration++;
             cancelLyricLoadLocked();
         }
+        if (appContext != null) AudioSpectrumSource.setPlaybackActive(appContext, false);
         if (hadState && appContext != null) {
             DiagnosticLog.record(appContext, "Playback", "state cleared: no usable session");
         }
@@ -348,6 +356,7 @@ final class MusicStateStore {
         String requestedSource;
         String requestedSourcePackage;
         String requestedMediaId;
+        String requestedMediaUri;
         String requestedTitle;
         String requestedArtist;
         long requestedDuration;
@@ -364,6 +373,7 @@ final class MusicStateStore {
             forcedPlayerCatalog = selectedCatalogOverride == null
                     && AppPreferences.hasForcedPlayerPackageCatalog(context, sourcePackage);
             requestedMediaId = mediaId;
+            requestedMediaUri = mediaUri;
             requestedTitle = TextUtils.isEmpty(overrideTitle) ? title : overrideTitle.trim();
             requestedArtist = overrideArtist == null ? artist : overrideArtist.trim();
             requestedDuration = durationMs;
@@ -382,7 +392,7 @@ final class MusicStateStore {
                 + " source=" + requestedSource + " selected=" + selectedCatalog
                 + " playerFallback=" + playerCatalogFallback + " title=" + requestedTitle);
         scheduleLyricLoad(generation, requestedSource, requestedSourcePackage,
-                requestedMediaId, requestedTitle,
+                requestedMediaId, requestedMediaUri, requestedTitle,
                 requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback,
                 forcedPlayerCatalog);
     }
@@ -427,7 +437,7 @@ final class MusicStateStore {
 
     private static void scheduleLyricLoad(long generation, String requestedSource,
                                           String requestedSourcePackage,
-                                          String requestedMediaId,
+                                          String requestedMediaId, String requestedMediaUri,
                                           String requestedTitle, String requestedArtist,
                                           long requestedDuration, String selectedCatalog,
                                           boolean playerCatalogFallback,
@@ -441,7 +451,7 @@ final class MusicStateStore {
                 try {
                     MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
                             selectedCatalog, playerCatalogFallback, forcedPlayerCatalog,
-                            requestedSourcePackage, requestedMediaId,
+                            requestedSourcePackage, requestedMediaId, requestedMediaUri,
                             requestedTitle, requestedArtist, requestedDuration);
                     synchronized (LOCK) {
                         if (generation != trackGeneration) {

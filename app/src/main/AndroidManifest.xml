@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
@@ -68,6 +70,9 @@
             android:name=".StatusLyricSettingsActivity"
             android:exported="false" />
         <activity
+            android:name=".ColorSettingsActivity"
+            android:exported="false" />
+        <activity
             android:name=".DisplaySettingsActivity"
             android:exported="false" />
         <activity
@@ -96,11 +101,27 @@
 
         <receiver
             android:name=".OverlayStartupReceiver"
-            android:directBootAware="false"
+            android:directBootAware="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <receiver android:name=".BluetoothAvrcpReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.avrcp-controller.profile.action.TRACK_EVENT" />
+                <action android:name="android.bluetooth.avrcp-controller.profile.action.PLAYBACK_STATE_CHANGED" />
+                <action android:name="android.bluetooth.avrcp-controller.profile.action.CONNECTION_STATE_CHANGED" />
+                <action android:name="com.android.bluetooth.avrcp-controller.profile.action.TRACK_EVENT" />
+                <action android:name="com.android.bluetooth.avrcp-controller.profile.action.PLAYBACK_STATE_CHANGED" />
+                <action android:name="com.android.bluetooth.music.metachanged" />
+                <action android:name="com.android.bluetooth.music.playstatechanged" />
             </intent-filter>
         </receiver>
 
