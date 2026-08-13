@@ -27,6 +27,7 @@ final class AppPreferences {
     static final String KEY_STYLE_DIM = "style_dim";
     static final String KEY_STYLE_COVER_SIZE = "style_cover_size";
     static final String KEY_STYLE_LYRIC_LINES = "style_lyric_lines";
+    static final String KEY_PURE_SHOW_TRANSLATION = "pure_show_translation";
     static final String KEY_COMPONENT_LAYOUT = "component_layout";
     static final String KEY_TEXT_SCALE = "text_scale";
     static final String KEY_TITLE_SCALE = "title_scale";
@@ -553,6 +554,10 @@ final class AppPreferences {
     static int styleLyricLines(Context context, boolean secondary) {
         return Math.max(1, Math.min(7,
                 displayInt(context, secondary, KEY_STYLE_LYRIC_LINES, 3)));
+    }
+
+    static boolean pureShowTranslation(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_PURE_SHOW_TRANSLATION, true);
     }
 
     static String refinedDisplayMode(Context context) { return refinedDisplayMode(context, false); }

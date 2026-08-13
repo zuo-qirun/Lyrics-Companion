@@ -70,6 +70,7 @@ final class LyricsPanelView extends View {
     private int backgroundBlur;
     private int backgroundDim;
     private int lyricLineCount;
+    private boolean pureShowTranslation;
     private String overlayStyle;
     private String themeMode;
     private boolean lyricsFollowTheme;
@@ -186,6 +187,7 @@ final class LyricsPanelView extends View {
         backgroundBlur = AppPreferences.styleBlur(getContext(), secondary);
         backgroundDim = AppPreferences.styleDim(getContext(), secondary);
         lyricLineCount = AppPreferences.styleLyricLines(getContext(), secondary);
+        pureShowTranslation = AppPreferences.pureShowTranslation(getContext(), secondary);
         overlayStyle = compactTextOnly ? "compact" : AppPreferences.overlayStyle(getContext(), secondary);
         themeMode = AppPreferences.themeMode(getContext());
         lyricsFollowTheme = compactTextOnly ? AppPreferences.statusLyricFollowTheme(getContext())
@@ -865,7 +867,8 @@ final class LyricsPanelView extends View {
                 fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.previousLyric, "", -1,
                         0L, 0L, false));
             }
-            fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.lyric, "", 0,
+            fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.lyric,
+                    snapshot.lyrics.translatedLyric, 0,
                     snapshot.lyrics.lineStartMs, snapshot.lyrics.lineDurationMs,
                     snapshot.lyrics.interlude));
             if (!snapshot.lyrics.nextLyric.isEmpty()) {
@@ -883,14 +886,32 @@ final class LyricsPanelView extends View {
         int start = PureLyricLayout.windowStart(nearby.size(), currentIndex, count);
         int end = Math.min(nearby.size(), start + count);
         count = Math.max(1, end - start);
+        int translatedLineCount = 0;
+        boolean currentTranslated = false;
+        if (pureShowTranslation) {
+            for (int index = start; index < end; index++) {
+                LrcTimeline.NearbyLine line = nearby.get(index);
+                boolean translated = PureLyricLayout.hasDistinctTranslation(
+                        line.text, line.translated);
+                if (translated) translatedLineCount++;
+                if (line.offset == 0) currentTranslated = translated;
+            }
+        }
         float availableHeight = Math.max(1f, height - 16f * density);
         float size = PureLyricLayout.constrainedCurrentSize(requestedSize, availableHeight,
-                count, nextLyricScale, density);
-        size = Math.max(Math.min(12f * density, requestedSize), size);
+                count, translatedLineCount, currentTranslated, nextLyricScale);
+        size = Math.max(1f, size);
         float secondarySize = size * nextLyricScale;
-        float gap = Math.max(count > 3 ? 3f * density : 6f * density,
-                size * (count > 3 ? 0.28f : 0.42f));
-        float groupHeight = size + (count - 1) * (secondarySize + gap);
+        float gap = size * PureLyricLayout.entryGapRatio(count);
+        float groupHeight = size + (count - 1) * secondarySize + (count - 1) * gap;
+        if (translatedLineCount > 0) {
+            groupHeight += (currentTranslated ? size : 0f)
+                    * (PureLyricLayout.TRANSLATION_SCALE
+                    + PureLyricLayout.TRANSLATION_GAP_RATIO);
+            groupHeight += (translatedLineCount - (currentTranslated ? 1 : 0))
+                    * secondarySize * (PureLyricLayout.TRANSLATION_SCALE
+                    + PureLyricLayout.TRANSLATION_GAP_RATIO);
+        }
         float top = Math.max(4f * density, (height - groupHeight) * 0.5f);
         float maxWidth = Math.max(1f, width - 24f * density);
         int save = canvas.save();
@@ -902,6 +923,8 @@ final class LyricsPanelView extends View {
             boolean current = line.offset == 0;
             float lineSize = current ? size : secondarySize;
             float baseline = lineTop + lineSize;
+            boolean showTranslation = pureShowTranslation
+                    && PureLyricLayout.hasDistinctTranslation(line.text, line.translated);
             if (current) {
                 drewCurrent = true;
                 if (line.interlude || snapshot.lyrics.interlude) {
@@ -924,7 +947,21 @@ final class LyricsPanelView extends View {
                         nextLyricColor(lyricColor(withAlpha(0xFFFFFFFF, alpha))), maxWidth,
                         Typeface.NORMAL);
             }
-            lineTop += lineSize + gap;
+            float lineBlockHeight = lineSize;
+            if (showTranslation) {
+                float translationSize = lineSize * PureLyricLayout.TRANSLATION_SCALE;
+                float translationBaseline = baseline
+                        + lineSize * PureLyricLayout.TRANSLATION_GAP_RATIO
+                        + translationSize;
+                int translationAlpha = current ? 190
+                        : Math.max(56, 148 - Math.min(3, Math.abs(line.offset)) * 24);
+                drawCentered(canvas, line.translated, translationBaseline, translationSize,
+                        nextLyricColor(lyricColor(withAlpha(0xFFFFFFFF, translationAlpha))),
+                        maxWidth, Typeface.NORMAL);
+                lineBlockHeight += lineSize * PureLyricLayout.TRANSLATION_GAP_RATIO
+                        + translationSize;
+            }
+            lineTop += lineBlockHeight + (index + 1 < end ? gap : 0f);
         }
         if (!drewCurrent) {
             compactMarqueeActive = false;

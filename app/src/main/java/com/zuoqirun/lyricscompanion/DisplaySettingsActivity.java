@@ -89,6 +89,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_STYLE_LYRIC_LINES, value));
+        if ("pure".equals(AppPreferences.overlayStyle(this, secondary))) {
+            addToggle(panel, "纯净歌词显示翻译", AppPreferences.KEY_PURE_SHOW_TRANSLATION,
+                    AppPreferences.pureShowTranslation(this, secondary));
+        }
         addSeek(panel, "歌词时间校正", -5000, 5000,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_OFFSET, 0), " ms",
                 value -> AppPreferences.putDisplayInt(this, secondary,
