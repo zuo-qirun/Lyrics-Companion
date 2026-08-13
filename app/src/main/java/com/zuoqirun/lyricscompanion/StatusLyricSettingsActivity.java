@@ -68,7 +68,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
 
         LinearLayout background = card("背景样式");
         addBackgroundChoice(background);
-        TextView backgroundNote = text("毛玻璃使用系统窗口背景模糊（Android 12 及以上），旧系统自动降级为半透明材质；紧凑单行背景保留原来的封面柔化卡片。", 12,
+        TextView backgroundNote = text("毛玻璃仅在系统实际启用跨窗口模糊时使用真实背景模糊；设备关闭或不支持时降级为浅色半透明玻璃，不再叠加黑色滤镜。紧凑单行背景保留封面柔化卡片。", 12,
                 0xFF8392A8, false);
         backgroundNote.setPadding(0, dp(8), 0, 0);
         background.addView(backgroundNote);
@@ -135,7 +135,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         String[] labels = {"完全透明", "毛玻璃", "紧凑单行背景"};
         String[] values = {"transparent", "blur", "compact"};
         Spinner spinner = new Spinner(this);
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         String initial = AppPreferences.topLyricBackground(this);
         for (int i = 0; i < values.length; i++) if (values[i].equals(initial)) {
             spinner.setSelection(i, false); break;

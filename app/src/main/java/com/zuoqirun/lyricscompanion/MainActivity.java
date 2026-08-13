@@ -811,7 +811,7 @@ public final class MainActivity extends AppCompatActivity {
         String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow", "纯净歌词"};
         String[] values = {"refined", "amll", "default", "compact", "pip", "pure"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         String saved = AppPreferences.overlayStyle(this, secondary);
         int selection = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
@@ -865,7 +865,7 @@ public final class MainActivity extends AppCompatActivity {
         String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         String saved = AppPreferences.lyricCatalog(this);
         int selection = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(saved)) selection = i;
@@ -1093,7 +1093,7 @@ public final class MainActivity extends AppCompatActivity {
                 }
             }
         }
-        WhiteSpinnerAdapter<DisplayChoice> adapter = new WhiteSpinnerAdapter<>(this, choices);
+        ThemedSpinnerAdapter<DisplayChoice> adapter = new ThemedSpinnerAdapter<>(this, choices);
         bindingUi = true;
         displaySpinner.setAdapter(adapter);
         int selectedId = AppPreferences.displayId(this);
@@ -1149,7 +1149,7 @@ public final class MainActivity extends AppCompatActivity {
         String[] labels = {"\u8ddf\u968f\u7cfb\u7edf", "\u767d\u5929", "\u591c\u665a"};
         String[] values = {"auto", "light", "dark"};
         spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         String current = AppPreferences.themeMode(this);
         for (int i = 0; i < values.length; i++) {
             if (values[i].equals(current)) {
@@ -1394,7 +1394,7 @@ public final class MainActivity extends AppCompatActivity {
         catalogLabelParams.topMargin = dp(12);
         content.addView(catalogLabel, catalogLabelParams);
         Spinner catalogSpinner = new Spinner(this);
-        catalogSpinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        catalogSpinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         catalogSpinner.setSelection(selectedIndex);
         LinearLayout.LayoutParams catalogParams = new LinearLayout.LayoutParams(-1, dp(52));
         catalogParams.topMargin = dp(10);
@@ -1654,7 +1654,7 @@ public final class MainActivity extends AppCompatActivity {
         String[] labels = {"低频率（10 Hz / 128 点，推荐老车机）",
                 "高频率（30 Hz / 512 点，更流畅）"};
         String[] values = {"low", "high"};
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         spinner.setSelection("high".equals(AppPreferences.realSpectrumCaptureRate(this)) ? 1 : 0,
                 false);
         spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {

@@ -85,7 +85,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                         AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
         addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
                 AppPreferences.smoothLyricScroll(this, secondary));
-        addSeek(panel, "歌词显示行数", 1, 3,
+        addSeek(panel, "歌词显示行数", 1, 7,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_STYLE_LYRIC_LINES, value));
@@ -286,7 +286,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         label.setPadding(0, dp(12), 0, dp(4));
         parent.addView(label);
         Spinner spinner = new Spinner(this);
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         for (int i = 0; i < values.length; i++) {
             if (values[i].equals(initial)) { spinner.setSelection(i, false); break; }
         }
@@ -316,7 +316,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
         final String[] selectedSource = {sourceIds[initialIndex]};
 
         Spinner picker = new Spinner(this);
-        picker.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        picker.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         picker.setSelection(initialIndex);
         parent.addView(picker, new LinearLayout.LayoutParams(-1, dp(44)));
 

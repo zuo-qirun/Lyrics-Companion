@@ -136,6 +136,7 @@ final class LyricsPanelView extends View {
     private boolean compactSpectrumAnimating;
     private final boolean fullscreen;
     private final boolean compactTextOnly;
+    private boolean topWindowBlurActive;
 
     LyricsPanelView(Context context) { this(context, false, false, false); }
 
@@ -154,6 +155,12 @@ final class LyricsPanelView extends View {
         this.fullscreen = fullscreen;
         this.compactTextOnly = compactTextOnly;
         reloadStyle();
+    }
+
+    void setTopWindowBlurActive(boolean active) {
+        if (topWindowBlurActive == active) return;
+        topWindowBlurActive = active;
+        invalidate();
     }
 
     void reloadStyle() {
@@ -331,9 +338,9 @@ final class LyricsPanelView extends View {
             return !"cover".equals(refinedDisplayMode)
                     && ("lyrics".equals(refinedDisplayMode) || x >= getWidth() * 0.46f);
         }
-        // The compact layout has no spare non-lyric area. Reserve its full surface for moving
-        // the overlay instead of swallowing every touch as lyric browsing.
-        if ("compact".equals(overlayStyle)) return false;
+        // Compact and pure layouts have no spare metadata area. Reserve their full surface for
+        // moving the overlay instead of swallowing every touch as lyric browsing.
+        if (OverlayStyleInteraction.reservesSurfaceForWindowDrag(overlayStyle)) return false;
         if ("pip".equals(overlayStyle)) return y >= getHeight() * 0.34f;
         if ("custom".equals(overlayStyle)) return y >= getHeight() * 0.28f;
         return y >= getHeight() * 0.24f && y <= getHeight() * 0.86f;
@@ -850,34 +857,81 @@ final class LyricsPanelView extends View {
         float width = getWidth();
         float height = getHeight();
         float scale = canvasAreaScale(430f, 190f, density);
-        float size = Math.max(16f * density, 29f * density * textScale * scale);
+        float requestedSize = Math.max(16f * density, 29f * density * textScale * scale);
+        List<LrcTimeline.NearbyLine> nearby = snapshot.lyrics.nearbyLines;
+        if (nearby.isEmpty()) {
+            List<LrcTimeline.NearbyLine> fallback = new ArrayList<>();
+            if (!snapshot.lyrics.previousLyric.isEmpty()) {
+                fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.previousLyric, "", -1,
+                        0L, 0L, false));
+            }
+            fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.lyric, "", 0,
+                    snapshot.lyrics.lineStartMs, snapshot.lyrics.lineDurationMs,
+                    snapshot.lyrics.interlude));
+            if (!snapshot.lyrics.nextLyric.isEmpty()) {
+                fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.nextLyric, "", 1,
+                        0L, 0L, false));
+            }
+            nearby = fallback;
+        }
+        int requestedCount = Math.max(1, Math.min(7, lyricLineCount));
+        int count = Math.max(1, Math.min(requestedCount, nearby.size()));
+        int currentIndex = 0;
+        for (int index = 0; index < nearby.size(); index++) {
+            if (nearby.get(index).offset == 0) { currentIndex = index; break; }
+        }
+        int start = PureLyricLayout.windowStart(nearby.size(), currentIndex, count);
+        int end = Math.min(nearby.size(), start + count);
+        count = Math.max(1, end - start);
+        float availableHeight = Math.max(1f, height - 16f * density);
+        float size = PureLyricLayout.constrainedCurrentSize(requestedSize, availableHeight,
+                count, nextLyricScale, density);
+        size = Math.max(Math.min(12f * density, requestedSize), size);
         float secondarySize = size * nextLyricScale;
-        float gap = Math.max(10f * density, size * 0.48f);
-        int count = Math.max(1, Math.min(3, lyricLineCount));
+        float gap = Math.max(count > 3 ? 3f * density : 6f * density,
+                size * (count > 3 ? 0.28f : 0.42f));
         float groupHeight = size + (count - 1) * (secondarySize + gap);
-        float baseline = (height - groupHeight) * 0.5f + size;
+        float top = Math.max(4f * density, (height - groupHeight) * 0.5f);
         float maxWidth = Math.max(1f, width - 24f * density);
-        if (count >= 3) {
-            drawCentered(canvas, snapshot.lyrics.previousLyric, baseline,
-                    secondarySize, nextLyricColor(lyricColor(0x88FFFFFF)), maxWidth,
-                    Typeface.NORMAL);
-            baseline += secondarySize + gap;
+        int save = canvas.save();
+        canvas.clipRect(0f, 0f, width, height);
+        boolean drewCurrent = false;
+        float lineTop = top;
+        for (int index = start; index < end; index++) {
+            LrcTimeline.NearbyLine line = nearby.get(index);
+            boolean current = line.offset == 0;
+            float lineSize = current ? size : secondarySize;
+            float baseline = lineTop + lineSize;
+            if (current) {
+                drewCurrent = true;
+                if (line.interlude || snapshot.lyrics.interlude) {
+                    compactMarqueeActive = false;
+                    compactMarqueeText = "";
+                    compactMarqueeElapsedMs = 0L;
+                    float radius = size * 0.22f;
+                    drawInterludeDots(canvas, snapshot,
+                            (width - interludeDotsWidth(radius)) * 0.5f,
+                            baseline - size * 0.72f, radius, lyricColor(0xFFFFFFFF));
+                } else {
+                    drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot),
+                            (width - maxWidth) * 0.5f, baseline, size, maxWidth, density,
+                            lyricColor(0x99FFFFFF), lyricColor(0xFFFFFFFF));
+                }
+            } else {
+                int distance = Math.min(3, Math.abs(line.offset));
+                int alpha = Math.max(72, 184 - distance * 30);
+                drawCentered(canvas, line.text, baseline, secondarySize,
+                        nextLyricColor(lyricColor(withAlpha(0xFFFFFFFF, alpha))), maxWidth,
+                        Typeface.NORMAL);
+            }
+            lineTop += lineSize + gap;
         }
-        if (snapshot.lyrics.interlude) {
-            float radius = size * 0.22f;
-            drawInterludeDots(canvas, snapshot,
-                    (width - interludeDotsWidth(radius)) * 0.5f, baseline - size * 0.72f,
-                    radius, lyricColor(0xFFFFFFFF));
-        } else {
-            drawKaraoke(canvas, snapshot, currentText(snapshot), width * 0.5f, baseline,
-                    size, maxWidth, Paint.Align.CENTER, lyricColor(0x99FFFFFF),
-                    lyricColor(0xFFFFFFFF));
+        if (!drewCurrent) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
         }
-        if (count >= 2) {
-            drawCentered(canvas, snapshot.lyrics.nextLyric, baseline + size + gap,
-                    secondarySize, nextLyricColor(lyricColor(0xA8FFFFFF)), maxWidth,
-                    Typeface.NORMAL);
-        }
+        canvas.restoreToCount(save);
     }
 
     /** Source-derived fullscreen layout from Refined Now Playing's styles.scss. */
@@ -1875,11 +1929,16 @@ final class LyricsPanelView extends View {
             canvas.drawRoundRect(panelRect, radius, radius, paint);
             paint.setStyle(Paint.Style.FILL);
         } else if ("blur".equals(mode)) {
-            paint.setColor(lyricUsesLightColors() ? 0x66F3F7FC : 0x66101A29);
+            // A real cross-window blur only needs a very light material tint. When the ROM
+            // disables blur, keep a subtle translucent glass fallback instead of the old dark
+            // 40% overlay that looked like a black filter over the wallpaper.
+            paint.setColor(topWindowBlurActive
+                    ? (lyricUsesLightColors() ? 0x22FFFFFF : 0x16FFFFFF)
+                    : (lyricUsesLightColors() ? 0x30FFFFFF : 0x24FFFFFF));
             canvas.drawRoundRect(panelRect, radius, radius, paint);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(Math.max(1f, density));
-            paint.setColor(lyricUsesLightColors() ? 0x66FFFFFF : 0x44FFFFFF);
+            paint.setColor(topWindowBlurActive ? 0x45FFFFFF : 0x38FFFFFF);
             canvas.drawRoundRect(panelRect, radius, radius, paint);
             paint.setStyle(Paint.Style.FILL);
         } else {

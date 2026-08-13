@@ -68,7 +68,7 @@ public final class ColorSettingsActivity extends AppCompatActivity {
         LinearLayout scope = card("编辑区域");
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         String[] labels = {"主屏悬浮歌词", "副屏歌词", "顶部歌词条"};
-        spinner.setAdapter(new WhiteSpinnerAdapter<>(this, labels));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         spinner.setSelection(Math.max(0, Math.min(labels.length - 1, selectedScope)), false);
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view,

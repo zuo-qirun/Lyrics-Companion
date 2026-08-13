@@ -551,7 +551,7 @@ final class AppPreferences {
     static int styleLyricLines(Context context) { return styleLyricLines(context, false); }
 
     static int styleLyricLines(Context context, boolean secondary) {
-        return Math.max(1, Math.min(3,
+        return Math.max(1, Math.min(7,
                 displayInt(context, secondary, KEY_STYLE_LYRIC_LINES, 3)));
     }
 

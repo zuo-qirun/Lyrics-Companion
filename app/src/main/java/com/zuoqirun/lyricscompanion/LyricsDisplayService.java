@@ -793,7 +793,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         int contentHeight = AppPreferences.topLyricSpectrum(this) ? 66 : 44;
         WindowManager.LayoutParams params = overlayParams(screenWidth,
                 topInset + dp(this, contentHeight));
-        applyTopLyricBlur(params);
+        boolean windowBlurActive = applyTopLyricBlur(params, manager);
         // Keep the transparent renderer in the status area. System icons remain on top and
         // the two lyric lines are centered through the remaining horizontal space.
         params.width = stripWidth;
@@ -806,6 +806,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             // Settings may change while the strip stays attached. Reload its compact renderer
             // and update its actual window bounds instead of returning with stale values.
             statusLyricStrip.reloadStyle();
+            statusLyricStrip.setTopWindowBlurActive(windowBlurActive);
             try {
                 manager.updateViewLayout(statusLyricStrip, params);
                 statusLyricParams = params;
@@ -816,6 +817,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             return;
         }
         LyricsPanelView strip = new LyricsPanelView(this, false, false, true);
+        strip.setTopWindowBlurActive(windowBlurActive);
         try {
             manager.addView(strip, params);
             statusLyricStrip = strip;
@@ -862,14 +864,22 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (statusLyricStrip != null) statusLyricStrip.postInvalidateOnAnimation();
     }
 
-    private void applyTopLyricBlur(WindowManager.LayoutParams params) {
+    private boolean applyTopLyricBlur(WindowManager.LayoutParams params, WindowManager manager) {
         if (Build.VERSION.SDK_INT < 31
-                || !"blur".equals(AppPreferences.topLyricBackground(this))) return;
+                || !"blur".equals(AppPreferences.topLyricBackground(this))) return false;
         try {
+            if (manager == null || !manager.isCrossWindowBlurEnabled()) {
+                params.flags &= ~WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+                params.setBlurBehindRadius(0);
+                return false;
+            }
             params.setBlurBehindRadius(dp(this, 28));
             params.flags |= WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+            return true;
         } catch (Throwable error) {
             Log.w(TAG, "Window blur unavailable for top lyric strip", error);
+            params.flags &= ~WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
+            return false;
         }
     }
 

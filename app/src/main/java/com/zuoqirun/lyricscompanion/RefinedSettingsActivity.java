@@ -5,8 +5,6 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -201,17 +199,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         label.setPadding(0, dp(12), 0, dp(4));
         parent.addView(label);
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_dropdown_item, labels) {
-            @Override public View getView(int position, View convertView, ViewGroup parentView) {
-                return styleSpinner((TextView) super.getView(position, convertView, parentView));
-            }
-            @Override public View getDropDownView(int position, View convertView,
-                                                  ViewGroup parentView) {
-                return styleSpinner((TextView) super.getDropDownView(position, convertView, parentView));
-            }
-        };
-        spinner.setAdapter(adapter);
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         int selected = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(current)) selected = i;
         spinner.setSelection(selected, false);
@@ -278,14 +266,6 @@ public final class RefinedSettingsActivity extends AppCompatActivity {
         AppPreferences.changed(this);
         LyricsDisplayService.setSettingsVisible(this, true);
         if (secondary) LyricsDisplayService.refreshSecondary(this);
-    }
-
-    private TextView styleSpinner(TextView view) {
-        view.setTextColor(0xFFF2F6FB);
-        view.setTextSize(14f);
-        view.setPadding(dp(12), dp(7), dp(12), dp(7));
-        view.setBackgroundColor(0xFF132238);
-        return view;
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
