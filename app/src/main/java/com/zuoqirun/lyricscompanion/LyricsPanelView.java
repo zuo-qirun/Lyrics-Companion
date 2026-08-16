@@ -56,6 +56,10 @@ final class LyricsPanelView extends View {
     private int lyricColor;
     private int lyricLightColor;
     private int lyricDarkColor;
+    private int currentLyricColor;
+    private int inactiveLyricColor;
+    private boolean lyricOutline;
+    private boolean trailingAccent;
     private int titleColor;
     private int artistColor;
     private int playerColor;
@@ -177,6 +181,12 @@ final class LyricsPanelView extends View {
                 : AppPreferences.lyricLightColor(getContext(), secondary);
         lyricDarkColor = compactTextOnly ? AppPreferences.statusLyricDarkColor(getContext())
                 : AppPreferences.lyricDarkColor(getContext(), secondary);
+        currentLyricColor = compactTextOnly ? 0
+                : AppPreferences.currentLyricColor(getContext(), secondary);
+        inactiveLyricColor = compactTextOnly ? 0
+                : AppPreferences.inactiveLyricColor(getContext(), secondary);
+        lyricOutline = !compactTextOnly && AppPreferences.lyricOutline(getContext(), secondary);
+        trailingAccent = AppPreferences.trailingAccent(getContext(), secondary);
         titleColor = AppPreferences.titleColor(getContext(), secondary);
         artistColor = AppPreferences.artistColor(getContext(), secondary);
         playerColor = AppPreferences.playerColor(getContext(), secondary);
@@ -280,7 +290,8 @@ final class LyricsPanelView extends View {
                 && AppPreferences.spectrumEnabled(getContext(), secondary)) {
             drawSharedSpectrum(canvas, snapshot, density);
         }
-        if (!secondary && !compactTextOnly && !"pure".equals(overlayStyle)) {
+        if (AppPreferences.showPlaybackControls(getContext(), secondary)
+                && !compactTextOnly && !"pure".equals(overlayStyle)) {
             drawPlaybackControls(canvas, snapshot, density);
         }
         scheduleNextFrame(nextFrameDelay(snapshot, now));
@@ -349,7 +360,8 @@ final class LyricsPanelView extends View {
     }
 
     MediaControlAction playbackControlAt(float x, float y) {
-        if (secondary || getWidth() <= 0 || getHeight() <= 0) return null;
+        if (!AppPreferences.showPlaybackControls(getContext(), secondary)
+                || getWidth() <= 0 || getHeight() <= 0) return null;
         float density = getResources().getDisplayMetrics().density;
         PlaybackControlLayout layout = playbackControlLayout(density);
         if (AppPreferences.showPreviousButton(getContext())
@@ -731,13 +743,15 @@ final class LyricsPanelView extends View {
         float statusBaseline = y;
         float titleBaseline = statusBaseline + 24f * density * unit;
         boolean hasTranslation = !snapshot.lyrics.translatedLyric.isEmpty();
-        float controlReserve = secondary ? 0f : 31f * density * contentScale;
+        float controlReserve = AppPreferences.showPlaybackControls(getContext(), secondary)
+                ? 31f * density * contentScale : 0f;
         float nextBaseline = height - 37f * density * contentScale - controlReserve;
         float lyricClipBottom = height - 21f * density * contentScale;
         if (AppPreferences.spectrumEnabled(getContext(), secondary)) {
             float spectrumHeight = Math.max(14f * density,
                     Math.min(42f * density, height * 0.15f));
-            boolean controlsVisible = !secondary && (AppPreferences.showPreviousButton(getContext())
+            boolean controlsVisible = AppPreferences.showPlaybackControls(getContext(), secondary)
+                    && (AppPreferences.showPreviousButton(getContext())
                     || AppPreferences.showPlayPauseButton(getContext())
                     || AppPreferences.showNextButton(getContext()));
             float spectrumBottom = height - Math.max(3f * density,
@@ -751,7 +765,11 @@ final class LyricsPanelView extends View {
         float nominalGapTotal = (hasTranslation ? 80f : 56f) * density * unit;
         float availableGapTotal = Math.max(1f, nextBaseline - previousBaseline);
         float gapScale = Math.min(1f, availableGapTotal / nominalGapTotal);
-        float currentBaseline = previousBaseline + 32f * density * unit * gapScale;
+        // With the normal three-line classic layout, center the active line exactly between
+        // previous and next.  It avoids the visible uneven "32dp then leftover" spacing.
+        float currentBaseline = hasTranslation
+                ? previousBaseline + 32f * density * unit * gapScale
+                : (previousBaseline + nextBaseline) * 0.5f;
         float translationBaseline = currentBaseline + 24f * density * unit * gapScale;
         float classicTextScale = ClassicLayoutMath.constrainedTextScale(textScale, density, unit,
                 titleScale, nextLyricScale, statusBaseline, titleBaseline, previousBaseline,
@@ -773,30 +791,30 @@ final class LyricsPanelView extends View {
                 32f * density * unit);
         drawCentered(canvas, snapshot.lyrics.previousLyric,
                 previousBaseline + previewShift + basicScrollShift,
-                12f * density * classicTextScale * unit, lyricColor(0xFF68778C), usableWidth,
+                12f * density * classicTextScale * unit, inactiveLyricColor(0xFF68778C), usableWidth,
                 Typeface.NORMAL);
         if (snapshot.lyrics.interlude) {
             float dotRadius = 22f * density * classicTextScale * unit * 0.35f;
             float dotWidth = interludeDotsWidth(dotRadius);
             drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
                     currentBaseline + previewShift + basicScrollShift - dotRadius, dotRadius,
-                    lyricColor(0xFFFFCA66));
+                    currentLyricColor(0xFFFFCA66));
         } else {
             drawKaraoke(canvas, snapshot, currentText(snapshot), width / 2f,
                     currentBaseline + previewShift + basicScrollShift,
                     22f * density * classicTextScale * unit, usableWidth, Paint.Align.CENTER,
-                    lyricColor(0xFFB1BCCB), lyricColor(0xFFFFCA66));
+                    inactiveLyricColor(0xFFB1BCCB), currentLyricColor(0xFFFFCA66));
         }
         if (hasTranslation) {
             drawCentered(canvas, snapshot.lyrics.translatedLyric,
                     translationBaseline + previewShift + basicScrollShift,
-                    12f * density * classicTextScale * unit, lyricColor(0xFFB8C5D8), usableWidth,
+                    12f * density * classicTextScale * unit, currentLyricColor(0xFFB8C5D8), usableWidth,
                     Typeface.NORMAL);
         }
         drawCentered(canvas, snapshot.lyrics.nextLyric,
                 nextBaseline + previewShift + basicScrollShift,
                 nextLyricSize(22f * density * classicTextScale * unit),
-                nextLyricColor(lyricColor(0xFF68778C)), usableWidth, Typeface.NORMAL);
+                nextLyricColor(inactiveLyricColor(0xFF68778C)), usableWidth, Typeface.NORMAL);
         canvas.restoreToCount(classicTextSave);
         drawProgress(canvas, pad, height - 17f * density * contentScale,
                 width - pad, 3f * density * contentScale,
@@ -1696,6 +1714,8 @@ final class LyricsPanelView extends View {
             canvas.drawText(text, drawX, y, paint);
             paint.clearShadowLayer();
             canvas.restoreToCount(highlightSave);
+            drawTrailingAccentWord(canvas, at, text, drawX, y, requestedSize,
+                    Paint.Align.LEFT, activeColor);
         }
         canvas.restoreToCount(save);
         return offset;
@@ -1945,6 +1965,16 @@ final class LyricsPanelView extends View {
         return selected == 0 ? fallback : withAlpha(selected, Color.alpha(fallback));
     }
 
+    private int currentLyricColor(int fallback) {
+        return currentLyricColor == 0 ? lyricColor(fallback)
+                : withAlpha(currentLyricColor, Color.alpha(fallback));
+    }
+
+    private int inactiveLyricColor(int fallback) {
+        return inactiveLyricColor == 0 ? lyricColor(fallback)
+                : withAlpha(inactiveLyricColor, Color.alpha(fallback));
+    }
+
     private void drawTopLyricBackground(Canvas canvas, MusicSnapshot snapshot, float density) {
         String mode = AppPreferences.topLyricBackground(getContext());
         float radius = Math.min(getWidth(), getHeight()) * 0.22f;
@@ -1998,7 +2028,8 @@ final class LyricsPanelView extends View {
         float inset = Math.max(8f * density, getWidth() * 0.04f);
         float height = Math.max(14f * density, Math.min(42f * density, getHeight() * 0.15f));
         float bottom = getHeight() - Math.max(3f * density,
-                !secondary && (AppPreferences.showPreviousButton(getContext())
+                AppPreferences.showPlaybackControls(getContext(), secondary)
+                        && (AppPreferences.showPreviousButton(getContext())
                         || AppPreferences.showPlayPauseButton(getContext())
                         || AppPreferences.showNextButton(getContext())) ? 42f * density : 5f * density);
         SpectrumRenderer.draw(canvas, paint,
@@ -2843,6 +2874,7 @@ final class LyricsPanelView extends View {
             canvas.drawText(chunk.text, x, baseline, paint);
             paint.clearShadowLayer();
             canvas.restoreToCount(save);
+            drawTrailingAccentChunk(canvas, at, chunk, x, baseline, size, activeColor);
         }
         return chunks.size() * lineHeight;
     }
@@ -2879,6 +2911,7 @@ final class LyricsPanelView extends View {
                     Math.min(value.length(), completedEnd + boundary.completeEnd),
                     Math.min(value.length(), completedEnd + boundary.partialEnd),
                     boundary.partialFraction, activeColor, 255, 0f, true);
+            drawTrailingAccentChunk(canvas, at, chunk, x, baseline, size, activeColor);
         }
         return chunks.size() * lineHeight;
     }
@@ -3014,7 +3047,60 @@ final class LyricsPanelView extends View {
         canvas.drawText(text, anchorX, y, paint);
         paint.clearShadowLayer();
         canvas.restoreToCount(save);
+        drawTrailingAccentWord(canvas, at, text, anchorX, y, size, align, activeColor);
     }
+
+    /** A restrained, shared long-tail accent for every Canvas lyric style. */
+    private void drawTrailingAccentWord(Canvas canvas, LrcTimeline.At at, String text,
+                                        float anchorX, float baseline, float size,
+                                        Paint.Align align, int color) {
+        if (!trailingAccent || at == null || !at.trailingWord || at.currentWord.isEmpty()
+                || text == null || text.isEmpty()) return;
+        int start = Math.min(text.length(), at.completedLyric.length());
+        int end = Math.min(text.length(), start + at.currentWord.length());
+        if (end <= start) return;
+        float textWidth = paint.measureText(text);
+        float left = align == Paint.Align.CENTER ? anchorX - textWidth * .5f
+                : align == Paint.Align.RIGHT ? anchorX - textWidth : anchorX;
+        float startX = left + paint.measureText(text, 0, start);
+        float endX = left + paint.measureText(text, 0, end);
+        drawTrailingAccentRange(canvas, text, anchorX, baseline, size, align,
+                startX, endX, color, at.wordProgressPermille / 1000f);
+    }
+
+    private void drawTrailingAccentChunk(Canvas canvas, LrcTimeline.At at, WrappedChunk chunk,
+                                         float x, float baseline, float size, int color) {
+        if (!trailingAccent || at == null || !at.trailingWord || at.currentWord.isEmpty()) return;
+        int start = at.completedLyric.length();
+        int end = start + at.currentWord.length();
+        if (chunk.end <= start || chunk.start >= end) return;
+        float startX = x + textWidthToGlobalIndex(chunk, start);
+        float endX = x + textWidthToGlobalIndex(chunk, end);
+        drawTrailingAccentRange(canvas, chunk.text, x, baseline, size, Paint.Align.LEFT,
+                startX, endX, color, at.wordProgressPermille / 1000f);
+    }
+
+    private void drawTrailingAccentRange(Canvas canvas, String text, float anchorX,
+                                         float baseline, float size, Paint.Align align,
+                                         float startX, float endX, int color, float wordProgress) {
+        if (endX <= startX) return;
+        float progress = TrailingAccentEffect.intensity(wordProgress);
+        if (progress <= 0f) return;
+        float center = (startX + endX) * .5f;
+        int save = canvas.save();
+        canvas.clipRect(startX - size * .14f, baseline - size * 1.38f,
+                endX + size * .14f, baseline + size * .36f);
+        float scale = 1f + progress * .055f;
+        canvas.scale(scale, scale, center, baseline - size * .38f);
+        paint.setColor(withAlpha(color, Math.round(125 + 130 * progress)));
+        paint.setShadowLayer(Math.max(3f, size * (.22f + .28f * progress)), 0f, 0f,
+                withAlpha(color, Math.round(105 + 110 * progress)));
+        paint.setTextAlign(align);
+        canvas.drawText(text, anchorX, baseline, paint);
+        paint.clearShadowLayer();
+        canvas.restoreToCount(save);
+    }
+
 
     private float karaokeHighlightWidth(String text, LrcTimeline.At at) {
         if (text == null || text.isEmpty()) return 0f;
@@ -3061,6 +3147,15 @@ final class LyricsPanelView extends View {
         if (drawSplitSourceMetadata(canvas, text, getWidth() / 2f, y, maxWidth,
                 Paint.Align.CENTER, 255)) return;
         paint.setColor(resolveMetadataColor(value, color));
+        int resolved = resolveMetadataColor(value, color);
+        if (shouldOutlineLyric(value)) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(1f, size * 0.075f));
+            paint.setColor(withAlpha(Color.BLACK, Math.min(225, Color.alpha(resolved))));
+            canvas.drawText(text, getWidth() / 2f, y, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        paint.setColor(resolved);
         canvas.drawText(text, getWidth() / 2f, y, paint);
     }
 
@@ -3072,8 +3167,21 @@ final class LyricsPanelView extends View {
         paint.setTextAlign(Paint.Align.LEFT);
         if (drawSplitSourceMetadata(canvas, value, x, y, maxWidth,
                 Paint.Align.LEFT, 255)) return;
-        paint.setColor(resolveMetadataColor(value, color));
+        int resolved = resolveMetadataColor(value, color);
+        if (shouldOutlineLyric(value)) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(1f, size * 0.075f));
+            paint.setColor(withAlpha(Color.BLACK, Math.min(225, Color.alpha(resolved))));
+            canvas.drawText(ellipsize(value.replace('\n', ' '), maxWidth), x, y, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        paint.setColor(resolved);
         canvas.drawText(ellipsize(value.replace('\n', ' '), maxWidth), x, y, paint);
+    }
+
+    private boolean shouldOutlineLyric(String value) {
+        return lyricOutline && value != null && !value.equals(frameTitle) && !value.equals(frameArtist)
+                && !value.equals(frameSourceName) && !value.equals(frameLyricSourceName);
     }
 
     private float fitSize(String value, float requested, float maxWidth, int style) {

@@ -10,8 +10,11 @@ import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 
 /** Shared manual/automatic RGB color palette used by all lyric presentations. */
 final class ColorPaletteControls {
@@ -53,6 +56,25 @@ final class ColorPaletteControls {
         stateRow.addView(swatch, swatchParams);
         updateSwatch(context, swatch, initial);
         controls.addView(stateRow);
+        LinearLayout inputRow = new LinearLayout(context);
+        inputRow.setGravity(Gravity.CENTER_VERTICAL);
+        inputRow.setPadding(0, dp(context, 6), 0, 0);
+        TextInputLayout colorInput = new TextInputLayout(context);
+        colorInput.setHint("色号：#RRGGBB 或 R,G,B");
+        colorInput.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        TextInputEditText colorValue = new TextInputEditText(context);
+        colorValue.setSingleLine(true);
+        colorValue.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        colorValue.setText(String.format(java.util.Locale.ROOT, "#%02X%02X%02X",
+                rgb[0], rgb[1], rgb[2]));
+        colorInput.addView(colorValue);
+        inputRow.addView(colorInput, new LinearLayout.LayoutParams(0, -2, 1f));
+        MaterialButton applyText = new MaterialButton(context);
+        applyText.setText("应用");
+        applyText.setTextSize(12f);
+        applyText.setAllCaps(false);
+        inputRow.addView(applyText, new LinearLayout.LayoutParams(-2, dp(context, 48)));
+        controls.addView(inputRow);
         TextView hint = text(context, "圆形调色盘：沿外圈选择色相，向中心降低饱和度", 12,
                 0xFF8392A8, false);
         hint.setPadding(0, dp(context, 8), 0, dp(context, 3));
@@ -70,6 +92,18 @@ final class ColorPaletteControls {
             circle.setColor(color);
             changed.run();
         };
+        applyText.setOnClickListener(v -> {
+            int parsed = parseColor(colorValue.getText() == null ? "" : colorValue.getText().toString());
+            if (parsed == 0) {
+                colorInput.setError("请输入 #RRGGBB 或 R,G,B（每项 0-255）");
+                return;
+            }
+            colorInput.setError(null);
+            rgb[0] = Color.red(parsed);
+            rgb[1] = Color.green(parsed);
+            rgb[2] = Color.blue(parsed);
+            apply.run();
+        });
         Channel[] channels = new Channel[]{
                 addChannel(context, controls, "红", rgb, 0, apply),
                 addChannel(context, controls, "绿", rgb, 1, apply),
@@ -145,6 +179,25 @@ final class ColorPaletteControls {
     private static String colorLabel(int color) {
         return String.format(java.util.Locale.ROOT, "当前：#%02X%02X%02X",
                 Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    /** Returns zero for malformed input; palette colors are always opaque and never black-zero. */
+    private static int parseColor(String value) {
+        String normalized = value == null ? "" : value.trim();
+        try {
+            if (normalized.matches("#?[0-9a-fA-F]{6}")) {
+                return Color.parseColor(normalized.startsWith("#") ? normalized : "#" + normalized);
+            }
+            String[] values = normalized.split("\\s*,\\s*");
+            if (values.length != 3) return 0;
+            int red = Integer.parseInt(values[0]);
+            int green = Integer.parseInt(values[1]);
+            int blue = Integer.parseInt(values[2]);
+            if (red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255) return 0;
+            return Color.rgb(red, green, blue);
+        } catch (RuntimeException ignored) {
+            return 0;
+        }
     }
 
     private static int dp(Context context, float value) {

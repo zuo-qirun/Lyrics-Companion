@@ -39,6 +39,10 @@ final class AppPreferences {
     static final String KEY_NEXT_LYRIC_SCALE = "next_lyric_scale";
     static final String KEY_NEXT_LYRIC_OPACITY = "next_lyric_opacity";
     static final String KEY_LYRIC_COLOR = "lyric_color";
+    static final String KEY_CURRENT_LYRIC_COLOR = "current_lyric_color";
+    static final String KEY_INACTIVE_LYRIC_COLOR = "inactive_lyric_color";
+    static final String KEY_LYRIC_OUTLINE = "lyric_outline";
+    static final String KEY_TRAILING_ACCENT = "trailing_accent";
     static final String KEY_LYRIC_LIGHT_COLOR = "lyric_light_color";
     static final String KEY_LYRIC_DARK_COLOR = "lyric_dark_color";
     static final String KEY_TITLE_COLOR = "title_color";
@@ -98,6 +102,7 @@ final class AppPreferences {
     static final String KEY_MAIN_OVERLAY_TOUCH_THROUGH = "main_overlay_touch_through";
     static final String KEY_SECONDARY_OVERLAY_TOUCH_THROUGH =
             "secondary_overlay_touch_through";
+    static final String KEY_OVERLAY_POSITION_LOCKED = "overlay_position_locked";
     static final String KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING =
             "hide_overlays_when_not_playing";
     static final String KEY_HIDE_OVERLAYS_IN_PLAYER = "hide_overlays_in_player";
@@ -108,6 +113,7 @@ final class AppPreferences {
     static final String KEY_PLAYBACK_CONTROL_SCALE = "playback_control_scale";
     static final String KEY_PLAYBACK_CONTROL_X = "playback_control_x";
     static final String KEY_PLAYBACK_CONTROL_Y = "playback_control_y";
+    static final String KEY_SECONDARY_PLAYBACK_CONTROLS = "secondary_playback_controls";
     static final String KEY_FULLSCREEN_CLOSE_MODE = "fullscreen_close_mode";
     static final String KEY_OVERLAY_CLOSE_MODE = "overlay_close_mode";
     static final String KEY_NOTIFICATION_LYRICS = "notification_lyrics";
@@ -131,6 +137,8 @@ final class AppPreferences {
     static final String KEY_AVRCP_ENABLED = "avrcp_enabled";
     static final String KEY_LOCKSCREEN_LYRICS = "lockscreen_lyrics";
     static final String KEY_CUSTOM_FONT_FILE = "custom_font_file";
+    static final String KEY_LYRIC_CACHE_POLICY = "lyric_cache_policy";
+    static final String KEY_LYRIC_CACHE_LIMIT_MB = "lyric_cache_limit_mb";
     static final String KEY_COMMUNITY_CLIENT_ID = "community_client_id";
     static final String KEY_FEEDBACK_TICKETS = "feedback_tickets";
     static final String KEY_LAST_FEEDBACK_ID = "last_feedback_id";
@@ -218,6 +226,10 @@ final class AppPreferences {
 
     static float textScale(Context context, boolean secondary) {
         return displayInt(context, secondary, KEY_TEXT_SCALE, 100) / 100f;
+    }
+
+    static boolean showPlaybackControls(Context context, boolean secondary) {
+        return !secondary || get(context).getBoolean(KEY_SECONDARY_PLAYBACK_CONTROLS, false);
     }
 
     static int titleScale(Context context, boolean secondary) {
@@ -352,6 +364,32 @@ final class AppPreferences {
     static void setLyricColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_LYRIC_COLOR,
                 color == 0 ? 0 : (color | 0xFF000000));
+    }
+
+    static int currentLyricColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_CURRENT_LYRIC_COLOR, 0);
+    }
+
+    static void setCurrentLyricColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static int inactiveLyricColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_INACTIVE_LYRIC_COLOR, 0);
+    }
+
+    static void setInactiveLyricColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static boolean lyricOutline(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_LYRIC_OUTLINE, false);
+    }
+
+    static boolean trailingAccent(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_TRAILING_ACCENT, true);
     }
 
     static int lyricLightColor(Context context, boolean secondary) {
@@ -761,7 +799,8 @@ final class AppPreferences {
 
     static String overlayCloseMode(Context context) {
         String value = get(context).getString(KEY_OVERLAY_CLOSE_MODE, "fade");
-        return "always".equals(value) || "hidden".equals(value) ? value : "fade";
+        return "always".equals(value) || "hidden".equals(value)
+                || "auto_fade".equals(value) || "auto_hide".equals(value) ? value : "fade";
     }
 
     static boolean tapOverlayReturnsToPlayer(Context context) {
@@ -840,6 +879,11 @@ final class AppPreferences {
     static boolean overlayTouchThrough(Context context, boolean secondary) {
         return get(context).getBoolean(secondary
                 ? KEY_SECONDARY_OVERLAY_TOUCH_THROUGH : KEY_MAIN_OVERLAY_TOUCH_THROUGH, false);
+    }
+
+    /** Keeps the window in place while preserving lyric browsing and playback controls. */
+    static boolean overlayPositionLocked(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_OVERLAY_POSITION_LOCKED, false);
     }
 
     static boolean hideOverlaysWhenNotPlaying(Context context) {
@@ -955,6 +999,15 @@ final class AppPreferences {
 
     static boolean lockscreenLyrics(Context context) {
         return get(context).getBoolean(KEY_LOCKSCREEN_LYRICS, false);
+    }
+
+    static String lyricCachePolicy(Context context) {
+        String value = get(context).getString(KEY_LYRIC_CACHE_POLICY, "30d");
+        return "forever".equals(value) || "capacity".equals(value) ? value : "30d";
+    }
+
+    static int lyricCacheLimitMb(Context context) {
+        return Math.max(16, Math.min(512, get(context).getInt(KEY_LYRIC_CACHE_LIMIT_MB, 128)));
     }
 
     private static int defaultPanelWidthDp(String style) {

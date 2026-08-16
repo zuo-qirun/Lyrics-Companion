@@ -31,6 +31,9 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.widget.TextView;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 
 /** Owns independent overlay windows on the default display and a selected secondary display. */
 public final class LyricsDisplayService extends Service implements DisplayManager.DisplayListener {
@@ -38,6 +41,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private static final String CHANNEL_ID = "lyrics_display";
     private static final int NOTIFICATION_ID = 41;
     private static final long NOTIFICATION_POLL_MS = 500L;
+    private static final long LISTENER_HEALTH_POLL_MS = 10_000L;
+    private static final long SECONDARY_INITIAL_RETRY_MS = 1_500L;
+    private static final long SECONDARY_MAX_RETRY_MS = 12_000L;
     private static final String ACTION_REFRESH =
             "com.zuoqirun.lyricscompanion.action.REFRESH";
     private static final String ACTION_SECONDARY_POSITION =
@@ -73,6 +79,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
     private final Handler notificationHandler = new Handler(Looper.getMainLooper());
+    private final Handler recoveryHandler = new Handler(Looper.getMainLooper());
+    private int secondaryRetryAttempts;
     private final Runnable communityHeartbeat = new Runnable() {
         @Override public void run() {
             CommunityClient.heartbeatAsync(getApplicationContext(), null);
@@ -83,6 +91,26 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         @Override public void run() {
             refreshPlaybackNotification();
             notificationHandler.postDelayed(this, NOTIFICATION_POLL_MS);
+        }
+    };
+    /** The overlay can survive while NotificationManager loses its listener binding. */
+    private final Runnable listenerHealthProbe = new Runnable() {
+        @Override public void run() {
+            if (!AppPreferences.serviceStoppedByUser(LyricsDisplayService.this)
+                    && hasRememberedOverlayTarget(LyricsDisplayService.this)) {
+                MusicNotificationListener.requestReconnect(LyricsDisplayService.this);
+                recoveryHandler.postDelayed(this, LISTENER_HEALTH_POLL_MS);
+            }
+        }
+    };
+    /** Some car systems report a secondary display before its WindowManager is ready. */
+    private final Runnable secondaryRetry = new Runnable() {
+        @Override public void run() {
+            if (!AppPreferences.secondaryEnabled(LyricsDisplayService.this)
+                    || AppPreferences.serviceStoppedByUser(LyricsDisplayService.this)
+                    || !canDrawOverlays() || shouldHideOverlays()) return;
+            rebuildSecondary();
+            if (secondaryPanel == null) scheduleSecondaryRetry("still_unavailable");
         }
     };
     private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
@@ -215,6 +243,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         startForeground(NOTIFICATION_ID, createNotification());
         syncScreenReceiver();
         notificationHandler.post(notificationRefresh);
+        recoveryHandler.postDelayed(listenerHealthProbe, 1_500L);
         displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         if (displayManager != null) displayManager.registerDisplayListener(this, null);
         communityHandler.post(communityHeartbeat);
@@ -257,6 +286,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 + (secondaryPanel != null && secondaryPanel.getParent() != null));
         communityHandler.removeCallbacks(communityHeartbeat);
         notificationHandler.removeCallbacks(notificationRefresh);
+        recoveryHandler.removeCallbacks(listenerHealthProbe);
+        recoveryHandler.removeCallbacks(secondaryRetry);
         unregisterScreenReceiver();
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
@@ -270,14 +301,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public void onDisplayAdded(int displayId) {
         DiagnosticLog.record(this, "Display", "added id=" + displayId);
         rebuildSecondary();
+        scheduleSecondaryRetry("display_added");
     }
     @Override public void onDisplayRemoved(int displayId) {
         DiagnosticLog.record(this, "Display", "removed id=" + displayId);
         rebuildSecondary();
+        scheduleSecondaryRetry("display_removed");
     }
     @Override public void onDisplayChanged(int displayId) {
         DiagnosticLog.record(this, "Display", "changed id=" + displayId);
         rebuildSecondary();
+        scheduleSecondaryRetry("display_changed");
     }
 
     private void rebuildAll() {
@@ -320,6 +354,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         if (AppPreferences.mainEnabled(this) && !settingsVisible) showMain();
         if (AppPreferences.secondaryEnabled(this)) showSecondary();
+        else recoveryHandler.removeCallbacks(secondaryRetry);
         if (AppPreferences.topLyricStrip(this)) showStatusLyricStrip();
         else dismissStatusLyricStrip();
         if (AppPreferences.bottomSpectrum(this)) showBottomSpectrum();
@@ -373,13 +408,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     + AppPreferences.displayId(this) + " detected="
                     + (displayManager == null ? -1 : displayManager.getDisplays().length));
             Log.i(TAG, "Secondary overlay enabled, but no secondary display is connected");
+            scheduleSecondaryRetry("no_display");
             return;
         }
         try {
             secondaryDisplay = display;
             secondaryContext = createDisplayContext(display);
             secondaryWindowManager = (WindowManager) secondaryContext.getSystemService(WINDOW_SERVICE);
-            if (secondaryWindowManager == null) return;
+            if (secondaryWindowManager == null) {
+                scheduleSecondaryRetry("no_window_manager");
+                return;
+            }
             Point screen = displaySize(display);
             int width = Math.min(dp(secondaryContext, AppPreferences.panelWidthDp(this, true)),
                     screen.x);
@@ -409,6 +448,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     + AppPreferences.overlayStyle(this, true));
             Log.i(TAG, "Lyrics shown on display " + display.getDisplayId()
                     + " (" + display.getName() + ")");
+            secondaryRetryAttempts = 0;
+            recoveryHandler.removeCallbacks(secondaryRetry);
             if (AppPreferences.overlayTouchThrough(this, true)) {
                 setOverlayTouchThrough(true, true);
             }
@@ -417,7 +458,20 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     + error.getClass().getSimpleName() + ": " + error.getMessage());
             Log.e(TAG, "Unable to add secondary overlay", error);
             dismissSecondary();
+            scheduleSecondaryRetry("attach_failed");
         }
+    }
+
+    private void scheduleSecondaryRetry(String reason) {
+        if (!AppPreferences.secondaryEnabled(this) || AppPreferences.serviceStoppedByUser(this)
+                || secondaryPanel != null || secondaryRetryAttempts >= 12) return;
+        recoveryHandler.removeCallbacks(secondaryRetry);
+        long delay = Math.min(SECONDARY_MAX_RETRY_MS,
+                SECONDARY_INITIAL_RETRY_MS * (1L << Math.min(3, secondaryRetryAttempts)));
+        secondaryRetryAttempts++;
+        DiagnosticLog.record(this, "Display", "secondary retry=" + secondaryRetryAttempts
+                + " delayMs=" + delay + " reason=" + reason);
+        recoveryHandler.postDelayed(secondaryRetry, delay);
     }
 
     private void applySecondaryDelta(int dx, int dy) {
@@ -524,7 +578,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     if (v instanceof LyricsPanelView) {
                         ((LyricsPanelView) v).cancelLyricBrowseForOverlayLock();
                     }
-                    setOverlayTouchThrough(secondary, true);
+                    showOverlayQuickMenu(v, secondary);
                     return true;
                 }
                 if (lyricGesture) {
@@ -542,6 +596,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     case MotionEvent.ACTION_DOWN:
                         return true;
                     case MotionEvent.ACTION_MOVE:
+                        if (AppPreferences.overlayPositionLocked(LyricsDisplayService.this,
+                                secondary)) return true;
                         float dx = event.getRawX() - downRawX;
                         float dy = event.getRawY() - downRawY;
                         params.x = clamp(downX + Math.round(dx), 0,
@@ -582,6 +638,66 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 }
             }
         });
+    }
+
+    /** Long press intentionally opens a small action menu; position lock now remains an option. */
+    private void showOverlayQuickMenu(View anchor, boolean secondary) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int padding = dp(this, 8);
+        content.setPadding(padding, padding, padding, padding);
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(0xF0202B3A);
+        background.setCornerRadius(dp(this, 16));
+        background.setStroke(dp(this, 1), 0x556EE7F2);
+        content.setBackground(background);
+        PopupWindow popup = new PopupWindow(content, dp(this, 220),
+                WindowManager.LayoutParams.WRAP_CONTENT, true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setElevation(dp(this, 10));
+        addQuickMenuButton(content, "尺寸与透明度", () -> openDisplaySettings(secondary, popup));
+        addQuickMenuButton(content, "字体", () -> {
+            popup.dismiss();
+            openMainActivity();
+        });
+        addQuickMenuButton(content, "频谱颜色", () -> {
+            popup.dismiss();
+            Intent intent = new Intent(this, ColorSettingsActivity.class)
+                    .putExtra(ColorSettingsActivity.EXTRA_SCOPE, secondary ? 1 : 0)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        });
+        boolean locked = AppPreferences.overlayPositionLocked(this, secondary);
+        addQuickMenuButton(content, locked ? "解锁位置" : "锁定位置（仍可点按）", () -> {
+            AppPreferences.putDisplayBoolean(this, secondary,
+                    AppPreferences.KEY_OVERLAY_POSITION_LOCKED, !locked);
+            popup.dismiss();
+        });
+        addQuickMenuButton(content, "锁定并触摸穿透", () -> {
+            popup.dismiss();
+            setOverlayTouchThrough(secondary, true);
+        });
+        popup.showAsDropDown(anchor, Math.max(0, anchor.getWidth() - dp(this, 220)), -anchor.getHeight());
+    }
+
+    private void addQuickMenuButton(LinearLayout content, String label, Runnable action) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(13f);
+        button.setTextColor(Color.WHITE);
+        button.setAllCaps(false);
+        button.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        button.setOnClickListener(v -> action.run());
+        content.addView(button, new LinearLayout.LayoutParams(-1, dp(this, 42)));
+    }
+
+    private void openDisplaySettings(boolean secondary, PopupWindow popup) {
+        popup.dismiss();
+        Intent intent = new Intent(this, DisplaySettingsActivity.class)
+                .putExtra(DisplaySettingsActivity.EXTRA_SECONDARY, secondary)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 
     private void setOverlayTouchThrough(boolean secondary, boolean enabled) {
@@ -636,12 +752,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         handle.setContentDescription("点击取消悬浮窗穿透");
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        boolean weakened = "fade".equals(AppPreferences.overlayCloseMode(this));
+        String closeMode = AppPreferences.overlayCloseMode(this);
+        boolean weakened = "fade".equals(closeMode);
         circle.setColor(weakened ? 0x55202124 : 0xCC202124);
         circle.setStroke(dp(handle.getContext(), 1), weakened ? 0x55FFFFFF : 0xAAFFFFFF);
         handle.setBackground(circle);
         handle.setAlpha(weakened ? 0.42f : 1f);
-        if ("hidden".equals(AppPreferences.overlayCloseMode(this))) handle.setVisibility(View.GONE);
+        if ("hidden".equals(closeMode)) handle.setVisibility(View.GONE);
         int size = dp(handle.getContext(), 36);
         int height = size;
         final WindowManager.LayoutParams handleParams = new WindowManager.LayoutParams(
@@ -668,6 +785,20 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             } else {
                 mainUnlockHandle = handle;
                 mainUnlockParams = handleParams;
+            }
+            if ("auto_fade".equals(closeMode)) {
+                handle.postDelayed(() -> {
+                    if (handle.getParent() != null) {
+                        handle.animate().alpha(0.42f).setDuration(180L).start();
+                    }
+                }, 2_000L);
+            } else if ("auto_hide".equals(closeMode)) {
+                // Keep the fixed upper-right hit target so a hidden handle can still unlock.
+                handle.postDelayed(() -> {
+                    if (handle.getParent() != null) {
+                        handle.animate().alpha(0f).setDuration(180L).start();
+                    }
+                }, 2_000L);
             }
         } catch (Throwable error) {
             Log.w(TAG, "Unable to add overlay unlock handle", error);

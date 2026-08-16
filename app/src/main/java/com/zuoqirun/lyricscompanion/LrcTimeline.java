@@ -66,7 +66,7 @@ final class LrcTimeline {
         Line next = low < lines.size() ? lines.get(low) : null;
         if (current == null && next != null && next.timeMs >= MIN_INTERLUDE_MS) {
             long duration = next.timeMs;
-            return new At("", "", "", next.text, true, false, "", "",
+            return new At("", "", "", next.text, true, false, "", "", false,
                     0L, duration, -1L, 0L, 0,
                     buildInterludeNearby(-1, 0L, duration));
         }
@@ -76,7 +76,7 @@ final class LrcTimeline {
             long currentEndMs = current.timeMs + visibleDurationMs;
             long gapDurationMs = next.timeMs - currentEndMs;
             if (gapDurationMs >= MIN_INTERLUDE_MS && positionMs >= currentEndMs) {
-                return new At(current.text, "", "", next.text, true, false, "", "",
+                return new At(current.text, "", "", next.text, true, false, "", "", false,
                         currentEndMs, gapDurationMs, -1L, 0L, 0,
                         buildInterludeNearby(currentIndex, currentEndMs, gapDurationMs));
             }
@@ -90,9 +90,11 @@ final class LrcTimeline {
         long wordStartMs = -1L;
         long wordDurationMs = 0L;
         int wordProgressPermille = 0;
+        boolean trailingWord = false;
         if (current != null && !current.words.isEmpty()) {
             StringBuilder completed = new StringBuilder();
-            for (Word word : current.words) {
+            for (int wordIndex = 0; wordIndex < current.words.size(); wordIndex++) {
+                Word word = current.words.get(wordIndex);
                 if (positionMs < word.startMs) {
                     break;
                 }
@@ -105,6 +107,7 @@ final class LrcTimeline {
                 wordDurationMs = word.durationMs;
                 wordProgressPermille = (int) Math.max(0L, Math.min(1000L,
                         (positionMs - word.startMs) * 1000L / word.durationMs));
+                trailingWord = isTrailingWord(current.words, wordIndex);
                 break;
             }
             completedText = completed.toString();
@@ -114,8 +117,44 @@ final class LrcTimeline {
                 current == null ? "" : current.text,
                 current == null ? "" : current.translated,
                 next == null ? "" : next.text, false, wordTimed, completedText, currentWord,
+                trailingWord,
                 lineStartMs, lineDurationMs, wordStartMs, wordDurationMs,
                 wordProgressPermille, buildNearby(currentIndex));
+    }
+
+    /** Matches Refined Now Playing's rule: a sustained final word before punctuation or line end. */
+    private static boolean isTrailingWord(List<Word> words, int wordIndex) {
+        Word word = words.get(wordIndex);
+        if (word.durationMs < 1_000L || isOnlyPunctuation(word.text)) return false;
+        for (int index = wordIndex + 1; index < words.size(); index++) {
+            String value = words.get(index).text;
+            if (value == null || value.trim().isEmpty()) continue;
+            return isOnlyPunctuation(value);
+        }
+        return true;
+    }
+
+    private static boolean isOnlyPunctuation(String value) {
+        if (value == null || value.trim().isEmpty()) return true;
+        for (int index = 0; index < value.length();) {
+            int codePoint = value.codePointAt(index);
+            index += Character.charCount(codePoint);
+            if (Character.isWhitespace(codePoint)) continue;
+            int type = Character.getType(codePoint);
+            boolean punctuation = type == Character.CONNECTOR_PUNCTUATION
+                    || type == Character.DASH_PUNCTUATION
+                    || type == Character.START_PUNCTUATION
+                    || type == Character.END_PUNCTUATION
+                    || type == Character.INITIAL_QUOTE_PUNCTUATION
+                    || type == Character.FINAL_QUOTE_PUNCTUATION
+                    || type == Character.OTHER_PUNCTUATION
+                    || type == Character.MATH_SYMBOL
+                    || type == Character.CURRENCY_SYMBOL
+                    || type == Character.MODIFIER_SYMBOL
+                    || type == Character.OTHER_SYMBOL;
+            if (!punctuation) return false;
+        }
+        return true;
     }
 
     boolean isEmpty() {
@@ -138,7 +177,7 @@ final class LrcTimeline {
 
     static At liveLine(String text) {
         return new At("", text == null ? "" : text.trim(), "", "", false, false,
-                "", "", -1L, 0L, -1L, 0L, 0, Collections.emptyList());
+                "", "", false, -1L, 0L, -1L, 0L, 0, Collections.emptyList());
     }
 
     long shiftedPosition(long positionMs, int direction) {
@@ -385,7 +424,7 @@ final class LrcTimeline {
     }
 
     static final class At {
-        static final At EMPTY = new At("", "", "", "", false, false, "", "",
+        static final At EMPTY = new At("", "", "", "", false, false, "", "", false,
                 -1L, 0L, -1L, 0L, 0, Collections.emptyList());
         final String previousLyric;
         final String lyric;
@@ -395,6 +434,7 @@ final class LrcTimeline {
         final boolean wordTimed;
         final String completedLyric;
         final String currentWord;
+        final boolean trailingWord;
         final long lineStartMs;
         final long lineDurationMs;
         final long wordStartMs;
@@ -404,6 +444,7 @@ final class LrcTimeline {
 
         At(String previousLyric, String lyric, String translatedLyric, String nextLyric,
            boolean interlude, boolean wordTimed, String completedLyric, String currentWord,
+           boolean trailingWord,
            long lineStartMs,
            long lineDurationMs, long wordStartMs, long wordDurationMs,
            int wordProgressPermille, List<NearbyLine> nearbyLines) {
@@ -415,6 +456,7 @@ final class LrcTimeline {
             this.wordTimed = wordTimed;
             this.completedLyric = completedLyric;
             this.currentWord = currentWord;
+            this.trailingWord = trailingWord;
             this.lineStartMs = lineStartMs;
             this.lineDurationMs = lineDurationMs;
             this.wordStartMs = wordStartMs;

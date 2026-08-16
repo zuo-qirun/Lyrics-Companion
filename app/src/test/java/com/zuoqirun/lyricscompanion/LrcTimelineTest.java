@@ -26,6 +26,17 @@ public class LrcTimelineTest {
         assertEquals(500, at.wordProgressPermille);
     }
 
+    @Test public void yrcMarksOnlySustainedPhraseEndingAsTrailing() {
+        LrcTimeline timeline = LrcTimeline.parse("", "",
+                "[1000,2200](1000,500,0)我(1500,1200,0)爱(2700,500,0)你");
+        assertFalse(timeline.at(1_750L).trailingWord);
+        assertFalse(timeline.at(2_100L).trailingWord);
+
+        LrcTimeline ending = LrcTimeline.parse("", "",
+                "[1000,1800](1000,500,0)我(1500,1300,0)爱");
+        assertTrue(ending.at(2_100L).trailingWord);
+    }
+
     @Test public void yrcTrimsTimedEdgesWithoutShiftingKaraokeBoundaries() {
         LrcTimeline timeline = LrcTimeline.parse("", "",
                 "[1000,1500](1000,500,0) 你(1500,500,0)好(2000,500,0) ");

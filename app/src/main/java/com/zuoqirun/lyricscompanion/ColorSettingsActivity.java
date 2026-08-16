@@ -20,13 +20,15 @@ import com.google.android.material.shape.MaterialShapeDrawable;
 /** The single entry point for every user-selectable overlay color. */
 @SuppressLint("SetTextI18n")
 public final class ColorSettingsActivity extends AppCompatActivity {
+    static final String EXTRA_SCOPE = "scope";
     private LinearLayout root;
     private LinearLayout colorHost;
     private int selectedScope;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        if (state != null) selectedScope = state.getInt("scope", 0);
+        if (state != null) selectedScope = state.getInt(EXTRA_SCOPE, 0);
+        else selectedScope = getIntent().getIntExtra(EXTRA_SCOPE, 0);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -92,7 +94,7 @@ public final class ColorSettingsActivity extends AppCompatActivity {
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
-        state.putInt("scope", selectedScope);
+        state.putInt(EXTRA_SCOPE, selectedScope);
         super.onSaveInstanceState(state);
     }
 
@@ -121,6 +123,18 @@ public final class ColorSettingsActivity extends AppCompatActivity {
         addColor(parent, "歌词颜色", "自动时由当前歌词样式决定。",
                 AppPreferences.lyricColor(this, secondary), 0xFFFFCA66,
                 color -> AppPreferences.setLyricColor(this, secondary, color));
+        addColor(parent, "当前歌词颜色", "留在自动时沿用“歌词颜色”。",
+                AppPreferences.currentLyricColor(this, secondary), 0xFFFFCA66,
+                color -> AppPreferences.setCurrentLyricColor(this, secondary, color));
+        addColor(parent, "非当前歌词颜色", "留在自动时沿用“歌词颜色”。",
+                AppPreferences.inactiveLyricColor(this, secondary), 0xFFB1BCCB,
+                color -> AppPreferences.setInactiveLyricColor(this, secondary, color));
+        MaterialSwitch outline = toggle("歌词文字描边", AppPreferences.lyricOutline(this, secondary));
+        outline.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.putDisplayBoolean(this, secondary, AppPreferences.KEY_LYRIC_OUTLINE, checked);
+            changed();
+        });
+        parent.addView(outline);
         if (AppPreferences.lyricsFollowTheme(this)) {
             addColor(parent, "浅色环境歌词颜色", "用于白天或浅色环境。",
                     AppPreferences.lyricLightColor(this, secondary), 0xFF17212E,

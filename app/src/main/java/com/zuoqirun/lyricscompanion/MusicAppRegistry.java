@@ -20,6 +20,7 @@ final class MusicAppRegistry {
             new App("spotify", "Spotify", "com.spotify.music"),
             new App("soda", "汽水音乐", "com.luna.music"),
             new App("soda", "汽水音乐", "com.luna.music.car"),
+            new App("media", "东风皓瀚播放器", "com.dftc.media"),
             new App("migu", "咪咕音乐", "cmccwm.mobilemusic"),
             new App("xiaomi", "小米音乐", "com.miui.player"),
             new App("huawei", "华为音乐", "com.android.mediacenter"),

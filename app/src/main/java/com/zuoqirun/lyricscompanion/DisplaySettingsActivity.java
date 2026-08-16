@@ -85,6 +85,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                         AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
         addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
                 AppPreferences.smoothLyricScroll(this, secondary));
+        addToggle(panel, "尾部拖长音重音", AppPreferences.KEY_TRAILING_ACCENT,
+                AppPreferences.trailingAccent(this, secondary));
+        addToggle(panel, "锁定位置但仍可交互", AppPreferences.KEY_OVERLAY_POSITION_LOCKED,
+                AppPreferences.overlayPositionLocked(this, secondary));
         addSeek(panel, "歌词显示行数", 1, 7,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
                 value -> AppPreferences.putDisplayInt(this, secondary,
@@ -140,17 +144,36 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                     value -> AppPreferences.get(this).edit()
                             .putString(AppPreferences.KEY_FULLSCREEN_CLOSE_MODE, value).apply());
             addChoice(controls, "桌面歌词右上角叉",
-                    new String[]{"弱化显示", "始终显示", "隐藏"},
-                    new String[]{"fade", "always", "hidden"},
+                    new String[]{"弱化显示", "始终显示", "隐藏", "自动弱化（2 秒）", "自动隐藏（2 秒）"},
+                    new String[]{"fade", "always", "hidden", "auto_fade", "auto_hide"},
                     AppPreferences.overlayCloseMode(this),
                     value -> AppPreferences.get(this).edit()
                             .putString(AppPreferences.KEY_OVERLAY_CLOSE_MODE, value).apply());
+            addCard(root, controls);
+        } else {
+            LinearLayout controls = card("副屏播放控制");
+            addToggle(controls, "显示上一首 / 播放暂停 / 下一首按钮",
+                    AppPreferences.KEY_SECONDARY_PLAYBACK_CONTROLS,
+                    AppPreferences.showPlaybackControls(this, true));
             addCard(root, controls);
         }
 
         LinearLayout sourceCorrection = card("按播放器校正");
         addSourceCorrection(sourceCorrection);
         addCard(root, sourceCorrection);
+
+        LinearLayout cache = card("歌词缓存");
+        addChoice(cache, "缓存保留方式",
+                new String[]{"默认 30 天", "永久保留", "按容量自动淘汰"},
+                new String[]{"30d", "forever", "capacity"},
+                AppPreferences.lyricCachePolicy(this),
+                value -> AppPreferences.get(this).edit()
+                        .putString(AppPreferences.KEY_LYRIC_CACHE_POLICY, value).apply());
+        addSeek(cache, "容量上限（仅自动淘汰）", 16, 512,
+                AppPreferences.lyricCacheLimitMb(this), " MB",
+                value -> AppPreferences.get(this).edit()
+                        .putInt(AppPreferences.KEY_LYRIC_CACHE_LIMIT_MB, value).apply());
+        addCard(root, cache);
 
         LinearLayout artwork = card("背景与封面");
         addSeek(artwork, "背景不透明度", 0, 100,

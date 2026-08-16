@@ -68,11 +68,19 @@ final class ColorCirclePickerView extends View {
     @Override public boolean onTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                if (!isInsideWheel(event.getX(), event.getY())) {
+                    // Do not claim the transparent corners of this square View.  This keeps
+                    // normal settings-page scrolling available beside the circular palette.
+                    return false;
+                }
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                pick(event.getX(), event.getY());
+                return true;
             case MotionEvent.ACTION_MOVE:
                 // The palette uses vertical drags for hue/saturation, so keep its gesture
                 // owned by this view instead of allowing the settings ScrollView to move.
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-                pick(event.getX(), event.getY());
+                if (isInsideWheel(event.getX(), event.getY())) pick(event.getX(), event.getY());
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
@@ -101,6 +109,12 @@ final class ColorCirclePickerView extends View {
         selectedColor = color;
         invalidate();
         if (listener != null) listener.onColorChanged(color);
+    }
+
+    private boolean isInsideWheel(float x, float y) {
+        float dx = x - centerX;
+        float dy = y - centerY;
+        return dx * dx + dy * dy <= radius * radius;
     }
 
     private Bitmap buildWheel(int width, int height) {

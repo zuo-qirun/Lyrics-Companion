@@ -22,7 +22,7 @@ import java.util.Locale;
 /** Stores a user-selected lyric font in private app storage so overlays outlive URI grants. */
 final class CustomFontStore {
     private static final String DIRECTORY = "lyrics-fonts";
-    private static final long MAX_FONT_BYTES = 24L * 1024L * 1024L;
+    private static final long MAX_FONT_BYTES = 64L * 1024L * 1024L;
     private static final String FONT_FILE_NAME = "lyrics-custom-font";
     private static final int SFNT_TRUETYPE = 0x00010000;
     private static final int SFNT_TRUE = 0x74727565;
@@ -165,7 +165,7 @@ final class CustomFontStore {
             int count;
             while ((count = source.read(buffer)) != -1) {
                 copied += count;
-                if (copied > MAX_FONT_BYTES) throw new IOException("字体文件不能超过 24 MB");
+                if (copied > MAX_FONT_BYTES) throw new IOException("字体文件不能超过 64 MB");
                 output.write(buffer, 0, count);
             }
         }
