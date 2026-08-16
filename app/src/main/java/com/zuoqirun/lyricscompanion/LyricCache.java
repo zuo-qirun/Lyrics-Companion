@@ -67,7 +67,16 @@ final class LyricCache {
     private void trimToBytes(long maxBytes) {
         File[] files = directory.listFiles();
         if (files == null) return;
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+        // Comparator.comparingLong is only available from API 24. Keep cache trimming
+        // available on API 19+ car systems with an equivalent platform-safe comparator.
+        Arrays.sort(files, new Comparator<File>() {
+            @Override public int compare(File first, File second) {
+                long firstModified = first.lastModified();
+                long secondModified = second.lastModified();
+                return firstModified < secondModified ? -1
+                        : firstModified > secondModified ? 1 : 0;
+            }
+        });
         long total = 0L;
         for (File file : files) if (file.isFile()) total += file.length();
         for (File file : files) {

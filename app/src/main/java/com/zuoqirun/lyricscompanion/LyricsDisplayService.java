@@ -655,7 +655,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 WindowManager.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
-        popup.setElevation(dp(this, 10));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            popup.setElevation(dp(this, 10));
+        }
         addQuickMenuButton(content, "尺寸与透明度", () -> openDisplaySettings(secondary, popup));
         addQuickMenuButton(content, "字体", () -> {
             popup.dismiss();
