@@ -36,7 +36,6 @@
         <package android:name="com.ximalaya.ting.android" />
         <package android:name="com.ximalaya.ting.android.car" />
         <package android:name="com.dftc.media" />
-        <package android:name="com.tencent.wecarflow" />
         <package android:name="cmccwm.mobilemusic" />
         <package android:name="com.miui.player" />
         <package android:name="com.android.mediacenter" />
