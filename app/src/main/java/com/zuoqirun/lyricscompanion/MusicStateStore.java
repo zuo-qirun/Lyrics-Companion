@@ -78,7 +78,8 @@ final class MusicStateStore {
         String newTitle = sodaHasCompositeIdentity ? sodaDynamicTitle : rawTitle;
         String newArtist = sodaHasCompositeIdentity
                 ? sodaStableArtist(newTitle, rawArtist) : rawArtist;
-        String incomingLiveSessionLyric = sodaHasCompositeIdentity ? rawTitle : "";
+        String incomingLiveSessionLyric = data.sessionLyricPresent
+                ? data.sessionLyric : sodaHasCompositeIdentity ? rawTitle : "";
         String newMediaId = data.mediaId;
         Bitmap newAlbumArt = data.albumArt;
         String newAlbumArtUri = data.albumArtUri;
@@ -222,7 +223,9 @@ final class MusicStateStore {
                     cancelLyricLoadLocked();
                 }
             }
-            if (!netEaseUnsupported && usesLiveTitleMetadata(normalizedSource)
+            if (!netEaseUnsupported && data.sessionLyricPresent) {
+                liveSessionLyric = incomingLiveSessionLyric.trim();
+            } else if (!netEaseUnsupported && usesLiveTitleMetadata(normalizedSource)
                     && !TextUtils.isEmpty(incomingLiveSessionLyric)) {
                 liveSessionLyric = incomingLiveSessionLyric.trim();
             }
@@ -668,6 +671,7 @@ final class MusicStateStore {
     static boolean isLiveSessionLyricFallbackAvailable(String source, boolean loadFinished,
                                                         LrcTimeline catalogTimeline,
                                                         String liveLyric) {
+        if ("dftc_media".equals(source)) return !TextUtils.isEmpty(liveLyric);
         return usesLiveTitleMetadata(source) && (loadFinished || "soda".equals(source))
                 && (catalogTimeline == null || catalogTimeline.isEmpty())
                 && !TextUtils.isEmpty(liveLyric);
@@ -691,6 +695,8 @@ final class MusicStateStore {
         if ("kugou".equals(source)) return "酷狗实时歌词";
         if ("kuwo".equals(source)) return "酷我实时歌词";
         if ("netease".equals(source)) return "网易云实时歌词";
+        if ("ximalaya".equals(source)) return "喜马拉雅实时歌词";
+        if ("dftc_media".equals(source)) return "车机播放器实时歌词";
         return "播放器实时歌词";
     }
 

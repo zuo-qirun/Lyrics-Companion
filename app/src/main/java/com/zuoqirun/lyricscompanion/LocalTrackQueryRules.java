@@ -33,10 +33,17 @@ final class LocalTrackQueryRules {
 
         Map<String, Query> candidates = new LinkedHashMap<>();
         String cleaned = cleanFileTitle(originalTitle);
-        String[] parts = splitArtistAndTitle(cleaned, originalArtist.isEmpty());
+        String[] parts = splitArtistAndTitle(cleaned,
+                originalArtist.isEmpty() || prefersEmbeddedArtist(source));
         if (parts != null) {
             String left = parts[0];
             String right = parts[1];
+            if (prefersEmbeddedArtist(source)) {
+                // Podcast/vehicle metadata often puts the album or channel in ARTIST while the
+                // actual song credit is embedded in TITLE as "artist - title".
+                add(candidates, originalTitle, originalArtist, right, left);
+                add(candidates, originalTitle, originalArtist, left, right);
+            }
             if (!originalArtist.isEmpty()) {
                 if (sameText(left, originalArtist)) {
                     add(candidates, originalTitle, originalArtist, right, originalArtist);
@@ -72,10 +79,16 @@ final class LocalTrackQueryRules {
     private static boolean shouldParse(String source, String title, String artist) {
         String normalizedSource = safe(source).toLowerCase(Locale.ROOT);
         return "media".equals(normalizedSource) || "xiaomi".equals(normalizedSource)
-                || "huawei".equals(normalizedSource) || artist.isEmpty()
+                || "huawei".equals(normalizedSource) || "ximalaya".equals(normalizedSource)
+                || "dftc_media".equals(normalizedSource) || artist.isEmpty()
                 || AUDIO_EXTENSION.matcher(title).find() || title.indexOf('/') >= 0
                 || title.indexOf('\\') >= 0 || TRACK_PREFIX.matcher(title).find()
                 || QUALITY_OR_VERSION_TAG.matcher(title).find();
+    }
+
+    private static boolean prefersEmbeddedArtist(String source) {
+        String normalized = safe(source).toLowerCase(Locale.ROOT);
+        return "ximalaya".equals(normalized) || "dftc_media".equals(normalized);
     }
 
     private static String[] splitArtistAndTitle(String value, boolean allowCompactSeparator) {

@@ -34,6 +34,15 @@ public final class LocalTrackQueryRulesTest {
                 "netease", "2002年的第一场雪", "刀郎").isEmpty());
     }
 
+    @Test public void ximalayaAndDftcCanSplitCompositeTrackTitles() {
+        assertTrue(contains(LocalTrackQueryRules.fallbackQueries(
+                "ximalaya", "周杰伦 - 夜曲", "喜马拉雅音乐"), "夜曲", "周杰伦"));
+        assertTrue(contains(LocalTrackQueryRules.fallbackQueries(
+                "ximalaya", "周杰伦-夜曲", "音乐频道"), "夜曲", "周杰伦"));
+        assertTrue(contains(LocalTrackQueryRules.fallbackQueries(
+                "dftc_media", "周杰伦 - 夜曲", ""), "夜曲", "周杰伦"));
+    }
+
     private static boolean contains(List<LocalTrackQueryRules.Query> queries,
                                     String title, String artist) {
         for (LocalTrackQueryRules.Query query : queries) {

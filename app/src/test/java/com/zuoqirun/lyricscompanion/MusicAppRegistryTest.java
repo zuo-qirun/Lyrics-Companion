@@ -18,6 +18,9 @@ public class MusicAppRegistryTest {
         assertSource("kuwo", "com.shaiban.audioplayer.mplayer", "");
         assertSource("soda", "com.luna.music.car", "");
         assertSource("netease", "com.netease.cloudmusic.iot", "");
+        assertSource("ximalaya", "com.ximalaya.ting.android", "");
+        assertSource("ximalaya", "com.ximalaya.ting.android.car", "");
+        assertSource("dftc_media", "com.dftc.media", "");
         assertEquals("网易云音乐车机版", MusicAppRegistry.resolve(
                 "com.netease.cloudmusic.iot", "").displayName);
     }
@@ -29,6 +32,7 @@ public class MusicAppRegistryTest {
         assertSource("kuwo", "vendor.player.four", "KWMusic Auto");
         assertSource("qqmusic", "vendor.player.five", "腾讯音乐车载版");
         assertSource("soda", "vendor.player.six", "汽水音乐车机版");
+        assertSource("ximalaya", "vendor.player.seven", "喜马拉雅车载版");
     }
 
     @Test public void recognizesPlayersByPackageNameFeatures() {
@@ -37,6 +41,7 @@ public class MusicAppRegistryTest {
         assertSource("kugou", "vendor.car.kugou.player", "");
         assertSource("kuwo", "vendor.car.kwmusic.player", "");
         assertSource("soda", "vendor.car.luna.music.player", "");
+        assertSource("ximalaya", "vendor.car.ximalaya.player", "");
     }
 
     @Test public void mapsRecognizedPlayersToTheirOwnLyricCatalog() {
@@ -79,6 +84,15 @@ public class MusicAppRegistryTest {
                 Arrays.asList(), Arrays.asList(qq, netease)).providerId);
         assertEquals("netease", MultiSourceLyricClient.chooseResult(
                 Arrays.asList("netease"), Arrays.asList(qq, netease)).providerId);
+    }
+
+    @Test public void ximalayaAndDftcRemainCrossCatalogSources() {
+        assertEquals("", MusicAppRegistry.lyricCatalogForSource("ximalaya"));
+        assertEquals("", MusicAppRegistry.lyricCatalogForSource("dftc_media"));
+        assertFalse(MultiSourceLyricClient.catalogPlan(
+                "ximalaya", "auto", true).providers.isEmpty());
+        assertFalse(MultiSourceLyricClient.catalogPlan(
+                "dftc_media", "auto", true).providers.isEmpty());
     }
 
     @Test public void manualCatalogCanFallbackToRecognizedPlayerCatalog() {
@@ -256,6 +270,9 @@ public class MusicAppRegistryTest {
                 "netease", true, LrcTimeline.EMPTY, "You know I adore ya"));
         assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
                 "media", true, LrcTimeline.EMPTY, "You know I adore ya"));
+        assertTrue(MusicStateStore.isLiveSessionLyricFallbackAvailable(
+                "dftc_media", false, LrcTimeline.parse("[00:01.00]词库歌词", ""),
+                "车机原生歌词"));
         assertEquals("You know I adore ya",
                 LrcTimeline.liveLine("You know I adore ya").lyric);
     }
@@ -270,7 +287,8 @@ public class MusicAppRegistryTest {
     }
 
     @Test public void allPlayersKeepTitleOnlyLiveLyricUpdates() {
-        for (String source : Arrays.asList("netease", "qqmusic", "kugou", "kuwo", "soda", "media")) {
+        for (String source : Arrays.asList("netease", "qqmusic", "kugou", "kuwo", "soda",
+                "ximalaya", "dftc_media", "media")) {
             assertTrue(source, MusicStateStore.shouldKeepLiveLyricTrackIdentity(
                     source, true, "Song Name", "a current lyric line", "Artist", "Artist",
                     269_000L, 269_000L, "track-a", "track-a"));

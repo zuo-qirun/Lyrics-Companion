@@ -29,18 +29,29 @@ final class MusicPlaybackData {
     final long positionMs;
     final long positionUpdatedAtElapsedMs;
     final float speed;
+    final boolean sessionLyricPresent;
+    final String sessionLyric;
 
     MusicPlaybackData(String mediaId, String title, String artist, Bitmap albumArt,
                       String albumArtUri, long durationMs, boolean statePresent, int state,
                       long positionMs, long positionUpdatedAtElapsedMs, float speed) {
         this(mediaId, title, artist, albumArt, albumArtUri, "", durationMs, statePresent, state,
-                positionMs, positionUpdatedAtElapsedMs, speed);
+                positionMs, positionUpdatedAtElapsedMs, speed, false, "");
     }
 
     MusicPlaybackData(String mediaId, String title, String artist, Bitmap albumArt,
                       String albumArtUri, String mediaUri, long durationMs,
                       boolean statePresent, int state, long positionMs,
                       long positionUpdatedAtElapsedMs, float speed) {
+        this(mediaId, title, artist, albumArt, albumArtUri, mediaUri, durationMs,
+                statePresent, state, positionMs, positionUpdatedAtElapsedMs, speed, false, "");
+    }
+
+    MusicPlaybackData(String mediaId, String title, String artist, Bitmap albumArt,
+                      String albumArtUri, String mediaUri, long durationMs,
+                      boolean statePresent, int state, long positionMs,
+                      long positionUpdatedAtElapsedMs, float speed,
+                      boolean sessionLyricPresent, String sessionLyric) {
         this.mediaId = value(mediaId);
         this.title = value(title);
         this.artist = value(artist);
@@ -53,6 +64,8 @@ final class MusicPlaybackData {
         this.positionMs = positionMs;
         this.positionUpdatedAtElapsedMs = positionUpdatedAtElapsedMs;
         this.speed = speed;
+        this.sessionLyricPresent = sessionLyricPresent;
+        this.sessionLyric = value(sessionLyric);
     }
 
     private static String value(String value) {

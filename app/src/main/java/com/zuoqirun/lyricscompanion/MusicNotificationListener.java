@@ -31,9 +31,11 @@ public final class MusicNotificationListener extends NotificationListenerService
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MusicSessionReader sessionReader;
     private LegacyRemoteControllerReader legacyReader;
+    private DftcMediaSessionReader dftcReader;
     private boolean connected;
     private int legacyConnectAttempts;
     private long lastNonEmptySessionElapsedMs;
+    private long lastStandardSessionElapsedMs;
     private int lastLoggedSessionCount = -1;
     private String lastLoggedSessionError = "";
     private static volatile boolean listenerConnected;
@@ -74,22 +76,13 @@ public final class MusicNotificationListener extends NotificationListenerService
 
         @Override public void onSession(String packageName, String applicationLabel,
                                         MusicPlaybackData data) {
-            lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
-            String nextPackage = packageName == null ? "" : packageName;
-            if (!nextPackage.equals(activePlayerPackageName)) {
-                DiagnosticLog.record(MusicNotificationListener.this, "MediaSession",
-                        "active player changed package=" + nextPackage
-                                + " label=" + applicationLabel);
-            }
-            activePlayerPackageName = nextPackage;
-            MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, applicationLabel);
-            AppPreferences.rememberPlayerPackage(MusicNotificationListener.this, nextPackage);
-            MusicStateStore.update(MusicNotificationListener.this,
-                    app.sourceId, app.displayName, nextPackage, data);
+            lastStandardSessionElapsedMs = SystemClock.elapsedRealtime();
+            acceptSession(packageName, applicationLabel, data);
         }
 
         @Override public void onNoSession() {
             if (BluetoothAvrcpReceiver.ownsCurrentState()) return;
+            if (dftcReader != null && dftcReader.hasUsableSession()) return;
             long now = SystemClock.elapsedRealtime();
             if (shouldClearAfterEmpty(lastNonEmptySessionElapsedMs, now)) {
                 if (!activePlayerPackageName.isEmpty()) {
@@ -102,10 +95,53 @@ public final class MusicNotificationListener extends NotificationListenerService
         }
     };
 
+    private final MusicSessionReader.Callback dftcReaderCallback =
+            new MusicSessionReader.Callback() {
+        @Override public void onReadSuccess(int sessionCount) {
+            // The standard backend remains the notification-listener health signal. This reader
+            // is an optional compatibility path for one player without a usable MediaSession.
+        }
+
+        @Override public void onReadError(String message, Throwable error) {
+            Log.w(TAG, message, error);
+            DiagnosticLog.record(MusicNotificationListener.this, "DftcMedia",
+                    message + (error == null ? "" : ": " + safeMessage(error)));
+        }
+
+        @Override public void onSession(String packageName, String applicationLabel,
+                                        MusicPlaybackData data) {
+            long now = SystemClock.elapsedRealtime();
+            boolean alreadyActive = "com.dftc.media".equals(activePlayerPackageName);
+            boolean playing = data != null && data.state == MusicPlaybackData.STATE_PLAYING;
+            if (!playing && !alreadyActive
+                    && now - lastStandardSessionElapsedMs < EMPTY_SESSION_GRACE_MS) return;
+            acceptSession(packageName, applicationLabel, data);
+        }
+
+        @Override public void onNoSession() {
+            // A missing vendor session must not clear a valid standard MediaSession.
+        }
+    };
+
+    private void acceptSession(String packageName, String applicationLabel,
+                               MusicPlaybackData data) {
+        lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
+        String nextPackage = packageName == null ? "" : packageName;
+        if (!nextPackage.equals(activePlayerPackageName)) {
+            DiagnosticLog.record(this, "MediaSession",
+                    "active player changed package=" + nextPackage + " label=" + applicationLabel);
+        }
+        activePlayerPackageName = nextPackage;
+        MusicAppRegistry.App app = MusicAppRegistry.resolve(packageName, applicationLabel);
+        AppPreferences.rememberPlayerPackage(this, nextPackage);
+        MusicStateStore.update(this, app.sourceId, app.displayName, nextPackage, data);
+    }
+
     private final Runnable sessionPoll = new Runnable() {
         @Override public void run() {
             if (!connected || sessionReader == null) return;
             sessionReader.refresh();
+            if (dftcReader != null) dftcReader.refresh();
             handler.postDelayed(this, SESSION_POLL_MS);
         }
     };
@@ -178,6 +214,8 @@ public final class MusicNotificationListener extends NotificationListenerService
             return;
         }
         connected = true;
+        dftcReader = new DftcMediaSessionReader(this, dftcReaderCallback);
+        dftcReader.start();
         listenerConnected = true;
         DiagnosticLog.record(this, "MediaSession", "listener connected backend="
                 + backendName + " api=" + Build.VERSION.SDK_INT);
@@ -206,11 +244,13 @@ public final class MusicNotificationListener extends NotificationListenerService
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
         if (Build.VERSION.SDK_INT < 21) refreshLegacySourceApplication();
         if (sessionReader != null) sessionReader.refresh();
+        if (dftcReader != null) dftcReader.refresh();
     }
 
     @Override public void onNotificationRemoved(StatusBarNotification sbn) {
         if (Build.VERSION.SDK_INT < 21) refreshLegacySourceApplication();
         if (sessionReader != null) sessionReader.refresh();
+        if (dftcReader != null) dftcReader.refresh();
     }
 
     @Override public void onClientChange(boolean clearing) {
@@ -303,6 +343,15 @@ public final class MusicNotificationListener extends NotificationListenerService
                     + " result=listener_unavailable");
             return;
         }
+        if ("com.dftc.media".equals(activePlayerPackageName) && dftcReader != null
+                && dftcReader.dispatchControl(action)) {
+            DiagnosticLog.record(this, "MediaControl", "action=" + action
+                    + " result=dispatched backend=DftcMedia");
+            handler.postDelayed(() -> {
+                if (dftcReader != null) dftcReader.refresh();
+            }, 180L);
+            return;
+        }
         sessionReader.refresh();
         if (!sessionReader.dispatchControl(action)) {
             lastSessionError = "播放器未提供可用的控制会话";
@@ -325,6 +374,11 @@ public final class MusicNotificationListener extends NotificationListenerService
     }
 
     private void stopReader() {
+        if (dftcReader != null) {
+            try { dftcReader.stop(); }
+            catch (Throwable ignored) { }
+        }
+        dftcReader = null;
         if (sessionReader != null) {
             try { sessionReader.stop(); }
             catch (Throwable ignored) { }

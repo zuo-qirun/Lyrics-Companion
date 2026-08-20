@@ -336,8 +336,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity {
                 0xFF8392A8, false);
         description.setPadding(0, dp(10), 0, dp(4));
         parent.addView(description);
-        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "其他播放器"};
-        String[] sourceIds = {"netease", "qqmusic", "kugou", "kuwo", "soda", "media"};
+        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐",
+                "喜马拉雅", "东风皓瀚播放器", "其他播放器"};
+        String[] sourceIds = {"netease", "qqmusic", "kugou", "kuwo", "soda",
+                "ximalaya", "dftc_media", "media"};
         String active = MusicStateStore.activeSourceId();
         int initialIndex = sourceIndex(sourceIds, active);
         final String[] selectedSource = {sourceIds[initialIndex]};
