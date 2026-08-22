@@ -45,8 +45,8 @@ public class LegacyRemoteControllerReaderTest {
         // A clock regression (negative gap) keeps the base instead of extrapolating backwards.
         assertEquals(30_000L, LegacyRemoteControllerReader.projectPosition(
                 30_000L, 2_000_000L, 1f, true, 2_000_000L - 4_000L));
-        // Projection never goes below zero.
-        assertEquals(0L, LegacyRemoteControllerReader.projectPosition(
+        // A paused stream ignores the stored speed and simply holds its position.
+        assertEquals(500L, LegacyRemoteControllerReader.projectPosition(
                 500L, 1_000_000L, 1f, false, 1_001_000L));
     }
 }
