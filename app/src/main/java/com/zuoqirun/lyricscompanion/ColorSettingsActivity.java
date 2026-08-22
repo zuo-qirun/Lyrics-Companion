@@ -133,8 +133,20 @@ public final class ColorSettingsActivity extends AppCompatActivity {
         outline.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putDisplayBoolean(this, secondary, AppPreferences.KEY_LYRIC_OUTLINE, checked);
             changed();
+            rebuildColors();
         });
         parent.addView(outline);
+        if (AppPreferences.lyricOutline(this, secondary)) {
+            addColor(parent, "描边颜色", "留在自动时按歌词颜色取反差色。",
+                    AppPreferences.lyricOutlineColor(this, secondary), 0xFF000000,
+                    color -> AppPreferences.setLyricOutlineColor(this, secondary, color));
+            addPercentSeek(parent, "描边不透明度",
+                    AppPreferences.lyricOutlineAlphaPercent(this, secondary),
+                    value -> AppPreferences.setLyricOutlineAlphaPercent(this, secondary, value));
+            addPercentSeek(parent, "描边宽度（字号百分比）",
+                    AppPreferences.lyricOutlineWidthPercent(this, secondary),
+                    value -> AppPreferences.setLyricOutlineWidthPercent(this, secondary, value));
+        }
         if (AppPreferences.lyricsFollowTheme(this)) {
             addColor(parent, "浅色环境歌词颜色", "用于白天或浅色环境。",
                     AppPreferences.lyricLightColor(this, secondary), 0xFF17212E,
@@ -142,6 +154,18 @@ public final class ColorSettingsActivity extends AppCompatActivity {
             addColor(parent, "深色环境歌词颜色", "用于夜晚或深色环境。",
                     AppPreferences.lyricDarkColor(this, secondary), 0xFFF5F8FF,
                     color -> AppPreferences.setLyricDarkColor(this, secondary, color));
+            addColor(parent, "浅色环境当前歌词颜色", "留空时沿用上方浅色环境歌词颜色。",
+                    AppPreferences.currentLyricLightColor(this, secondary), 0xFFFFCA66,
+                    color -> AppPreferences.setCurrentLyricLightColor(this, secondary, color));
+            addColor(parent, "深色环境当前歌词颜色", "留空时沿用上方深色环境歌词颜色。",
+                    AppPreferences.currentLyricDarkColor(this, secondary), 0xFFFFCA66,
+                    color -> AppPreferences.setCurrentLyricDarkColor(this, secondary, color));
+            addColor(parent, "浅色环境非当前歌词颜色", "留空时沿用上方浅色环境歌词颜色。",
+                    AppPreferences.inactiveLyricLightColor(this, secondary), 0xFFB1BCCB,
+                    color -> AppPreferences.setInactiveLyricLightColor(this, secondary, color));
+            addColor(parent, "深色环境非当前歌词颜色", "留空时沿用上方深色环境歌词颜色。",
+                    AppPreferences.inactiveLyricDarkColor(this, secondary), 0xFFB1BCCB,
+                    color -> AppPreferences.setInactiveLyricDarkColor(this, secondary, color));
         }
         addMetadataColor(parent, secondary, "歌名颜色", AppPreferences.KEY_TITLE_COLOR,
                 AppPreferences.titleColor(this, secondary), 0xFFFFFFFF);
@@ -187,6 +211,27 @@ public final class ColorSettingsActivity extends AppCompatActivity {
                           int fallback, ColorConsumer consumer) {
         ColorPaletteControls.add(this, parent, title, description, initial, fallback,
                 color -> consumer.accept(color), this::changed);
+    }
+
+    private void addPercentSeek(LinearLayout parent, String title, int initial,
+                                PercentConsumer consumer) {
+        TextView label = text(title + "：" + initial + "%", 13, 0xFFF1F5FA, false);
+        label.setPadding(0, dp(12), 0, 0);
+        parent.addView(label);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(100);
+        seek.setProgress(Math.max(0, Math.min(100, initial)));
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value,
+                                                    boolean fromUser) {
+                if (!fromUser) return;
+                label.setText(title + "：" + value + "%");
+                consumer.accept(value);
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(30)));
     }
 
     private void changed() {
@@ -238,4 +283,6 @@ public final class ColorSettingsActivity extends AppCompatActivity {
     }
 
     private interface ColorConsumer { void accept(int color); }
+
+    private interface PercentConsumer { void accept(int percent); }
 }

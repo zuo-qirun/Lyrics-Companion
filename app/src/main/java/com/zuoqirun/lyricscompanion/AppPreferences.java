@@ -41,7 +41,14 @@ final class AppPreferences {
     static final String KEY_LYRIC_COLOR = "lyric_color";
     static final String KEY_CURRENT_LYRIC_COLOR = "current_lyric_color";
     static final String KEY_INACTIVE_LYRIC_COLOR = "inactive_lyric_color";
+    static final String KEY_CURRENT_LYRIC_LIGHT_COLOR = "current_lyric_light_color";
+    static final String KEY_CURRENT_LYRIC_DARK_COLOR = "current_lyric_dark_color";
+    static final String KEY_INACTIVE_LYRIC_LIGHT_COLOR = "inactive_lyric_light_color";
+    static final String KEY_INACTIVE_LYRIC_DARK_COLOR = "inactive_lyric_dark_color";
     static final String KEY_LYRIC_OUTLINE = "lyric_outline";
+    static final String KEY_LYRIC_OUTLINE_COLOR = "lyric_outline_color";
+    static final String KEY_LYRIC_OUTLINE_ALPHA = "lyric_outline_alpha";
+    static final String KEY_LYRIC_OUTLINE_WIDTH = "lyric_outline_width";
     static final String KEY_TRAILING_ACCENT = "trailing_accent";
     static final String KEY_LYRIC_LIGHT_COLOR = "lyric_light_color";
     static final String KEY_LYRIC_DARK_COLOR = "lyric_dark_color";
@@ -388,6 +395,84 @@ final class AppPreferences {
     static void setInactiveLyricColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_COLOR,
                 color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    /** Zero keeps the flat custom slot; a pair value wins only while theme tracking is on. */
+    static int currentLyricLightColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_CURRENT_LYRIC_LIGHT_COLOR, 0);
+    }
+
+    static int currentLyricDarkColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_CURRENT_LYRIC_DARK_COLOR, 0);
+    }
+
+    static int inactiveLyricLightColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_INACTIVE_LYRIC_LIGHT_COLOR, 0);
+    }
+
+    static int inactiveLyricDarkColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_INACTIVE_LYRIC_DARK_COLOR, 0);
+    }
+
+    static void setCurrentLyricLightColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_LIGHT_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static void setCurrentLyricDarkColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_DARK_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static void setInactiveLyricLightColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_LIGHT_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static void setInactiveLyricDarkColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_DARK_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    /**
+     * Slot resolution shared with the panel: while theme tracking is on an explicit
+     * light/dark variant wins; otherwise (or when unset) the flat custom color applies.
+     */
+    static int resolveThemedSlotColor(boolean followTheme, boolean environmentLight,
+                                      int flat, int light, int dark) {
+        if (!followTheme) return flat;
+        int themed = environmentLight ? light : dark;
+        return themed != 0 ? themed : flat;
+    }
+
+    /** Zero picks the contrast color against the rendered glyph automatically. */
+    static int lyricOutlineColor(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_LYRIC_OUTLINE_COLOR, 0);
+    }
+
+    static void setLyricOutlineColor(Context context, boolean secondary, int color) {
+        putDisplayInt(context, secondary, KEY_LYRIC_OUTLINE_COLOR,
+                color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    /** Percent of full opacity applied to the outline stroke; default mirrors the old 225/255. */
+    static int lyricOutlineAlphaPercent(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_LYRIC_OUTLINE_ALPHA, 88);
+    }
+
+    static void setLyricOutlineAlphaPercent(Context context, boolean secondary, int percent) {
+        putDisplayInt(context, secondary, KEY_LYRIC_OUTLINE_ALPHA,
+                Math.max(0, Math.min(100, percent)));
+    }
+
+    /** Outline stroke width as a percent of the lyric font size; default mirrors the old 7.5%. */
+    static int lyricOutlineWidthPercent(Context context, boolean secondary) {
+        return displayInt(context, secondary, KEY_LYRIC_OUTLINE_WIDTH, 8);
+    }
+
+    static void setLyricOutlineWidthPercent(Context context, boolean secondary, int percent) {
+        putDisplayInt(context, secondary, KEY_LYRIC_OUTLINE_WIDTH,
+                Math.max(1, Math.min(40, percent)));
     }
 
     static boolean lyricOutline(Context context, boolean secondary) {
