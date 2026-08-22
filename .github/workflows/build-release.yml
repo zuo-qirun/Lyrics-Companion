@@ -141,14 +141,24 @@ jobs:
                   selected = sections[:1]
           body = "\n".join(section_body for _, section_body in selected).strip()
           subject = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], text=True).strip()
-          items = [line.strip()[2:].strip() for line in body.splitlines()
-                   if line.strip().startswith("- ")]
+          # Keep both bullet items and blockquote notices (e.g. the beta disclaimer) so the
+          # 测试版 marker reaches the release page and the in-app update manifest.
+          entries = []
+          for line in body.splitlines():
+              stripped = line.strip()
+              if stripped.startswith("- "):
+                  entries.append(("- ", stripped[2:].strip()))
+              elif stripped.startswith(">"):
+                  entries.append(("> ", stripped.lstrip("> ").strip()))
+          items = [text for _, text in entries]
           if subject and subject not in items:
               items.append(subject)
+              entries.append(("- ", subject))
           if not items:
               items = ["优化应用体验"]
+              entries.append(("- ", "优化应用体验"))
           changelog = "# Lyrics Companion 更新日志\n\n## " + os.environ["APP_VERSION_NAME"] + "\n\n" \
-              + "\n".join(f"- {item}" for item in items) + "\n"
+              + "\n".join(prefix + text for prefix, text in entries) + "\n"
           (release_dir / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
           manifest = {
               "schemaVersion": 1,
