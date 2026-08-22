@@ -34,6 +34,7 @@ import android.widget.TextView;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.ScrollView;
 
 /** Owns independent overlay windows on the default display and a selected secondary display. */
 public final class LyricsDisplayService extends Service implements DisplayManager.DisplayListener {
@@ -646,12 +647,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         content.setOrientation(LinearLayout.VERTICAL);
         int padding = dp(this, 8);
         content.setPadding(padding, padding, padding, padding);
+        // The rounded frame lives on the scroll host so it stays put while the rows scroll.
         GradientDrawable background = new GradientDrawable();
         background.setColor(0xF0202B3A);
         background.setCornerRadius(dp(this, 16));
         background.setStroke(dp(this, 1), 0x556EE7F2);
-        content.setBackground(background);
-        PopupWindow popup = new PopupWindow(content, dp(this, 220),
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setBackground(background);
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        PopupWindow popup = new PopupWindow(scroll, dp(this, 220),
                 WindowManager.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
@@ -680,30 +685,35 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             popup.dismiss();
             setOverlayTouchThrough(secondary, true);
         });
-        showQuickMenuWithinScreen(popup, content, anchor);
+        showQuickMenuWithinScreen(popup, scroll, anchor);
     }
 
     /**
      * Positions the long-press menu entirely inside the anchor's display. showAsDropDown clips
      * against the anchor window's frame, which for an overlay panel is the panel itself — when
-     * the overlay hugs a screen edge the last rows ("锁定并触摸穿透") became untappable.
+     * the overlay hugs a screen edge the last rows ("锁定并触摸穿透") became untappable. The
+     * window height is capped on small displays so the inner ScrollView scrolls instead of the
+     * menu being clipped.
      */
-    private void showQuickMenuWithinScreen(PopupWindow popup, LinearLayout content, View anchor) {
+    private void showQuickMenuWithinScreen(PopupWindow popup, View menu, View anchor) {
         int menuWidth = dp(this, 220);
-        content.measure(View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
+        menu.measure(View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int menuHeight = Math.max(content.getMeasuredHeight(), dp(this, 60));
         // The anchor's resources carry its display context, so secondary displays clamp
         // against their own metrics instead of the default screen.
         android.util.DisplayMetrics metrics = anchor.getResources().getDisplayMetrics();
         int margin = dp(this, 8);
+        int maxHeight = Math.max(dp(this, 120), metrics.heightPixels - 2 * margin);
+        int popupHeight = Math.min(menu.getMeasuredHeight(), maxHeight);
+        popup.setWidth(menuWidth);
+        popup.setHeight(popupHeight);
         int maxX = Math.max(margin, metrics.widthPixels - menuWidth - margin);
-        int maxY = Math.max(margin, metrics.heightPixels - menuHeight - margin);
+        int maxY = Math.max(margin, metrics.heightPixels - popupHeight - margin);
         int[] origin = new int[2];
         anchor.getLocationOnScreen(origin);
         // Keep the original right-aligned-with-anchor intent, then clamp into the display.
         int x = Math.max(margin, Math.min(origin[0] + anchor.getWidth() - menuWidth, maxX));
-        int y = origin[1] - menuHeight;
+        int y = origin[1] - popupHeight;
         if (y < margin) y = origin[1] + anchor.getHeight();
         y = Math.max(margin, Math.min(y, maxY));
         popup.showAtLocation(anchor, Gravity.TOP | Gravity.START, x, y);
