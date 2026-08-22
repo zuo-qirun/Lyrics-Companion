@@ -294,11 +294,17 @@ final class AppPreferences {
     }
 
     static int minimumPanelHeightDp(Context context, boolean secondary) {
-        // Leave a dedicated bottom row for main-display transport controls while keeping
-        // the lyric lines readable on both displays.
         String style = overlayStyle(context, secondary);
         if ("compact".equals(style)) {
-            return compactShowNextLine(context, secondary) ? 96 : 72;
+            // Users park compact panels in tight HUD corners; keep only a readable floor.
+            int floor = compactShowNextLine(context, secondary) ? 64 : 48;
+            boolean transportButtons = showPreviousButton(context)
+                    || showPlayPauseButton(context) || showNextButton(context);
+            if (transportButtons) {
+                // Reserve the bottom control row so the buttons stay tappable.
+                floor = Math.max(floor, compactShowNextLine(context, secondary) ? 88 : 68);
+            }
+            return floor;
         }
         return "amll".equals(style) ? 210 : 176;
     }

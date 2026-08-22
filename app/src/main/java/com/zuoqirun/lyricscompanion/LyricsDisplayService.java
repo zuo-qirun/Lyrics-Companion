@@ -680,7 +680,33 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             popup.dismiss();
             setOverlayTouchThrough(secondary, true);
         });
-        popup.showAsDropDown(anchor, Math.max(0, anchor.getWidth() - dp(this, 220)), -anchor.getHeight());
+        showQuickMenuWithinScreen(popup, content, anchor);
+    }
+
+    /**
+     * Positions the long-press menu entirely inside the anchor's display. showAsDropDown clips
+     * against the anchor window's frame, which for an overlay panel is the panel itself — when
+     * the overlay hugs a screen edge the last rows ("锁定并触摸穿透") became untappable.
+     */
+    private void showQuickMenuWithinScreen(PopupWindow popup, LinearLayout content, View anchor) {
+        int menuWidth = dp(this, 220);
+        content.measure(View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int menuHeight = Math.max(content.getMeasuredHeight(), dp(this, 60));
+        // The anchor's resources carry its display context, so secondary displays clamp
+        // against their own metrics instead of the default screen.
+        android.util.DisplayMetrics metrics = anchor.getResources().getDisplayMetrics();
+        int margin = dp(this, 8);
+        int maxX = Math.max(margin, metrics.widthPixels - menuWidth - margin);
+        int maxY = Math.max(margin, metrics.heightPixels - menuHeight - margin);
+        int[] origin = new int[2];
+        anchor.getLocationOnScreen(origin);
+        // Keep the original right-aligned-with-anchor intent, then clamp into the display.
+        int x = Math.max(margin, Math.min(origin[0] + anchor.getWidth() - menuWidth, maxX));
+        int y = origin[1] - menuHeight;
+        if (y < margin) y = origin[1] + anchor.getHeight();
+        y = Math.max(margin, Math.min(y, maxY));
+        popup.showAtLocation(anchor, Gravity.TOP | Gravity.START, x, y);
     }
 
     private void addQuickMenuButton(LinearLayout content, String label, Runnable action) {

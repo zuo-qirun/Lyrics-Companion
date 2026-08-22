@@ -866,6 +866,21 @@ final class LyricsPanelView extends View {
         canvas.restoreToCount(contentSave);
     }
 
+    /**
+     * Pure and PiP are both minimal text styles; they share one size anchor so the same
+     * text-scale setting renders the same current-line glyph size in either style. PiP's
+     * layout offsets scale with its own area factor, so the larger anchor does not overflow.
+     */
+    private static final float MINIMAL_STYLE_LYRIC_DP = 29f;
+    private static final float MINIMAL_STYLE_REFERENCE_WIDTH_DP = 430f;
+    private static final float MINIMAL_STYLE_REFERENCE_HEIGHT_DP = 190f;
+
+    private float minimalStyleLyricSize(float density) {
+        return Math.max(16f * density, MINIMAL_STYLE_LYRIC_DP * density * textScale
+                * canvasAreaScale(MINIMAL_STYLE_REFERENCE_WIDTH_DP,
+                MINIMAL_STYLE_REFERENCE_HEIGHT_DP, density));
+    }
+
     /** Text-only desktop style: no cover, player metadata, progress or transport controls. */
     private void drawPure(Canvas canvas, MusicSnapshot snapshot, float density) {
         int background = configuredBackgroundColor();
@@ -876,8 +891,7 @@ final class LyricsPanelView extends View {
         }
         float width = getWidth();
         float height = getHeight();
-        float scale = canvasAreaScale(430f, 190f, density);
-        float requestedSize = Math.max(16f * density, 29f * density * textScale * scale);
+        float requestedSize = minimalStyleLyricSize(density);
         List<LrcTimeline.NearbyLine> nearby = snapshot.lyrics.nearbyLines;
         if (nearby.isEmpty()) {
             List<LrcTimeline.NearbyLine> fallback = new ArrayList<>();
@@ -2299,8 +2313,7 @@ final class LyricsPanelView extends View {
                     Typeface.BOLD);
             lyricY += 25f * density * contentScale;
         }
-        float pipLyricSize = 20f * density * contentScale * textScale
-                * (secondary ? 1.06f : 1f);
+        float pipLyricSize = minimalStyleLyricSize(density) * (secondary ? 1.06f : 1f);
         float currentHeight;
         if (snapshot.lyrics.interlude) {
             drawInterludeDots(canvas, snapshot, pad, lyricY - pipLyricSize * 0.55f,
