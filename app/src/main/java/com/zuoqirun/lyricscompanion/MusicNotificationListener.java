@@ -77,6 +77,13 @@ public final class MusicNotificationListener extends NotificationListenerService
         @Override public void onSession(String packageName, String applicationLabel,
                                         MusicPlaybackData data) {
             lastStandardSessionElapsedMs = SystemClock.elapsedRealtime();
+            if (shouldYieldToActiveDftcSession(activePlayerPackageName,
+                    dftcReader != null && dftcReader.hasUsableSession(),
+                    dftcReader != null && dftcReader.reportsPlaying(),
+                    packageName,
+                    data != null && data.state == MusicPlaybackData.STATE_PLAYING)) {
+                return;
+            }
             acceptSession(packageName, applicationLabel, data);
         }
 
@@ -563,6 +570,23 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     static boolean shouldClearAfterEmpty(long lastNonEmptyElapsedMs, long nowElapsedMs) {
         return nowElapsedMs - lastNonEmptyElapsedMs >= EMPTY_SESSION_GRACE_MS;
+    }
+
+    /**
+     * Anti ping-pong guard for the Dongfeng head unit: while its vendor player owns the active
+     * slot, transient system media cards (WecarFlow) may appear and vanish every few seconds.
+     * Those blips must not steal the slot, or the visible source flips back and forth and the
+     * lyric timeline reloads each time. The vendor player itself always proceeds; a different
+     * player takes over only once it is playing while the vendor session stopped reporting
+     * playback, or once the retained vendor snapshot ages out (usable=false).
+     */
+    static boolean shouldYieldToActiveDftcSession(String activePlayerPackage, boolean dftcUsable,
+                                                  boolean dftcReportsPlaying,
+                                                  String incomingPackage, boolean incomingPlaying) {
+        if (!"com.dftc.media".equals(activePlayerPackage)) return false;
+        if (!dftcUsable) return false;
+        if ("com.dftc.media".equals(incomingPackage)) return false;
+        return !incomingPlaying || dftcReportsPlaying;
     }
 
     private static String safeMessage(Throwable error) {

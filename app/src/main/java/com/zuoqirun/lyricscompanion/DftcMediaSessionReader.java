@@ -33,6 +33,13 @@ final class DftcMediaSessionReader implements MusicSessionReader {
     private static final int AIDL_GET_TYPE = 11;
     private static final int AIDL_GET_STATUS = 12;
 
+    /**
+     * How long the last good read may be replayed while the vendor stack returns garbage.
+     * WecarFlow re-routes can blank GET_NAME/GET_STATUS for a few seconds; without a hold the
+     * session flaps in and out and the main/secondary overlays flicker on every poll.
+     */
+    private static final long TRANSIENT_HOLD_MS = 15_000L;
+
     private final Context context;
     private final Callback callback;
 
@@ -77,18 +84,43 @@ final class DftcMediaSessionReader implements MusicSessionReader {
             return;
         }
         try {
-            playerTitle = aidlString(AIDL_GET_NAME);
-            playerType = aidlString(AIDL_GET_TYPE);
-            playerStatus = aidlInt(AIDL_GET_STATUS);
-            callback.onReadSuccess(playerTitle.isEmpty() ? 0 : 1);
-            if (playerTitle.isEmpty() || playerStatus < 0) {
-                callback.onNoSession();
+            String title = aidlString(AIDL_GET_NAME);
+            String type = aidlString(AIDL_GET_TYPE);
+            int status = aidlInt(AIDL_GET_STATUS);
+            if (isUsableRead(title, status)) {
+                acceptRead(title, type, status);
                 return;
             }
-            emitCurrentSession();
+            if (shouldReuseRetainedSnapshot(playerTitle, true,
+                    SystemClock.elapsedRealtime() - lastUsableSessionElapsedMs)) {
+                // Transient vendor garbage (empty name / unknown status): keep showing the
+                // retained track instead of reporting no-session on every 600 ms poll.
+                callback.onReadSuccess(1);
+                emitCurrentSession();
+                return;
+            }
+            callback.onReadSuccess(playerTitle.isEmpty() ? 0 : 1);
+            callback.onNoSession();
         } catch (Throwable error) {
-            callback.onReadError("读取东风车机播放器失败", error);
+            // A failed transact with a live binder rides out the same hold window; only log
+            // once the retention has expired so a short WecarFlow hiccup does not spam logs.
+            if (shouldReuseRetainedSnapshot(playerTitle, true,
+                    SystemClock.elapsedRealtime() - lastUsableSessionElapsedMs)) {
+                emitCurrentSession();
+            } else {
+                playerStatus = -1;
+                callback.onReadError("读取东风车机播放器失败", error);
+            }
         }
+    }
+
+    private void acceptRead(String title, String type, int status) {
+        playerTitle = title;
+        playerType = type;
+        playerStatus = status;
+        lastUsableSessionElapsedMs = SystemClock.elapsedRealtime();
+        callback.onReadSuccess(1);
+        emitCurrentSession();
     }
 
     @Override public boolean dispatchControl(MediaControlAction action) {
@@ -133,11 +165,20 @@ final class DftcMediaSessionReader implements MusicSessionReader {
         playerTitle = "";
         playerType = "";
         playerStatus = -1;
+        lastUsableSessionElapsedMs = 0L;
     }
 
     boolean hasUsableSession() {
-        return !playerTitle.isEmpty()
-                && SystemClock.elapsedRealtime() - lastUsableSessionElapsedMs < 5_000L;
+        IBinder binder = playerBinder;
+        boolean binderAlive = binder != null && binder.isBinderAlive();
+        if (!binderAlive) return false;
+        return shouldReuseRetainedSnapshot(playerTitle, binderAlive,
+                SystemClock.elapsedRealtime() - lastUsableSessionElapsedMs);
+    }
+
+    /** Whether the retained snapshot currently describes an actively playing vendor session. */
+    boolean reportsPlaying() {
+        return hasUsableSession() && playerStatus == 1;
     }
 
     private void bindPlayer() {
@@ -152,7 +193,6 @@ final class DftcMediaSessionReader implements MusicSessionReader {
     }
 
     private void emitCurrentSession() {
-        long now = SystemClock.elapsedRealtime();
         int state = stateFromPlayerStatus(playerStatus);
         MusicPlaybackData data = new MusicPlaybackData(
                 "dftc:" + playerType + ":" + playerTitle,
@@ -167,7 +207,6 @@ final class DftcMediaSessionReader implements MusicSessionReader {
                 0L,
                 0L,
                 state == MusicPlaybackData.STATE_PLAYING ? 1f : 0f);
-        lastUsableSessionElapsedMs = now;
         callback.onSession(PLAYER_PACKAGE, "东风皓瀚播放器", data);
     }
 
@@ -227,6 +266,20 @@ final class DftcMediaSessionReader implements MusicSessionReader {
         if (status == 1) return MusicPlaybackData.STATE_PLAYING;
         if (status == 0) return MusicPlaybackData.STATE_PAUSED;
         return MusicPlaybackData.STATE_NONE;
+    }
+
+    static boolean isUsableRead(String title, int status) {
+        return status >= 0 && title != null && !title.trim().isEmpty();
+    }
+
+    /**
+     * Replay decision for transient read hiccups: only while the binder lives, a usable title
+     * was seen before, and the last good read is younger than {@link #TRANSIENT_HOLD_MS}.
+     */
+    static boolean shouldReuseRetainedSnapshot(String retainedTitle, boolean binderAlive,
+                                               long ageMs) {
+        return binderAlive && ageMs >= 0L && ageMs < TRANSIENT_HOLD_MS
+                && retainedTitle != null && !retainedTitle.trim().isEmpty();
     }
 
     private static String value(String value) {
