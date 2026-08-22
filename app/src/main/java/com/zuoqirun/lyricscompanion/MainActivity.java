@@ -259,7 +259,7 @@ public final class MainActivity extends AppCompatActivity {
             AppPreferences.get(this).edit().putString(
                     AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI, uri.toString()).apply();
             MusicStateStore.reloadLyrics(this);
-            Toast.makeText(this, "已授权本地歌词目录", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "已授权本地歌词目录", Toast.LENGTH_SHORT);
             return;
         }
         if (requestCode != REQUEST_CUSTOM_FONT || resultCode != RESULT_OK || data == null) return;
@@ -268,11 +268,11 @@ public final class MainActivity extends AppCompatActivity {
         try {
             String name = CustomFontStore.importFont(this, uri);
             AppPreferences.changed(this);
-            Toast.makeText(this, "已全局应用字体：" + name, Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "已全局应用字体：" + name, Toast.LENGTH_SHORT);
             recreate();
         } catch (Exception error) {
-            Toast.makeText(this, error.getMessage() == null ? "导入字体失败" : error.getMessage(),
-                    Toast.LENGTH_LONG).show();
+            SafeToast.show(this, error.getMessage() == null ? "导入字体失败" : error.getMessage(),
+                    Toast.LENGTH_LONG);
         }
     }
 
@@ -397,8 +397,8 @@ public final class MainActivity extends AppCompatActivity {
             if (checked && Build.VERSION.SDK_INT >= 31
                     && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
                     != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "请在首页“使用权限”中授予蓝牙读取权限",
-                        Toast.LENGTH_LONG).show();
+                SafeToast.show(this, "请在首页“使用权限”中授予蓝牙读取权限",
+                        Toast.LENGTH_LONG);
             } else if (!checked && BluetoothAvrcpReceiver.ownsCurrentState()) {
                 MusicStateStore.clear();
             }
@@ -983,7 +983,7 @@ public final class MainActivity extends AppCompatActivity {
                     AppPreferences.changed(this);
                     MusicStateStore.reloadLyrics(this);
                     refreshPreview();
-                    Toast.makeText(this, "已保存 " + catalogLabel + " 强制匹配应用", Toast.LENGTH_SHORT).show();
+                    SafeToast.show(this, "已保存 " + catalogLabel + " 强制匹配应用", Toast.LENGTH_SHORT);
                 })
                 .show();
     }
@@ -1331,7 +1331,7 @@ public final class MainActivity extends AppCompatActivity {
         copy.setOnClickListener(v -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("FAQ 命令", command));
-            Toast.makeText(this, "命令已复制", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "命令已复制", Toast.LENGTH_SHORT);
         });
         LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(dp(64), dp(44));
         copyParams.leftMargin = dp(8);
@@ -1357,7 +1357,7 @@ public final class MainActivity extends AppCompatActivity {
     private void showLyricRematchDialog() {
         MusicSnapshot snapshot = MusicStateStore.snapshot(AppPreferences.lyricOffsetMs(this));
         if (!snapshot.active || snapshot.title.trim().isEmpty()) {
-            Toast.makeText(this, "当前没有可重新匹配的曲目", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "当前没有可重新匹配的曲目", Toast.LENGTH_SHORT);
             return;
         }
         String[] labels = {"自动识别", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
@@ -1412,8 +1412,8 @@ public final class MainActivity extends AppCompatActivity {
                     MusicStateStore.reloadLyrics(this, requestedTitle, requestedArtist,
                             catalogs[catalogSpinner.getSelectedItemPosition()]);
                     refreshPreview();
-                    Toast.makeText(this, "已按修正后的歌曲信息开始匹配",
-                            Toast.LENGTH_SHORT).show();
+                    SafeToast.show(this, "已按修正后的歌曲信息开始匹配",
+                            Toast.LENGTH_SHORT);
                 })
                 .show();
     }
@@ -1424,8 +1424,8 @@ public final class MainActivity extends AppCompatActivity {
         CommunityClient.uploadSnapshotAsync(this, feedbackId, result -> runOnUiThread(() -> {
             diagnosticBusy = false;
             if (isFinishing() || isDestroyed()) return;
-            Toast.makeText(this, result.success ? "诊断快照已上传" : "诊断上传失败：" + result.error,
-                    Toast.LENGTH_LONG).show();
+            SafeToast.show(this, result.success ? "诊断快照已上传" : "诊断上传失败：" + result.error,
+                    Toast.LENGTH_LONG);
         }));
     }
 
@@ -1459,11 +1459,11 @@ public final class MainActivity extends AppCompatActivity {
         CommunityClient.fetchFeedbackRepliesAsync(this, result -> runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             if (!result.success) {
-                Toast.makeText(this, "无法读取回复：" + result.error, Toast.LENGTH_LONG).show();
+                SafeToast.show(this, "无法读取回复：" + result.error, Toast.LENGTH_LONG);
                 return;
             }
             if (result.replies.isEmpty()) {
-                Toast.makeText(this, "暂时没有收到回复", Toast.LENGTH_SHORT).show();
+                SafeToast.show(this, "暂时没有收到回复", Toast.LENGTH_SHORT);
                 return;
             }
             showFeedbackRepliesDialog(result.replies);
@@ -1571,14 +1571,14 @@ public final class MainActivity extends AppCompatActivity {
         fallback.addCategory(Intent.CATEGORY_OPENABLE);
         fallback.setType("*/*");
         if (startDocumentPicker(fallback)) return;
-        Toast.makeText(this, "此设备没有可用的文件选择器，请安装或启用系统文件管理器后重试。",
-                Toast.LENGTH_LONG).show();
+        SafeToast.show(this, "此设备没有可用的文件选择器，请安装或启用系统文件管理器后重试。",
+                Toast.LENGTH_LONG);
     }
 
     private void openLocalLyricDirectoryPicker() {
         if (Build.VERSION.SDK_INT < 21) {
-            Toast.makeText(this, "Android 4.4 会直接尝试歌曲同目录；无需选择目录。",
-                    Toast.LENGTH_LONG).show();
+            SafeToast.show(this, "Android 4.4 会直接尝试歌曲同目录；无需选择目录。",
+                    Toast.LENGTH_LONG);
             return;
         }
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
@@ -1588,7 +1588,7 @@ public final class MainActivity extends AppCompatActivity {
         try {
             startActivityForResult(intent, REQUEST_LOCAL_LYRIC_DIRECTORY);
         } catch (Throwable error) {
-            Toast.makeText(this, "此设备没有可用的目录选择器。", Toast.LENGTH_LONG).show();
+            SafeToast.show(this, "此设备没有可用的目录选择器。", Toast.LENGTH_LONG);
         }
     }
 
@@ -1750,8 +1750,8 @@ public final class MainActivity extends AppCompatActivity {
         AudioSpectrumSource.release();
         MusicStateStore.reloadLyrics(this);
         AppPreferences.changed(this);
-        Toast.makeText(this, "已恢复默认设置（重置 " + removed + " 项）",
-                Toast.LENGTH_SHORT).show();
+        SafeToast.show(this, "已恢复默认设置（重置 " + removed + " 项）",
+                Toast.LENGTH_SHORT);
         recreate();
     }
 
@@ -1770,7 +1770,7 @@ public final class MainActivity extends AppCompatActivity {
                     String description = input.getText() == null ? "" : input.getText().toString();
                     ConfigurationShareClient.share(this, description, result -> runOnUiThread(() -> {
                         if (!result.success) {
-                            Toast.makeText(this, "生成失败：" + result.error, Toast.LENGTH_LONG).show();
+                            SafeToast.show(this, "生成失败：" + result.error, Toast.LENGTH_LONG);
                             return;
                         }
                         String code = result.value.optString("code");
@@ -1799,7 +1799,7 @@ public final class MainActivity extends AppCompatActivity {
                     String code = input.getText() == null ? "" : input.getText().toString();
                     ConfigurationShareClient.fetch(code, result -> runOnUiThread(() -> {
                         if (!result.success) {
-                            Toast.makeText(this, "读取失败：" + result.error, Toast.LENGTH_LONG).show();
+                            SafeToast.show(this, "读取失败：" + result.error, Toast.LENGTH_LONG);
                             return;
                         }
                         String description = result.value.optString("description", "未填写简介");
@@ -1816,12 +1816,12 @@ public final class MainActivity extends AppCompatActivity {
                                         AppPreferences.changed(this);
                                         AudioSpectrumSource.sync(this);
                                         LyricsDisplayService.startOrRefresh(this);
-                                        Toast.makeText(this, "已导入 " + count + " 项设置",
-                                                Toast.LENGTH_SHORT).show();
+                                        SafeToast.show(this, "已导入 " + count + " 项设置",
+                                                Toast.LENGTH_SHORT);
                                         recreate();
                                     } catch (Throwable error) {
-                                        Toast.makeText(this, "导入失败：" + error.getMessage(),
-                                                Toast.LENGTH_LONG).show();
+                                        SafeToast.show(this, "导入失败：" + error.getMessage(),
+                                                Toast.LENGTH_LONG);
                                     }
                                 })
                                 .setNegativeButton("取消", null)
@@ -1835,7 +1835,7 @@ public final class MainActivity extends AppCompatActivity {
     private void copyText(String label, String value) {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show();
+        SafeToast.show(this, "已复制", Toast.LENGTH_SHORT);
     }
 
     private void showFeedbackDialog() {
@@ -1897,7 +1897,7 @@ public final class MainActivity extends AppCompatActivity {
                                 if (isFinishing() || isDestroyed()) return;
                                 if (result.success) {
                                     if (dialog.isShowing()) dialog.dismiss();
-                                    Toast.makeText(this, "反馈已收到，谢谢！", Toast.LENGTH_LONG).show();
+                                    SafeToast.show(this, "反馈已收到，谢谢！", Toast.LENGTH_LONG);
                                 } else if (dialog.isShowing()) {
                                     messageLayout.setError("提交失败：" + result.error);
                                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
@@ -2049,7 +2049,7 @@ public final class MainActivity extends AppCompatActivity {
     private void openUrl(String address) {
         try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(address))); }
         catch (Throwable error) {
-            Toast.makeText(this, "无法打开链接：" + address, Toast.LENGTH_LONG).show();
+            SafeToast.show(this, "无法打开链接：" + address, Toast.LENGTH_LONG);
         }
     }
 
@@ -2089,8 +2089,8 @@ public final class MainActivity extends AppCompatActivity {
                 PERMISSION_CHECK_NOTIFICATION)) return;
         if (startPermissionSettingsActivity(new Intent(Settings.ACTION_SETTINGS),
                 PERMISSION_CHECK_NOTIFICATION)) return;
-        Toast.makeText(this, "\u65e0\u6cd5\u6253\u5f00\u7cfb\u7edf\u7684\u901a\u77e5\u8bfb\u53d6\u8bbe\u7f6e\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u624b\u52a8\u5f00\u542f\u3002",
-                Toast.LENGTH_LONG).show();
+        SafeToast.show(this, "\u65e0\u6cd5\u6253\u5f00\u7cfb\u7edf\u7684\u901a\u77e5\u8bfb\u53d6\u8bbe\u7f6e\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u624b\u52a8\u5f00\u542f\u3002",
+                Toast.LENGTH_LONG);
     }
 
     private boolean startSettingsActivity(Intent intent) {
@@ -2176,8 +2176,8 @@ public final class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT < 23) {
             if (!startPermissionSettingsActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:" + getPackageName())), PERMISSION_CHECK_OVERLAY)) {
-                Toast.makeText(this, "无法打开系统应用设置，请在系统设置中手动开启悬浮窗权限。",
-                        Toast.LENGTH_LONG).show();
+                SafeToast.show(this, "无法打开系统应用设置，请在系统设置中手动开启悬浮窗权限。",
+                        Toast.LENGTH_LONG);
             }
             return;
         }
@@ -2192,7 +2192,7 @@ public final class MainActivity extends AppCompatActivity {
                 Uri.parse("package:" + getPackageName())), PERMISSION_CHECK_OVERLAY)) {
             return;
         }
-        Toast.makeText(this, "无法打开系统悬浮窗权限设置，请在系统设置中手动开启。", Toast.LENGTH_LONG).show();
+        SafeToast.show(this, "无法打开系统悬浮窗权限设置，请在系统设置中手动开启。", Toast.LENGTH_LONG);
     }
 
     private static String permissionState(boolean granted) {
@@ -2200,18 +2200,18 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showPermissionHomeHint(String permission) {
-        Toast.makeText(this, "请在首页“使用权限”中授予" + permission + "权限",
-                Toast.LENGTH_LONG).show();
+        SafeToast.show(this, "请在首页“使用权限”中授予" + permission + "权限",
+                Toast.LENGTH_LONG);
     }
 
     private void requestRecordAudioPermission() {
         if (Build.VERSION.SDK_INT < 23) {
-            Toast.makeText(this, "当前系统无需单独授予录音权限", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "当前系统无需单独授予录音权限", Toast.LENGTH_SHORT);
             return;
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "录音频谱权限已授权", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "录音频谱权限已授权", Toast.LENGTH_SHORT);
             return;
         }
         requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
@@ -2219,12 +2219,12 @@ public final class MainActivity extends AppCompatActivity {
 
     private void requestBluetoothPermission() {
         if (Build.VERSION.SDK_INT < 31) {
-            Toast.makeText(this, "当前系统无需单独授予蓝牙读取权限", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "当前系统无需单独授予蓝牙读取权限", Toast.LENGTH_SHORT);
             return;
         }
         if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
                 == PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "蓝牙读取权限已授权", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "蓝牙读取权限已授权", Toast.LENGTH_SHORT);
             return;
         }
         requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},
@@ -2233,12 +2233,12 @@ public final class MainActivity extends AppCompatActivity {
 
     private void requestPostNotificationPermission() {
         if (Build.VERSION.SDK_INT < 33) {
-            Toast.makeText(this, "当前系统无需单独授予通知显示权限", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "当前系统无需单独授予通知显示权限", Toast.LENGTH_SHORT);
             return;
         }
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 == PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "通知显示权限已授权", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "通知显示权限已授权", Toast.LENGTH_SHORT);
             return;
         }
         requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
@@ -2246,7 +2246,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void openUsageAccessSettings() {
         if (Build.VERSION.SDK_INT < 21) {
-            Toast.makeText(this, "当前系统无需使用情况访问权限", Toast.LENGTH_SHORT).show();
+            SafeToast.show(this, "当前系统无需使用情况访问权限", Toast.LENGTH_SHORT);
             return;
         }
         Intent direct = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS,
@@ -2271,8 +2271,8 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         if (!startSettingsActivity(new Intent(Settings.ACTION_SETTINGS))) {
-            Toast.makeText(this, "无法打开默认应用设置，请在系统设置中手动进入。",
-                    Toast.LENGTH_LONG).show();
+            SafeToast.show(this, "无法打开默认应用设置，请在系统设置中手动进入。",
+                    Toast.LENGTH_LONG);
         }
     }
 

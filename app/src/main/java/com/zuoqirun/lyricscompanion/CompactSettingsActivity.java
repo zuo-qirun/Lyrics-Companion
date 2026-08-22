@@ -77,8 +77,8 @@ public final class CompactSettingsActivity extends AppCompatActivity {
             if (checked && android.os.Build.VERSION.SDK_INT >= 23
                     && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                     != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "请在首页“使用权限”中授予录音频谱权限",
-                        Toast.LENGTH_LONG).show();
+                SafeToast.show(this, "请在首页“使用权限”中授予录音频谱权限",
+                        Toast.LENGTH_LONG);
             }
             changed();
             updateSpectrumStatus();

@@ -160,10 +160,32 @@ final class LegacyRemoteControllerReader implements MusicSessionReader {
     void onClientPlaybackStateUpdate(int state) {
         Log.d(TAG, "RemoteController playback state=" + state);
         statePresent = true;
+        long nowElapsed = SystemClock.elapsedRealtime();
+        // A state-only event carries no position. Re-anchor to the projected CURRENT position
+        // instead of restarting the clock from the stale last-reported one, or every such
+        // event would rewind playback by everything that elapsed since the previous anchor.
+        long projected = projectPosition(positionMs, positionUpdatedAtElapsedMs,
+                speed, isAdvancing(playbackState), nowElapsed);
+        if (projected >= 0L) {
+            positionMs = projected;
+            positionUpdatedAtElapsedMs = nowElapsed;
+        }
         playbackState = normalizeState(state);
-        speed = isAdvancing(playbackState) ? 1f : 0f;
-        positionUpdatedAtElapsedMs = SystemClock.elapsedRealtime();
+        speed = isAdvancing(playbackState) ? (speed > 0f ? speed : 1f) : 0f;
         if (!title.isEmpty()) publish();
+    }
+
+    /**
+     * Extrapolates the playback position for state-only RemoteController events. Returns -1
+     * when no anchor exists yet; a negative elapsed gap keeps the base untouched.
+     */
+    static long projectPosition(long basePositionMs, long anchorElapsedMs, float speed,
+                                boolean advancing, long nowElapsedMs) {
+        if (anchorElapsedMs <= 0L) return -1L;
+        long elapsed = nowElapsedMs - anchorElapsedMs;
+        if (elapsed < 0L) return basePositionMs;
+        float effectiveSpeed = advancing && speed > 0f ? speed : 0f;
+        return Math.max(0L, basePositionMs + (long) (elapsed * effectiveSpeed));
     }
 
     void onClientPlaybackStateUpdate(int state, long stateChangeTimeMs,

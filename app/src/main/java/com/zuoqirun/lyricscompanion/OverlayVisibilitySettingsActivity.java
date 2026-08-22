@@ -120,8 +120,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
             AppPreferences.get(this).edit().putBoolean(key, checked).apply();
             AppPreferences.changed(this);
             if (checked && needsUsageAccess && !ForegroundAppDetector.hasUsageAccess(this)) {
-                Toast.makeText(this, "请在首页“使用权限”中授权使用情况访问",
-                        Toast.LENGTH_LONG).show();
+                SafeToast.show(this, "请在首页“使用权限”中授权使用情况访问",
+                        Toast.LENGTH_LONG);
             }
         });
         parent.addView(toggle);
@@ -149,7 +149,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 if (loadingDialog.isShowing()) loadingDialog.dismiss();
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
                 if (apps.isEmpty()) {
-                    Toast.makeText(this, "未找到可选择的应用", Toast.LENGTH_SHORT).show();
+                    SafeToast.show(this, "未找到可选择的应用", Toast.LENGTH_SHORT);
                     return;
                 }
                 showLoadedHiddenAppPicker(apps);
@@ -209,8 +209,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         AppPreferences.changed(this);
         refreshHiddenAppsSummary();
         if (!packages.isEmpty() && !ForegroundAppDetector.hasUsageAccess(this)) {
-            Toast.makeText(this, "请在首页“使用权限”中授权使用情况访问",
-                    Toast.LENGTH_LONG).show();
+            SafeToast.show(this, "请在首页“使用权限”中授权使用情况访问",
+                    Toast.LENGTH_LONG);
         }
     }
 
