@@ -91,6 +91,28 @@ final class LocalTrackQueryRules {
         return "ximalaya".equals(normalized) || "dftc_media".equals(normalized);
     }
 
+    /** Bare (unbracketed) quality/format tags seen in car-player file titles, e.g. WAV真无损. */
+    private static final Pattern BARE_QUALITY_TAG = Pattern.compile(
+            "(?i)(?:wav|flac|ape|mp3|dsf|dff|hi-res|hires|lossless|真无损|无损|CD音轨)");
+
+    /** Track numbers up to four digits followed by a separator, e.g. 0007. / 12- / 003_. */
+    private static final Pattern LEADING_TRACK_NUMBER = Pattern.compile(
+            "^\\s*\\d{1,4}\\s*[.、_－-]");
+
+    /**
+     * File-style or artist-split titles mark a genuine track on vendors that swap their title
+     * field to the current lyric line while a song plays (observed on Dongfeng head units).
+     */
+    static boolean looksLikeStructuredTrackTitle(String value) {
+        String v = safe(value);
+        return !v.isEmpty() && (AUDIO_EXTENSION.matcher(v).find()
+                || TRACK_PREFIX.matcher(v).find()
+                || QUALITY_OR_VERSION_TAG.matcher(v).find()
+                || SPACED_SEPARATOR.matcher(v).find()
+                || LEADING_TRACK_NUMBER.matcher(v).find()
+                || BARE_QUALITY_TAG.matcher(v).find());
+    }
+
     private static String[] splitArtistAndTitle(String value, boolean allowCompactSeparator) {
         Matcher spaced = SPACED_SEPARATOR.matcher(value);
         if (spaced.find()) {

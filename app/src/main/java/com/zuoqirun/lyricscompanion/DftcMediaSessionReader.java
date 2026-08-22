@@ -88,7 +88,17 @@ final class DftcMediaSessionReader implements MusicSessionReader {
             String type = aidlString(AIDL_GET_TYPE);
             int status = aidlInt(AIDL_GET_STATUS);
             if (isUsableRead(title, status)) {
-                acceptRead(title, type, status);
+                if (shouldAcceptTitleChange(playerTitle, playerType, title, type, status)) {
+                    acceptRead(title, type, status);
+                } else {
+                    // The vendor swapped GET_NAME to the current lyric line of the anchored
+                    // song. Keep publishing the anchored identity so the matched timeline
+                    // survives; only the live status refreshes.
+                    playerStatus = status;
+                    lastUsableSessionElapsedMs = SystemClock.elapsedRealtime();
+                    callback.onReadSuccess(1);
+                    emitCurrentSession();
+                }
                 return;
             }
             if (shouldReuseRetainedSnapshot(playerTitle, true,
@@ -121,6 +131,25 @@ final class DftcMediaSessionReader implements MusicSessionReader {
         lastUsableSessionElapsedMs = SystemClock.elapsedRealtime();
         callback.onReadSuccess(1);
         emitCurrentSession();
+    }
+
+    /**
+     * Decides whether a fresh GET_NAME value is a genuine track change. While playing, this
+     * vendor alternates the title field between the real song name and the current lyric line
+     * (diagnosed 2026-08-22: 《只要你过得比我好》 flipped to 词：小虫 / 曲：Solan Sister and
+     * every lyric sentence, each wiping the matched timeline). A plain mutation during steady
+     * playback is therefore held on the anchored identity; structured titles ("歌名 - 歌手",
+     * track-number prefixes, quality tags), a player-source (type) switch, or a pause boundary
+     * still pass through as real switches.
+     */
+    static boolean shouldAcceptTitleChange(String anchoredTitle, String anchoredType,
+                                           String incomingTitle, String incomingType,
+                                           int status) {
+        if (anchoredTitle.isEmpty()) return true;
+        if (incomingTitle.equals(anchoredTitle)) return true;
+        if (!incomingType.equals(anchoredType)) return true;
+        if (status != 1) return true;
+        return LocalTrackQueryRules.looksLikeStructuredTrackTitle(incomingTitle);
     }
 
     @Override public boolean dispatchControl(MediaControlAction action) {
