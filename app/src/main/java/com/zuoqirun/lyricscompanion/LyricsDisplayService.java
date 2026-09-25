@@ -92,6 +92,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private boolean settingsVisible;
     private boolean overlaysHiddenForPlayback;
     private boolean secondaryHiddenForPlayback;
+    private String lastVisibilityDiagnostic = "";
     private boolean screenReceiverRegistered;
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
@@ -194,6 +195,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     static void startRememberedFromSystem(Context context, String reason) {
         boolean enabled = AppPreferences.autoStartOverlays(context);
         Log.i(TAG, "System restore reason=" + reason + " enabled=" + enabled);
+        DiagnosticLog.record(context, "Overlay", reason + " received enabled=" + enabled);
         if (!enabled) return;
         boolean addedDefaultTarget = AppPreferences.ensureAutoStartOverlayTarget(context);
         if (addedDefaultTarget) {
@@ -418,6 +420,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         int width = Math.min(dp(this, AppPreferences.panelWidthDp(this)), screen.x);
         int height = Math.min(dp(this, AppPreferences.panelHeightDp(this)), screen.y);
         mainPanel = new LyricsPanelView(this, false);
+        watchPlaybackPadLayout(mainPanel, false);
         mainParams = overlayParams(width, height);
         String style = AppPreferences.overlayStyle(this, false);
         String xKey = AppPreferences.overlayPositionKey(false, style, true);
@@ -470,6 +473,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             int height = Math.min(dp(secondaryContext, AppPreferences.panelHeightDp(this, true)),
                     screen.y);
             secondaryPanel = new LyricsPanelView(secondaryContext, true);
+            watchPlaybackPadLayout(secondaryPanel, true);
             secondaryParams = overlayParams(width, height);
             int defaultX = Math.max(0, (screen.x - width) / 2);
             int defaultY = Math.max(0, Math.round(screen.y * 0.10f));
@@ -962,6 +966,20 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         } catch (Throwable error) {
             Log.w(TAG, "Unable to add playback pad", error);
         }
+    }
+
+    /** addView returns before the panel has a size; build or realign the pad after layout. */
+    private void watchPlaybackPadLayout(LyricsPanelView panel, boolean secondary) {
+        panel.addOnLayoutChangeListener((view, left, top, right, bottom,
+                                         oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (view != (secondary ? secondaryPanel : mainPanel)
+                    || right <= left || bottom <= top) return;
+            if (AppPreferences.overlayPositionLocked(this, secondary)
+                    && !AppPreferences.overlayTouchThrough(this, secondary)
+                    && AppPreferences.showPlaybackControls(this, secondary)) {
+                addPlaybackPad(secondary);
+            }
+        });
     }
 
     private boolean isPlaybackPadCurrent(boolean secondary, android.graphics.Rect bounds) {
@@ -1716,15 +1734,19 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         String foreground = ForegroundAppDetector.foregroundPackage(this);
         boolean hideMain = shouldHideOverlays(snapshot, false, foreground);
         boolean hideSecondary = shouldHideOverlays(snapshot, true, foreground);
+        boolean usageAccess = ForegroundAppDetector.hasUsageAccess(this);
+        String diagnostic = "visibility mainHidden=" + hideMain
+                + " secondaryHidden=" + hideSecondary
+                + " foreground=" + (foreground.isEmpty() ? "空" : foreground)
+                + " usageAccess=" + usageAccess
+                + " 规则=主屏" + appRuleMode(false) + "/副屏" + appRuleMode(true);
+        if (!diagnostic.equals(lastVisibilityDiagnostic)) {
+            DiagnosticLog.record(this, "Overlay", diagnostic);
+            lastVisibilityDiagnostic = diagnostic;
+        }
         if (hideMain == overlaysHiddenForPlayback && hideSecondary == secondaryHiddenForPlayback) return;
         overlaysHiddenForPlayback = hideMain;
         secondaryHiddenForPlayback = hideSecondary;
-        // 前台包名与规则方向一起入日志：白名单下"foreground=空 ⇒ 隐藏"正是需要用户能自查的判定
-        // （issue #28 / #43）。
-        DiagnosticLog.record(this, "Overlay", "visibility mainHidden=" + hideMain
-                + " secondaryHidden=" + hideSecondary
-                + " foreground=" + (foreground.isEmpty() ? "空" : foreground)
-                + " 规则=主屏" + appRuleMode(false) + "/副屏" + appRuleMode(true));
         if (hideMain) {
             dismissMain();
             dismissStatusLyricStrip();

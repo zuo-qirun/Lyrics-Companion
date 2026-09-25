@@ -146,6 +146,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         LyricsDisplayService.setSettingsVisible(this, true);
+        refreshHiddenAppsSummary();
         if (AppPreferences.hideOverlaysInPlayer(this)
                 || !AppPreferences.hiddenOverlayApps(this).isEmpty()) {
             AppPreferences.changed(this);
@@ -369,12 +370,16 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 : secondary.isEmpty() ? main : main + "、" + secondary;
         boolean whitelistInUse = AppPreferences.appRuleWhitelist(this, false)
                 || AppPreferences.appRuleWhitelist(this, true);
-        hiddenAppsSummary.setText(count == 0
+        String summary = count == 0
                 ? "未选择应用，歌词不会因打开其它应用而隐藏"
                 : rule.isEmpty() ? "已选择 " + count + " 个应用，但主屏与副屏都还没启用这条规则"
                 : "已选择 " + count + " 个应用（" + rule + "）。"
                 + (whitelistInUse ? "白名单下离开名单里的应用就隐藏歌词，识别不到前台应用时也隐藏"
-                : "进入名单里的应用时隐藏歌词，离开后恢复"));
+                : "进入名单里的应用时隐藏歌词，离开后恢复");
+        if (!rule.isEmpty() && !ForegroundAppDetector.hasUsageAccess(this)) {
+            summary += "\n⚠ 未授权使用情况访问，指定应用规则不会生效；请到首页「使用权限」授权。";
+        }
+        hiddenAppsSummary.setText(summary);
     }
 
     /** 「主屏白名单」/「副屏黑名单」；该屏没启用这条规则时是空串。 */

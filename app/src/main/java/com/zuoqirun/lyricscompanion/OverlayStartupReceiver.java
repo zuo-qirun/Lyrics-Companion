@@ -10,8 +10,10 @@ import android.os.Looper;
 public final class OverlayStartupReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         String action = intent == null ? "" : intent.getAction();
-        if (Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)
-                || Intent.ACTION_BOOT_COMPLETED.equals(action)
+        // Preferences live in credential-protected storage. A direct-boot broadcast arrives
+        // before that storage can be read; BOOT_COMPLETED / USER_UNLOCKED will retry later.
+        if (Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)) return;
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 || Intent.ACTION_USER_UNLOCKED.equals(action)
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
                 || "android.intent.action.QUICKBOOT_POWERON".equals(action)
