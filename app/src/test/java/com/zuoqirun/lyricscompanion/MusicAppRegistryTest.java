@@ -113,7 +113,7 @@ public class MusicAppRegistryTest {
         MultiSourceLyricClient.CatalogPlan plan = MultiSourceLyricClient.catalogPlan(
                 "qqmusic", "kugou", true);
         assertEquals(Arrays.asList("kugou", "qqmusic"), plan.priority);
-        assertEquals(Arrays.asList("kugou", "qqmusic", "netease", "kuwo", "soda"),
+        assertEquals(Arrays.asList("kugou", "qqmusic", "netease", "kuwo", "soda", "migu"),
                 plan.providers);
         assertTrue(plan.providers.contains("qqmusic"));
         assertTrue(plan.manualSelection);
