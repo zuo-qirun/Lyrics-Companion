@@ -12,6 +12,7 @@ import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.text.TextUtils;
+import android.util.Base64;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -26,10 +27,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Finds a sidecar .lrc without uploading local paths, song names or file contents. */
 final class LocalLyricClient {
-    private static final int MAX_BYTES = 512 * 1024;
+    private static final int MAX_BYTES = 10 * 1024 * 1024;
+    private static final Pattern AWLRC_TAG = Pattern.compile("(?m)^\\[awlrc:([^]\\r\\n]+)]\\s*$");
     private static final int MAX_DOCUMENTS = 2_000;
     /** Unreadable directories and files are named a few times, then only counted. */
     private static final int MAX_UNREADABLE_LOGS = 3;
@@ -168,6 +172,14 @@ final class LocalLyricClient {
                 LrcTimeline found = parse(new FileInputStream(sidecar));
                 if (!found.isEmpty()) return new Hit(found, false);
             }
+            if (sidecar != null) {
+                File krc = new File(sidecar.getPath().substring(0,
+                        sidecar.getPath().length() - 4) + ".krc");
+                if (krc.isFile()) {
+                    LrcTimeline found = parse(new FileInputStream(krc));
+                    if (!found.isEmpty()) return new Hit(found, false);
+                }
+            }
         } catch (Throwable error) {
             record("歌曲同目录 .lrc 不可读=" + failureCause(error)
                     + " mediaUri=" + mediaUri + " " + accessState());
@@ -240,7 +252,10 @@ final class LocalLyricClient {
 
     private static void addCandidate(Set<String> names, String value) {
         String normalized = normalize(value);
-        if (!normalized.isEmpty()) names.add(normalized + ".lrc");
+        if (!normalized.isEmpty()) {
+            names.add(normalized + ".lrc");
+            names.add(normalized + ".krc");
+        }
     }
 
     /**
@@ -607,6 +622,27 @@ final class LocalLyricClient {
     }
 
     private static LrcTimeline parseText(String text) {
+        Matcher tag = AWLRC_TAG.matcher(text);
+        if (tag.find()) {
+            String original = "", translated = "", romaji = "", enhanced = "";
+            for (String field : tag.group(1).split(",")) {
+                int separator = field.indexOf(':');
+                if (separator <= 0 || separator == field.length() - 1) continue;
+                String key = field.substring(0, separator);
+                String payload = field.substring(separator + 1);
+                if (!payload.matches("[A-Za-z0-9+/=]+")) continue;
+                try {
+                    String decoded = new String(Base64.decode(payload, Base64.DEFAULT),
+                            StandardCharsets.UTF_8);
+                    if ("lrc".equals(key)) original = decoded;
+                    else if ("tlrc".equals(key)) translated = decoded;
+                    else if ("rlrc".equals(key)) romaji = decoded;
+                    else if ("awlrc".equals(key)) enhanced = AwlrcCodec.toYrc(decoded);
+                } catch (IllegalArgumentException ignored) { }
+            }
+            LrcTimeline parsed = LrcTimeline.parse(original, translated, enhanced, romaji);
+            if (!parsed.isEmpty()) return parsed;
+        }
         return LrcTimeline.parse(text, "");
     }
 
@@ -627,9 +663,52 @@ final class LocalLyricClient {
     }
 
     private static LrcTimeline parseText(byte[] bytes) {
+        if (bytes.length >= 4 && bytes[0] == 'k' && bytes[1] == 'r'
+                && bytes[2] == 'c' && bytes[3] == '1') {
+            try {
+                String decrypted = KrcLyricCodec.decrypt(bytes);
+                String encoded = KrcLyricCodec.encodedLanguage(decrypted);
+                String translated = encoded.isEmpty() ? "" : KrcLyricCodec.toTranslationLrc(
+                        decrypted, new String(Base64.decode(encoded, Base64.DEFAULT),
+                        StandardCharsets.UTF_8));
+                return LrcTimeline.parse("", translated,
+                        KrcLyricCodec.toEnhancedTimeline(decrypted));
+            } catch (Exception ignored) {
+                return LrcTimeline.EMPTY;
+            }
+        }
+        return parseText(decodeLyricText(bytes));
+    }
+
+    static String decodeLyricText(byte[] bytes) {
+        if (bytes.length >= 2) {
+            int first = bytes[0] & 0xff;
+            int second = bytes[1] & 0xff;
+            if (first == 0xff && second == 0xfe) {
+                return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16LE);
+            }
+            if (first == 0xfe && second == 0xff) {
+                return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16BE);
+            }
+        }
+        // Many older .lrc files omit the UTF-16 BOM. An alternating zero-byte pattern is a
+        // stronger signal than UTF-8's replacement character check for these files.
+        int evenZeroes = 0;
+        int oddZeroes = 0;
+        int pairs = Math.min(bytes.length / 2, 256);
+        for (int index = 0; index < pairs; index++) {
+            if (bytes[index * 2] == 0) evenZeroes++;
+            if (bytes[index * 2 + 1] == 0) oddZeroes++;
+        }
+        if (pairs >= 8 && oddZeroes > pairs / 3 && evenZeroes < pairs / 10) {
+            return new String(bytes, StandardCharsets.UTF_16LE);
+        }
+        if (pairs >= 8 && evenZeroes > pairs / 3 && oddZeroes < pairs / 10) {
+            return new String(bytes, StandardCharsets.UTF_16BE);
+        }
         String text = new String(bytes, StandardCharsets.UTF_8);
         if (text.indexOf('\uFFFD') >= 0) text = new String(bytes, Charset.forName("GB18030"));
-        return parseText(text);
+        return text.replace("\uFEFF", "");
     }
 
     private static String normalize(String value) {

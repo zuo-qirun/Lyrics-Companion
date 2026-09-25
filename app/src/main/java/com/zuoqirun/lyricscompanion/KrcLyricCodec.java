@@ -15,6 +15,7 @@ import java.util.zip.InflaterInputStream;
 
 /** KuGou KRC decoder/parser, adapted from Proify/LyricProvider (Apache-2.0). */
 final class KrcLyricCodec {
+    private static final int MAX_DECOMPRESSED_BYTES = 10 * 1024 * 1024;
     private static final byte[] KEY = new byte[]{
             64, 71, 97, 119, 94, 50, 116, 71, 81, 54, 49, 45,
             (byte) 206, (byte) 210, 110, 105
@@ -38,7 +39,12 @@ final class KrcLyricCodec {
             byte[] buffer = new byte[4096];
             int count;
             while ((count = inflater.read(buffer)) >= 0) {
-                if (count > 0) output.write(buffer, 0, count);
+                if (count > 0) {
+                    if (output.size() + count > MAX_DECOMPRESSED_BYTES) {
+                        throw new java.io.IOException("KRC lyric exceeds size limit");
+                    }
+                    output.write(buffer, 0, count);
+                }
             }
             return output.toString(StandardCharsets.UTF_8.name()).replace("\uFEFF", "");
         }

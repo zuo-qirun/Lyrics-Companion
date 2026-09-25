@@ -615,7 +615,20 @@ final class AppPreferences {
     static int lyricOffsetMs(Context context) { return lyricOffsetMs(context, false); }
 
     static int lyricOffsetMs(Context context, boolean secondary) {
-        return displayInt(context, secondary, KEY_LYRIC_OFFSET, 0);
+        return displayInt(context, secondary, KEY_LYRIC_OFFSET, 0)
+                + lyricTrackOffsetMs(context);
+    }
+
+    static int lyricTrackOffsetMs(Context context) {
+        String key = MusicStateStore.activeLyricOffsetKey();
+        return key.isEmpty() ? 0 : get(context).getInt("lyric_track_offset_" + key, 0);
+    }
+
+    static void putLyricTrackOffsetMs(Context context, int value) {
+        String key = MusicStateStore.activeLyricOffsetKey();
+        if (key.isEmpty()) return;
+        get(context).edit().putInt("lyric_track_offset_" + key,
+                Math.max(-5_000, Math.min(5_000, value))).apply();
     }
 
     /** The global correction remains the baseline; a player profile is an additive trim. */
@@ -1031,7 +1044,8 @@ final class AppPreferences {
     private static String normalizeLyricCatalog(String value) {
         if ("netease".equals(value) || "qqmusic".equals(value)
                 || "kugou".equals(value) || "kuwo".equals(value)
-                || "soda".equals(value) || "auto".equals(value)) return value;
+                || "soda".equals(value) || "migu".equals(value)
+                || "auto".equals(value)) return value;
         return "auto";
     }
 

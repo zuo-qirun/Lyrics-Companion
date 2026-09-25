@@ -273,6 +273,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addSourceCorrection(sourceCorrection);
         addCard(root, sourceCorrection);
 
+        LinearLayout trackCorrection = card("当前歌曲校正");
+        addTrackCorrection(trackCorrection);
+        addCard(root, trackCorrection);
+
         LinearLayout cache = card("歌词缓存");
         addChoice(cache, "缓存保留方式",
                 new String[]{"保留 30 天", "永久保留", "按容量自动淘汰（默认）"},
@@ -617,9 +621,9 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 0xFF8392A8, false);
         description.setPadding(0, dp(10), 0, dp(4));
         parent.addView(description);
-        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐",
+        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "咪咕音乐",
                 "喜马拉雅", "东风皓瀚播放器", "其他播放器"};
-        String[] sourceIds = {"netease", "qqmusic", "kugou", "kuwo", "soda",
+        String[] sourceIds = {"netease", "qqmusic", "kugou", "kuwo", "soda", "migu",
                 "ximalaya", "dftc_media", "media"};
         String active = MusicStateStore.activeSourceId();
         int initialIndex = sourceIndex(sourceIds, active);
@@ -669,6 +673,33 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         });
         seek.setProgress(AppPreferences.lyricSourceOffsetMs(this, secondary, selectedSource[0])
                 + 5_000);
+    }
+
+    private void addTrackCorrection(LinearLayout parent) {
+        boolean hasTrack = !MusicStateStore.activeLyricOffsetKey().isEmpty();
+        TextView description = text(hasTrack
+                ? "仅为当前歌曲额外校正；切换歌曲后自动读取对应记录。"
+                : "播放歌曲后可为这首歌单独校正。", 12, 0xFF8392A8, false);
+        parent.addView(description);
+        TextView value = text(formatValue(AppPreferences.lyricTrackOffsetMs(this), " ms"),
+                13, 0xFF6EE7F2, true);
+        parent.addView(value);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(10_000);
+        seek.setEnabled(hasTrack);
+        seek.setProgress(AppPreferences.lyricTrackOffsetMs(this) + 5_000);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                int offsetMs = progress - 5_000;
+                value.setText(formatValue(offsetMs, " ms"));
+                if (!fromUser) return;
+                AppPreferences.putLyricTrackOffsetMs(DisplaySettingsActivity.this, offsetMs);
+                changed();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
     }
 
     private static int sourceIndex(String[] sourceIds, String sourceId) {
