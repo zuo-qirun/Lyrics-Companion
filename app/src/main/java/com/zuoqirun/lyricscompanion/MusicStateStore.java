@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class MusicStateStore {
     private static final String TAG = "LyricsMusicState";
@@ -46,6 +47,7 @@ final class MusicStateStore {
     private static String liveSessionLyric = "";
     private static boolean netEaseAutoScrollUnsupported;
     private static Future<?> lyricLoadTask;
+    private static AtomicReference<Thread> lyricLoadThread = new AtomicReference<>();
     private static boolean usingSessionTimeline;
     private static boolean sessionTimelineAllowed = true;
     private static boolean notificationProgressUnknown;
@@ -55,6 +57,13 @@ final class MusicStateStore {
     private static long lastSourceLogElapsedMs;
 
     private MusicStateStore() {}
+
+    static String activeLyricOffsetKey() {
+        synchronized (LOCK) {
+            if (title == null || title.trim().isEmpty()) return "";
+            return MatchedLyricCache.key("track", title, artist, durationMs, "", sourcePackage);
+        }
+    }
 
     static void initialize(Context context) {
         synchronized (LOCK) {
@@ -631,7 +640,10 @@ final class MusicStateStore {
         synchronized (LOCK) {
             if (generation != trackGeneration) return;
             final boolean bypassMatchedCache = !sessionTimelineAllowed;
+            final AtomicReference<Thread> requestThread = new AtomicReference<>();
+            lyricLoadThread = requestThread;
             lyricLoadTask = LYRIC_EXECUTOR.submit(() -> {
+                requestThread.set(Thread.currentThread());
                 long startedAt = SystemClock.elapsedRealtime();
                 DiagnosticLog.record(appContext, "Lyrics", "load task started generation="
                         + generation + " source=" + requestedSource + " title=" + requestedTitle);
@@ -675,6 +687,8 @@ final class MusicStateStore {
                             + (SystemClock.elapsedRealtime() - startedAt) + " error="
                             + error.getClass().getSimpleName() + ": "
                             + (error.getMessage() == null ? "" : error.getMessage()));
+                } finally {
+                    requestThread.set(null);
                 }
             });
         }
@@ -683,6 +697,8 @@ final class MusicStateStore {
     private static void cancelLyricLoadLocked() {
         if (lyricLoadTask != null) {
             lyricLoadTask.cancel(true);
+            Thread thread = lyricLoadThread.get();
+            if (thread != null) LyricHttp.cancel(thread);
             lyricLoadTask = null;
         }
     }

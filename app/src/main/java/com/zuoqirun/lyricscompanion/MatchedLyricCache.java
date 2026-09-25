@@ -30,6 +30,17 @@ final class MatchedLyricCache {
         }
     }
 
+    boolean needsUpgrade(String key, String provider, LrcTimeline timeline) {
+        boolean canEnhance = "netease".equals(provider) || "kuwo".equals(provider)
+                || "kugou".equals(provider) || "qqmusic".equals(provider)
+                || "migu".equals(provider);
+        return canEnhance && (!timeline.hasWordTiming() || !timeline.hasTranslation()
+                || "netease".equals(provider) && !timeline.hasRomaji())
+                && cache.read(key + "_upgrade_v2") == null;
+    }
+
+    void markUpgradeChecked(String key) { cache.write(key + "_upgrade_v2", "checked"); }
+
     static String key(String provider, String title, String artist, long duration,
                       String directId, String sourcePackage) {
         // Keep version punctuation and exact known duration; avoid mixing live/studio recordings.

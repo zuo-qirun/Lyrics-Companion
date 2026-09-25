@@ -8,24 +8,33 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Uses the preferred catalog first, then checks each remaining catalog in order. */
 final class MultiSourceLyricClient {
     private static final String TAG = "LyricsCatalog";
+    private static final ExecutorService FALLBACK_EXECUTOR = Executors.newFixedThreadPool(6);
     private final NetEaseLyricClient netease;
     private final QQMusicLyricClient qq;
     private final KugouLyricClient kugou;
     private final KuwoLyricClient kuwo;
+    private final MiguLyricClient migu;
     private final SodaLyricClient soda;
     private final LocalLyricClient local;
     private final Context appContext;
 
     MultiSourceLyricClient(Context context) {
         appContext = context.getApplicationContext();
+        LyricSourceRules.initialize(appContext);
         netease = new NetEaseLyricClient(context);
         qq = new QQMusicLyricClient(context);
         kugou = new KugouLyricClient(context);
         kuwo = new KuwoLyricClient(context);
+        migu = new MiguLyricClient(context);
         soda = new SodaLyricClient(context);
         local = new LocalLyricClient(context);
     }
@@ -81,6 +90,18 @@ final class MultiSourceLyricClient {
             LrcTimeline cached = matchedCache.read(key);
             if (!cached.isEmpty()) {
                 DiagnosticLog.record(appContext, "Lyrics", "matched cache hit provider=" + provider);
+                if (matchedCache.needsUpgrade(key, provider, cached)) {
+                    matchedCache.markUpgradeChecked(key);
+                    final String upgradeProvider = provider;
+                    final String upgradeId = directMediaId(currentSource, provider, mediaId);
+                    FALLBACK_EXECUTOR.execute(() -> {
+                        Result upgraded = tryProvider(upgradeProvider, sourcePackage, upgradeId,
+                                title, artist, durationMs);
+                        if (upgraded.timeline.qualityScore() > cached.qualityScore()) {
+                            matchedCache.write(key, upgraded.timeline);
+                        }
+                    });
+                }
                 return new Result(cached, "本地缓存 · " + providerLabel(provider), provider);
             }
         }
@@ -90,7 +111,7 @@ final class MultiSourceLyricClient {
                 DiagnosticLog.record(appContext, "Lyrics", "fallback query index="
                         + queryIndex + " title=" + query.title + " artist=" + query.artist);
             }
-            for (String provider : plan.providers) {
+            for (String provider : plan.priority) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 if ("kuwo".equals(provider)) {
                     LrcTimeline session = sessionTimeline.current();
@@ -110,8 +131,68 @@ final class MultiSourceLyricClient {
                 }
                 Log.i(TAG, "No lyric in catalog " + provider + ": " + query.title);
             }
+            List<String> fallback = new ArrayList<>(plan.providers);
+            fallback.removeAll(plan.priority);
+            Result result = parallelFallback(fallback, currentSource, sourcePackage, mediaId,
+                    query, queryIndex == 0, durationMs, sessionTimeline);
+            if (!result.timeline.isEmpty()) {
+                if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                matchedCache.write(MatchedLyricCache.key(result.providerId, title, artist,
+                        durationMs, directMediaId(currentSource, result.providerId, mediaId),
+                        sourcePackage), result.timeline);
+                return result;
+            }
         }
         return Result.EMPTY;
+    }
+
+    private Result parallelFallback(List<String> providers, String currentSource,
+                                    String sourcePackage, String mediaId,
+                                    LocalTrackQueryRules.Query query, boolean firstQuery,
+                                    long durationMs, SessionTimeline sessionTimeline)
+            throws InterruptedException {
+        if (providers.isEmpty()) return Result.EMPTY;
+        List<ProviderTask> tasks = new ArrayList<>();
+        for (String provider : providers) {
+            String providerMediaId = firstQuery
+                    ? directMediaId(currentSource, provider, mediaId) : "";
+            ProviderTask task = new ProviderTask();
+            task.future = FALLBACK_EXECUTOR.submit(() -> {
+                task.thread.set(Thread.currentThread());
+                try {
+                    if ("kuwo".equals(provider)) {
+                        LrcTimeline session = sessionTimeline.current();
+                        if (!session.isEmpty()) {
+                            return new Result(session, "酷我播放器歌词", "kuwo_session");
+                        }
+                    }
+                    return tryProvider(provider, sourcePackage, providerMediaId,
+                            query.title, query.artist, durationMs);
+                } finally { task.thread.set(null); }
+            });
+            tasks.add(task);
+        }
+        try {
+            // Futures run together, but only an earlier catalog can beat a later one.
+            for (ProviderTask task : tasks) {
+                Result result;
+                try { result = task.future.get(); }
+                catch (ExecutionException error) { continue; }
+                if (!result.timeline.isEmpty()) return result;
+            }
+            return Result.EMPTY;
+        } finally {
+            for (ProviderTask task : tasks) {
+                Thread thread = task.thread.get();
+                task.future.cancel(true);
+                if (thread != null) LyricHttp.cancel(thread);
+            }
+        }
+    }
+
+    private static final class ProviderTask {
+        final AtomicReference<Thread> thread = new AtomicReference<>();
+        Future<Result> future;
     }
 
     /**
@@ -178,6 +259,7 @@ final class MultiSourceLyricClient {
             case "qqmusic": return "QQ 音乐";
             case "kugou": return "酷狗音乐";
             case "kuwo": return "酷我音乐";
+            case "migu": return "咪咕音乐";
             case "soda": return "汽水音乐";
             default: return provider;
         }
@@ -206,6 +288,10 @@ final class MultiSourceLyricClient {
                     timeline = kuwo.load(mediaId, title, artist, durationMs);
                     label = "酷我音乐";
                     break;
+                case "migu":
+                    timeline = migu.load(mediaId, title, artist, durationMs);
+                    label = "咪咕音乐";
+                    break;
                 case "soda":
                     timeline = soda.load(sourcePackage, mediaId, title, artist, durationMs);
                     label = "汽水音乐";
@@ -226,6 +312,10 @@ final class MultiSourceLyricClient {
                     + (SystemClock.elapsedRealtime() - startedAt)
                     + " directMediaId=" + !mediaId.isEmpty());
         } catch (Throwable error) {
+            if (error instanceof InterruptedException || Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt();
+                return Result.EMPTY;
+            }
             Log.d(TAG, provider + " lyric lookup failed for " + title, error);
             DiagnosticLog.record(appContext, "Lyrics", "provider=" + provider
                     + " result=error elapsedMs="
@@ -244,7 +334,7 @@ final class MultiSourceLyricClient {
     static CatalogPlan catalogPlan(String currentSource, String selectedCatalog,
                                    boolean playerCatalogFallback, boolean forceSelectedCatalog) {
         List<String> providers = new ArrayList<>(Arrays.asList(
-                "netease", "qqmusic", "kugou", "kuwo", "soda"));
+                "netease", "qqmusic", "kugou", "kuwo", "soda", "migu"));
         List<String> ordered = new ArrayList<>();
         List<String> priority = new ArrayList<>();
         String selected = MusicAppRegistry.lyricCatalogForSource(selectedCatalog);
@@ -279,7 +369,7 @@ final class MultiSourceLyricClient {
     static String directMediaId(String currentSource, String provider, String mediaId) {
         return currentSource != null && currentSource.equals(provider)
                 && ("netease".equals(provider) || "soda".equals(provider)
-                || "kuwo".equals(provider)) ? mediaId : "";
+                || "kuwo".equals(provider) || "migu".equals(provider)) ? mediaId : "";
     }
 
     static Result chooseResult(List<String> priority, List<Result> successful) {
