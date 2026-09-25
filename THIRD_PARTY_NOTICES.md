@@ -63,3 +63,13 @@ Track search, word-timed lyrics and translations are obtained from Soda Music we
 The QQ Music QRC and KuGou KRC decoding/parsing implementations are adapted from `tomakino/LyricProvider` (`qrckit` and `krckit`).
 
 Copyright (c) 2026 Proify, Tomakino. Licensed under the Apache License, Version 2.0.
+
+## lx-music-desktop lyric protocol reference
+
+The NetEase EAPI request, Kuwo word-lyric decoding, Migu MRC decoding, and
+`[awlrc:...]` sidecar format are adapted from `lyswhut/lx-music-desktop`
+(v2.12.6). The Android implementation is independent of its Electron runtime.
+
+Copyright (c) lyswhut and lx-music-desktop contributors. Licensed under the
+Apache License, Version 2.0. See https://github.com/lyswhut/lx-music-desktop
+and https://www.apache.org/licenses/LICENSE-2.0.

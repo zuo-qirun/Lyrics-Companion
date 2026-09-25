@@ -57,6 +57,32 @@ final class KuwoLyricClient {
 
     private LrcTimeline tryLyrics(String id, String route) throws Exception {
         checkInterrupted();
+        String enhanced = cache.read(id + "_enhanced_v2");
+        if (enhanced != null) {
+            LrcTimeline cachedEnhanced = LrcTimeline.parse("", "", enhanced);
+            if (!cachedEnhanced.isEmpty()) return cachedEnhanced;
+        }
+        try {
+            byte[] response = LyricHttp.getBytes("http://mlyric.kuwo.cn/mobi.s?f=web"
+                    + "&type=lyric&lrcx=1&rid=" + LyricHttp.encode(id)
+                    + "&encode=utf8", REFERER);
+            enhanced = KuwoWordLyricCodec.toEnhancedTimeline(
+                    LyricSourceRules.plainKuwoWordResponse()
+                            ? new String(response, java.nio.charset.StandardCharsets.UTF_8)
+                            : KuwoWordLyricCodec.decode(response));
+            LrcTimeline wordTimed = LrcTimeline.parse("", "", enhanced);
+            if (!wordTimed.isEmpty()) {
+                cache.write(id + "_enhanced_v2", enhanced);
+                log(route + " rid=" + id + " wordTimedLines=" + wordTimed.lineCount());
+                return wordTimed;
+            }
+        } catch (InterruptedException error) {
+            throw error;
+        } catch (Exception error) {
+            checkInterrupted();
+            log(route + " rid=" + id + " word channel="
+                    + error.getClass().getSimpleName());
+        }
         String cached = cache.read(id);
         if (cached != null) {
             LrcTimeline result = LrcTimeline.parse(cached, "");

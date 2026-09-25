@@ -22,7 +22,8 @@ import java.util.regex.Pattern;
 /** Finds the current track on NetEase and caches its LRC/YRC payload for 30 days. */
 final class NetEaseLyricClient {
     private static final String SEARCH_URL = "https://music.163.com/api/search/get/web";
-    private static final String LYRIC_URL = "https://music.163.com/api/song/lyric";
+    private static final String LYRIC_URL =
+            "https://interface3.music.163.com/eapi/song/lyric/v1";
     private static final long CACHE_MAX_AGE_MS = 30L * 24L * 60L * 60L * 1000L;
     /**
      * Matches a song id only when it is a standalone numeric token.  Automotive
@@ -33,10 +34,12 @@ final class NetEaseLyricClient {
      */
     private static final Pattern STANDALONE_LONG_NUMBER =
             Pattern.compile("(?<![A-Za-z0-9])(\\d{4,})(?![A-Za-z0-9])");
+    private static final Pattern ROMAJI_YRC_LINE = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$");
+    private static final Pattern ROMAJI_WORD_TIME = Pattern.compile("\\(\\d+,\\d+,\\d+\\)");
     private final File cacheDirectory;
 
     NetEaseLyricClient(Context context) {
-        cacheDirectory = new File(context.getCacheDir(), "netease_lyrics_v2");
+        cacheDirectory = new File(context.getCacheDir(), "netease_lyrics_v3");
     }
 
     Result load(String mediaId, String title, String artist, long durationMs) throws Exception {
@@ -54,24 +57,64 @@ final class NetEaseLyricClient {
 
     private Result loadById(long songId) throws Exception {
         String response = readCache(songId);
-        if (response == null) {
-            response = request("GET", LYRIC_URL + "?id=" + songId
-                    + "&lv=-1&kv=-1&tv=-1&yv=-1&rv=-1", null);
-            writeCache(songId, response);
+        if (response != null) {
+            try {
+                Result cached = parseLyrics(songId, response);
+                if (!cached.timeline.isEmpty()) return cached;
+            } catch (Exception ignored) {
+                // A corrupt or lyric-free old cache entry must not block a fresh request.
+            }
         }
+        response = request("POST", LYRIC_URL,
+                NetEaseEapi.formBody(songId, LyricSourceRules.netEaseSigningPath()));
+        Result result = parseLyrics(songId, response);
+        if (!result.timeline.isEmpty()) writeCache(songId, response);
+        return result;
+    }
+
+    static Result parseLyrics(long songId, String response) throws Exception {
         JSONObject root = new JSONObject(response);
+        int code = root.optInt("code", 200);
+        if (code != 200) throw new IllegalStateException("网易云歌词接口返回状态 " + code);
         return new Result(songId, LrcTimeline.parse(
                 lyricValue(root.optJSONObject("lrc")),
                 lyricValue(root.optJSONObject("tlyric")),
-                lyricValue(root.optJSONObject("yrc"))));
+                lyricValue(root.optJSONObject("yrc")),
+                romanizedLines(lyricValue(root.optJSONObject("yromalrc")),
+                        lyricValue(root.optJSONObject("romalrc")))));
+    }
+
+    static String romanizedLines(String wordTimed, String lineTimed) {
+        if (wordTimed == null || wordTimed.isEmpty()) return lineTimed == null ? "" : lineTimed;
+        StringBuilder converted = new StringBuilder();
+        for (String rawLine : wordTimed.split("\\r?\\n")) {
+            Matcher line = ROMAJI_YRC_LINE.matcher(rawLine.trim());
+            if (!line.matches()) continue;
+            long start = Long.parseLong(line.group(1));
+            String text = ROMAJI_WORD_TIME.matcher(line.group(3)).replaceAll("").trim();
+            if (text.isEmpty()) continue;
+            converted.append(String.format(Locale.ROOT, "[%02d:%02d.%03d]%s%n",
+                    start / 60_000L, start / 1_000L % 60L, start % 1_000L, text));
+        }
+        return converted.length() > 0 ? converted.toString()
+                : lineTimed == null ? "" : lineTimed;
     }
 
     private long searchSong(String title, String artist, long durationMs) throws Exception {
         if (title == null || title.trim().isEmpty()) return -1L;
         String query = title.trim();
         if (artist != null && !artist.trim().isEmpty()) query += " " + artist.trim();
+        long match = searchSongQuery(query, title, artist, durationMs);
+        if (match <= 0L && artist != null && !artist.trim().isEmpty()) {
+            match = searchSongQuery(title.trim(), title, artist, durationMs);
+        }
+        return match;
+    }
+
+    private long searchSongQuery(String query, String title, String artist,
+                                 long durationMs) throws Exception {
         JSONObject response = new JSONObject(request("POST", SEARCH_URL,
-                "s=" + encode(query) + "&type=1&limit=10&offset=0"));
+                "s=" + encode(query) + "&type=1&limit=20&offset=0"));
         JSONObject result = response.optJSONObject("result");
         JSONArray songs = result == null ? null : result.optJSONArray("songs");
         if (songs == null) return -1L;
@@ -80,14 +123,43 @@ final class NetEaseLyricClient {
         for (int index = 0; index < songs.length(); index++) {
             JSONObject song = songs.optJSONObject(index);
             if (song == null) continue;
-            int score = matchScore(title, artist, durationMs, song.optString("name", ""),
-                    firstArtist(song.optJSONArray("artists")), song.optLong("duration", -1L));
+            String candidateTitle = song.optString("name", "");
+            String candidateArtist = firstArtist(song.optJSONArray("artists"));
+            long candidateDuration = song.optLong("duration", -1L);
+            if (!plausibleMatch(title, artist, durationMs, candidateTitle,
+                    candidateArtist, candidateDuration)) continue;
+            int score = matchScore(title, artist, durationMs, candidateTitle,
+                    candidateArtist, candidateDuration);
             if (score > bestScore) {
                 bestScore = score;
                 bestId = song.optLong("id", -1L);
             }
         }
         return bestScore >= 100 ? bestId : -1L;
+    }
+
+    static boolean plausibleMatch(String title, String artist, long durationMs,
+                                  String candidateTitle, String candidateArtist,
+                                  long candidateDurationMs) {
+        String wantedTitle = normalize(title);
+        String foundTitle = normalize(candidateTitle);
+        if (wantedTitle.isEmpty() || foundTitle.isEmpty()) return false;
+        String wantedArtist = normalize(artist);
+        String foundArtist = normalize(candidateArtist);
+        if (!wantedArtist.isEmpty() && !foundArtist.isEmpty()
+                && !wantedArtist.contains(foundArtist) && !foundArtist.contains(wantedArtist)) {
+            return false;
+        }
+        long durationDifference = durationMs > 0L && candidateDurationMs > 0L
+                ? Math.abs(durationMs - candidateDurationMs) : -1L;
+        if (durationDifference > 15_000L) return false;
+        if (wantedTitle.equals(foundTitle)) return true;
+        // A near-identical title can be a display suffix. Only accept it with matching artist,
+        // close duration, and no extra live/remix/accompaniment version marker.
+        return !wantedArtist.isEmpty() && !foundArtist.isEmpty()
+                && durationDifference >= 0L && durationDifference <= 2_000L
+                && (wantedTitle.contains(foundTitle) || foundTitle.contains(wantedTitle))
+                && hasVersionNoise(title) == hasVersionNoise(candidateTitle);
     }
 
     static int matchScore(String title, String artist, long durationMs,
@@ -128,34 +200,9 @@ final class NetEaseLyricClient {
     }
 
     private String request(String method, String address, String body) throws Exception {
-        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-        HttpURLConnection connection = HttpCompat.open(address);
-        try {
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(8_000);
-            connection.setReadTimeout(10_000);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 Lyrics-Companion/1.0");
-            connection.setRequestProperty("Referer", "https://music.163.com/");
-            connection.setRequestProperty("Accept", "application/json");
-            if (body != null) {
-                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type",
-                        "application/x-www-form-urlencoded; charset=UTF-8");
-                connection.setFixedLengthStreamingMode(bytes.length);
-                try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
-            }
-            int status = connection.getResponseCode();
-            String response = readAll(status >= 200 && status < 300
-                    ? connection.getInputStream() : connection.getErrorStream());
-            if (status < 200 || status >= 300) {
-                throw new IllegalStateException("网易云接口返回 HTTP " + status);
-            }
-            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-            return response;
-        } finally {
-            connection.disconnect();
-        }
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        headers.put("Origin", "https://music.163.com");
+        return LyricHttp.request(method, address, "https://music.163.com/", body, headers);
     }
 
     private String readCache(long songId) {

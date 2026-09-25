@@ -63,6 +63,24 @@ App 使用随机生成并保存在本机的安装 ID，每 60 秒向
 同一客户端和来源默认每 60 秒只能提交一次。反馈按 JSON Lines 写入
 `update_server/state/feedback.jsonl`，该目录已被 Git 忽略，不会随发布内容公开。
 
+## 歌词源规则
+
+`public/lyric-rules.json` 是 Android 客户端定期读取的热修文件。`routes` 中只需列出要覆盖的路由；未列出的请求继续走应用内置地址。每条规则可指定同一平台域名下的 `url`（不带查询参数），以及需要替换或新增的固定 `parameters`。例如：
+
+```json
+{
+  "schemaVersion": 1,
+  "routes": {
+    "kuwo_word": {
+      "url": "https://mlyric.kuwo.cn/mobi.s",
+      "parameters": {"f": "web", "type": "lyric"}
+    }
+  }
+}
+```
+
+客户端只接受已知平台域名、固定路由名与长度受限的参数。`kuwo_word` 可设置 `"codec": "plain"` 或 `"xor"` 切换已内置的解码路径；`soda_mobile` / `soda_car` 可设置 `"markerRegex"`，仅允许字母数字、下划线与分组选项，用于定位页面中的数据标记。其他解析算法仍由应用代码实现。更改该文件需要部署更新服务，本地修改不会影响已安装设备。
+
 可在 `.env` 中调整：
 
 ```dotenv

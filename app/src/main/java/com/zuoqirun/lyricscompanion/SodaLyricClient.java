@@ -82,7 +82,10 @@ final class SodaLyricClient {
         String original = cache.read(cachePrefix + "_original");
         String translated = cache.read(cachePrefix + "_translated");
         String enhanced = cache.read(cachePrefix + "_enhanced");
-        boolean checked = cache.read(cachePrefix + "_checked") != null;
+        // An older version wrote _checked even when the share page contained no lyrics.
+        // Treat those orphaned markers as a miss so existing installations can recover.
+        boolean checked = cache.read(cachePrefix + "_checked") != null
+                && hasShareLyrics(original, enhanced);
         if (!checked) {
             String address = shareAddress(sourcePackage, trackId);
             ShareLyrics parsed = parseSharePage(LyricHttp.get(address, shareReferer(sourcePackage)));
@@ -92,9 +95,15 @@ final class SodaLyricClient {
             cache.write(cachePrefix + "_enhanced", enhanced);
             cache.write(cachePrefix + "_original", original);
             cache.write(cachePrefix + "_translated", translated);
-            cache.write(cachePrefix + "_checked", "1");
+            if (hasShareLyrics(original, enhanced)) {
+                cache.write(cachePrefix + "_checked", "1");
+            }
         }
         return LrcTimeline.parse(value(original), value(translated), value(enhanced));
+    }
+
+    private static boolean hasShareLyrics(String original, String enhanced) {
+        return !LrcTimeline.parse(value(original), "", value(enhanced)).isEmpty();
     }
 
     static String shareAddress(String sourcePackage, String trackId) throws Exception {
@@ -150,7 +159,13 @@ final class SodaLyricClient {
             throw new IllegalStateException("Soda share page returned an empty response");
         }
         int marker = html.indexOf(ROUTER_DATA);
-        int equals = marker < 0 ? -1 : html.indexOf('=', marker + ROUTER_DATA.length());
+        int markerEnd = marker < 0 ? -1 : marker + ROUTER_DATA.length();
+        Pattern override = LyricSourceRules.sodaRouterMarkerPattern();
+        if (override != null) {
+            Matcher match = override.matcher(html.substring(0, Math.min(html.length(), 2_000_000)));
+            if (match.find()) { marker = match.start(); markerEnd = match.end(); }
+        }
+        int equals = marker < 0 ? -1 : html.indexOf('=', markerEnd);
         int start = equals < 0 ? -1 : html.indexOf('{', equals + 1);
         if (start < 0) throw new IllegalStateException("Soda share data was not found");
         int end = jsonObjectEnd(html, start);

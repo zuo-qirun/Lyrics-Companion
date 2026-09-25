@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">mlyric.kuwo.cn</domain>
+        <domain includeSubdomains="true">migu.cn</domain>
+    </domain-config>
+</network-security-config>
