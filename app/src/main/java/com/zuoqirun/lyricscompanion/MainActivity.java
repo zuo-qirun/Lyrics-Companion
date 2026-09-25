@@ -380,8 +380,7 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout lyricCard = card();
         lyricCard.addView(sectionLabel("歌词匹配"));
-        MaterialSwitch playerCatalogFallback = toggle("回退到播放器同源词库",
-                "手动选择的词库无结果时，再尝试从应用名称识别出的播放器词库");
+        MaterialSwitch playerCatalogFallback = toggle("回退到播放器同源词库");
         addLyricCatalogSelector(lyricCard, playerCatalogFallback);
         playerCatalogFallback.setChecked(AppPreferences.playerCatalogFallback(this));
         playerCatalogFallback.setOnCheckedChangeListener((button, checked) -> {
@@ -390,9 +389,7 @@ public final class MainActivity extends AppCompatActivity {
             MusicStateStore.reloadLyrics(this);
         });
         lyricCard.addView(playerCatalogFallback);
-        MaterialSwitch localLyrics = toggle("优先匹配本地歌词（.lrc / 内嵌标签）",
-                "先在音频文件旁查找同名 .lrc；没有时直接读取文件内嵌歌词（FLAC / MP3 / M4A / OGG），"
-                        + "最后才在已授权的音乐目录里按文件名、歌名或“歌手 - 歌名”搜索");
+        MaterialSwitch localLyrics = toggle("优先匹配本地歌词（.lrc / 内嵌标签）");
         localLyrics.setChecked(AppPreferences.localLyricEnabled(this));
         localLyrics.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit()
@@ -408,8 +405,7 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton localLyricPath = button("手动填写歌词目录路径", false);
         localLyricPath.setOnClickListener(v -> editLocalLyricDirectoryPath());
         lyricCard.addView(localLyricPath, new LinearLayout.LayoutParams(-1, dp(48)));
-        MaterialSwitch avrcp = toggle("蓝牙 AVRCP 歌曲识别",
-                "车机作为蓝牙音频接收端时，读取手机通过 AVRCP 提供的歌名和歌手，再进入现有歌词匹配链");
+        MaterialSwitch avrcp = toggle("蓝牙 AVRCP 歌曲识别");
         avrcp.setChecked(AppPreferences.avrcpEnabled(this));
         avrcp.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_AVRCP_ENABLED, checked).apply();
@@ -424,20 +420,14 @@ public final class MainActivity extends AppCompatActivity {
         });
         lyricCard.addView(avrcp);
         // issue #44：匹配到的歌词长时间不滚动时，改用播放器实时歌词。
-        MaterialSwitch stuckFallback = toggle("匹配歌词长时间不滚动时改用播放器实时歌词",
-                "蓝牙等通道偶尔会匹配到一条一直停在第一句的时间轴：当播放进度在推进、当前行超过 25 秒"
-                        + "没有推进，且播放器的实时歌词一直在更新时，改用实时歌词；实时歌词本身不动时"
-                        + "仍保留原歌词。默认开启");
+        MaterialSwitch stuckFallback = toggle("匹配歌词长时间不滚动时改用播放器实时歌词");
         stuckFallback.setChecked(AppPreferences.stuckLyricFallback(this));
         stuckFallback.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.setStuckLyricFallback(this, checked);
             MusicStateStore.reloadLyrics(this);
         });
         lyricCard.addView(stuckFallback);
-        MaterialSwitch compositeIdentity = toggle("从歌手栏综合识别歌名（蓝牙/未知通道）",
-                "部分手机音乐 App 把实时歌词放进「歌名」栏、把「歌名 - 歌手」放进「歌手」栏，"
-                        + "导致按歌名搜词库必然失败。开启后先从歌手栏解析歌名再匹配，歌名栏原文"
-                        + "则作为实时歌词显示；解析不出时保持原样");
+        MaterialSwitch compositeIdentity = toggle("从歌手栏综合识别歌名（蓝牙/未知通道）");
         compositeIdentity.setChecked(AppPreferences.compositeIdentityFromArtist(this));
         compositeIdentity.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit()
@@ -448,7 +438,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("歌词显示开关"));
         mainOverlaySwitch = toggle("主屏悬浮窗",
-                "离开设置页后显示；可拖动，双击强制返回，长按锁定并开启触摸穿透；点击圆形 × 按钮可恢复");
+                "可拖动，双击强制返回，长按锁定并开启触摸穿透，点圆形 × 恢复");
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
@@ -472,7 +462,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout startupCard = card();
         startupCard.addView(sectionLabel("启动与交互"));
         launchOverlaySwitch = toggle("点击图标启动悬浮窗",
-                "开启后首次点击图标按已记忆的主屏、副屏和通知栏歌词恢复显示；30 秒内再次点击进入主界面");
+                "首次点击图标恢复已记忆的歌词显示，30 秒内再次点击进入主界面");
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         launchOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -483,7 +473,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         startupCard.addView(launchOverlaySwitch);
         autoStartSwitch = toggle("开机 / 亮屏自启动悬浮窗",
-                "在重启或每次亮屏时恢复已记忆的主屏、副屏和通知栏歌词。关闭服务并退出不会改变此项。");
+                "重启或每次亮屏时恢复已记忆的歌词显示；关闭服务并退出不影响此项");
         autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
         autoStartSwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -518,7 +508,8 @@ public final class MainActivity extends AppCompatActivity {
         visibilityCard.addView(visibilityRules, visibilityRuleParams);
 
         MaterialSwitch topLyricStrip = toggle("通知栏显示歌词",
-                "在桌面顶部透明显示紧凑双行歌词（本句/下句、居中、逐字高亮）；需要悬浮窗权限，并会被图标启动和自启动记忆");
+                "在桌面顶部透明显示双行歌词（本句/下句、居中、逐字高亮）；需悬浮窗权限，"
+                        + "并会被图标启动和自启动记忆");
         topLyricStrip.setChecked(AppPreferences.topLyricStrip(this));
         outputCard.addView(topLyricStrip);
         topLyricStrip.setOnCheckedChangeListener((button, checked) -> {
@@ -528,7 +519,7 @@ public final class MainActivity extends AppCompatActivity {
             AppPreferences.changed(this);
         });
         MaterialSwitch bottomSpectrum = toggle("独立底部频谱条",
-                "固定在屏幕底边，不随歌词悬浮窗移动；频谱样式与主屏显示参数一致");
+                "固定在屏幕底边，不随歌词悬浮窗移动；样式与主屏显示参数一致");
         bottomSpectrum.setChecked(AppPreferences.bottomSpectrum(this));
         bottomSpectrum.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit()
@@ -569,8 +560,8 @@ public final class MainActivity extends AppCompatActivity {
         TextView extraLabel = text("其它屏幕同时显示", 13, 0xFF93A4B9, true);
         extraLabel.setPadding(0, dp(18), 0, 0);
         screenCard.addView(extraLabel);
-        TextView extraHelp = text("在「投屏屏幕」之外，还能让更多显示器各自显示歌词，各自一套样式、"
-                + "字号、位置与颜色。副屏选“自动选择”时建议先指定具体屏幕，避免同一块屏重复显示。",
+        TextView extraHelp = text("除「投屏屏幕」外，还能让更多显示器各自显示歌词，各有一套样式与位置。"
+                + "副屏选“自动选择”时建议先指定具体屏幕，避免同一块屏重复显示。",
                 12, 0xFF74869D, false);
         extraHelp.setPadding(0, dp(4), 0, dp(6));
         screenCard.addView(extraHelp);
@@ -667,7 +658,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout openSourceCard = card();
         openSourceCard.addView(sectionLabel("开源与致谢"));
         TextView openSourceSummary = text(
-                "歌词伴侣基于 GPL-3.0 开源。Refined Now Playing、PiPWindow 与 Apple Music-like Lyrics 样式参考了对应开源项目，并以原生 Android 方式重新实现。",
+                "歌词伴侣基于 GPL-3.0 开源；Refined Now Playing、PiPWindow 与 Apple Music-like Lyrics 样式参考对应开源项目，并以原生 Android 重写。",
                 13, 0xFFD8E1EE, false);
         openSourceSummary.setLineSpacing(0f, 1.2f);
         openSourceSummary.setPadding(0, dp(9), 0, dp(10));
@@ -702,7 +693,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout resetCard = card();
         resetCard.addView(sectionLabel("数据与重置"));
         TextView resetSummary = text(
-                "恢复显示、歌词、启动、频谱、蓝牙、本地目录和字体等默认设置；反馈记录与官方回复会保留。",
+                "恢复显示、歌词、启动、频谱、蓝牙、目录和字体等默认设置；反馈记录与官方回复会保留。",
                 12, 0xFF8392A8, false);
         resetSummary.setPadding(0, dp(9), 0, dp(10));
         resetCard.addView(resetSummary);
@@ -764,7 +755,7 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout displayPage = sectionPage();
         if (conciseSettingsMode) {
-            TextView hint = text("只保留每天会调的尺寸、字号和透明度。颜色、描边、样式、位置规则、频谱和高级交互请切换到完整模式。", 13,
+            TextView hint = text("只保留常用的尺寸、字号和透明度；颜色、描边、样式、位置、频谱等请切换到完整模式。", 13,
                     0xFF8392A8, false);
             hint.setPadding(0, dp(10), 0, dp(4));
             displayPage.addView(hint);
@@ -810,7 +801,7 @@ public final class MainActivity extends AppCompatActivity {
             systemPage.addView(openSourceCard, cardMargins());
         }
 
-        TextView footnote = text("提示：在线、本地和 U 盘播放器优先读取系统媒体信息，缺失时尝试识别音乐通知；通知未提供进度时无法精准自动滚动。匹配歌词优先复用本地缓存；文件名会自动清理路径、序号、扩展名和音质标记，仍不准确时可用“修正歌曲信息并重新匹配”。歌词伴侣不会向 iPhone CarPlay 仪表盘注入媒体信息。", 12,
+        TextView footnote = text("提示：歌词优先读取系统媒体信息与音乐通知，通知不含进度时无法精准滚动。匹配优先复用本地缓存，仍不准确时可用“修正歌曲信息并重新匹配”。本应用不会向 iPhone CarPlay 仪表盘注入媒体信息。", 12,
                 0xFF66788F, false);
         footnote.setLineSpacing(0f, 1.25f);
         LinearLayout.LayoutParams footnoteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -914,7 +905,7 @@ public final class MainActivity extends AppCompatActivity {
         detailRowParams.topMargin = dp(8);
         card.addView(detailRow, detailRowParams);
 
-        TextView map = text("继续向下：副屏选择与位置 · 样式及专属参数 · 颜色主题与字体 · 隐藏规则",
+        TextView map = text("继续向下：副屏与位置 · 样式参数 · 颜色与字体 · 隐藏规则",
                 12, 0xFF8392A8, false);
         map.setPadding(0, dp(10), 0, 0);
         card.addView(map);
@@ -1127,7 +1118,7 @@ public final class MainActivity extends AppCompatActivity {
                         ? (slot >= DisplaySlotRegistry.FIRST_EXTRA_SLOT
                         ? "本屏样式只影响这块屏幕，与主屏、副屏互不影响。"
                         : "副屏可独立选择样式。")
-                        : "Refined、Apple Music-like Lyrics 和 PiPWindow 均为独立样式；经典样式保留原歌词伴侣默认布局。",
+                        : "Refined、Apple Music-like Lyrics 和 PiPWindow 为独立样式；经典样式保留默认布局。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
@@ -1175,8 +1166,8 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text("默认匹配词库", 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
-        String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
+        String[] labels = {"自动识别播放器", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "咪咕音乐"};
+        String[] values = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda", "migu"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
@@ -1197,7 +1188,7 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView help = text("这是未单独设置播放器时的默认规则。自动模式优先使用识别出的播放器同源词库；手动模式始终先尝试所选词库。当前词库无结果后才依次查询下一词库。",
+        TextView help = text("这是未单独设置播放器时的默认规则：自动模式优先使用识别出的播放器同源词库，手动模式先试所选词库；无结果后才依次查询下一词库。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
@@ -1218,12 +1209,12 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(4), 0, dp(4), 0);
-        TextView note = text("选择一个词库后，可从所有已安装应用中多选。被选中的应用将只从该词库匹配歌词；同一应用只能归属一个强制词库。未选择的应用继续使用上方默认规则。",
+        TextView note = text("选择一个词库后可从所有已安装应用中多选；被选中的应用只从该词库匹配，未选择的应用沿用上方默认规则。",
                 13, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         content.addView(note);
-        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
-        String[] catalogs = {"netease", "qqmusic", "kugou", "kuwo", "soda"};
+        String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "咪咕音乐"};
+        String[] catalogs = {"netease", "qqmusic", "kugou", "kuwo", "soda", "migu"};
         for (int i = 0; i < catalogs.length; i++) {
             final String catalog = catalogs[i];
             final String catalogLabel = labels[i];
@@ -1706,8 +1697,7 @@ public final class MainActivity extends AppCompatActivity {
             }
             if (count == 0) return "";
             return "检测到 " + count + " 块屏幕疑似同一块（" + reason
-                    + "）：在同一块屏上叠两层歌词只会看着更粗更亮，还会白跑一遍渲染；"
-                    + "建议只留一块，其余关掉。";
+                    + "）：同一块屏叠两层歌词只会更粗更亮，还会重复渲染，建议只留一块。";
         }
     }
 
@@ -1832,8 +1822,8 @@ public final class MainActivity extends AppCompatActivity {
         // 可选的时间段（issue #34）：打开后按下面的深色时段自动切换；关掉就按上面的模式判断，
         // 「跟随系统」即由系统的深浅色决定。
         MaterialSwitch schedule = toggle("按时间段自动切换深浅色",
-                "打开后在下面设定的深色时段内使用夜晚配色，其余时间用白天配色；关掉则按上面的模式"
-                        + "（跟随系统 / 白天 / 夜晚）判断。深色开始与结束相同表示不启用该时段");
+                "开启后按下面设定的时段使用夜晚配色，其余时间用白天配色；关闭则按上面的模式判断"
+                        + "（起止时间相同表示不启用）");
         View startGroup = addThemeScheduleHour(parent, "深色开始（整点）", true);
         View endGroup = addThemeScheduleHour(parent, "深色结束（整点）", false);
         View[] scheduleRows = { startGroup, endGroup };
@@ -1964,9 +1954,14 @@ public final class MainActivity extends AppCompatActivity {
         parent.addView(toggle);
     }
 
+    /** A switch that shows only its title, without a description under it. */
+    private MaterialSwitch toggle(String title) {
+        return toggle(title, "");
+    }
+
     private MaterialSwitch toggle(String title, String subtitle) {
         MaterialSwitch view = new MaterialSwitch(this);
-        view.setText(title + "\n" + subtitle);
+        view.setText(subtitle == null || subtitle.isEmpty() ? title : title + "\n" + subtitle);
         view.setTextColor(0xFFF3F7FC);
         view.setTextSize(14f);
         view.setGravity(Gravity.CENTER_VERTICAL);
@@ -1977,7 +1972,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void addSupportControls(LinearLayout parent) {
         MaterialSwitch crashUpload = toggle("自动上传闪退诊断",
-                "包含设备型号、系统与权限、活跃播放器包名、曲目元数据、播放/歌词/显示状态及最近事件；不含歌词正文、通知正文或设备唯一标识；默认关闭");
+                "含设备型号、系统与权限、播放器包名、曲目元数据及播放/歌词状态；不含歌词正文、通知正文或设备标识；默认关闭");
         crashUpload.setChecked(AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false));
         crashUpload.setOnCheckedChangeListener((button, checked) -> {
@@ -2119,8 +2114,8 @@ public final class MainActivity extends AppCompatActivity {
             SafeToast.show(this, "当前没有可重新匹配的曲目", Toast.LENGTH_SHORT);
             return;
         }
-        String[] labels = {"自动识别", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐"};
-        String[] catalogs = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda"};
+        String[] labels = {"自动识别", "网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "咪咕音乐"};
+        String[] catalogs = {"auto", "netease", "qqmusic", "kugou", "kuwo", "soda", "migu"};
         String selected = AppPreferences.lyricCatalog(this, MusicStateStore.activeSourceId());
         int selectedIndex = 0;
         for (int i = 0; i < catalogs.length; i++) {
@@ -2367,7 +2362,7 @@ public final class MainActivity extends AppCompatActivity {
         layout.addView(input);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("手动填写本地歌词目录")
-                .setMessage("用于没有系统目录选择器的车机。应用只在该目录及其子目录查找匹配的 .lrc；路径不会导出到配置分享码。"
+                .setMessage("用于没有系统目录选择器的车机：只在该目录及其子目录查找 .lrc，路径不会写入配置分享码。"
                         + LocalLyricClient.manualDirectoryRequirementNote(this))
                 .setView(layout)
                 .setNegativeButton("取消", null)
@@ -2565,7 +2560,7 @@ public final class MainActivity extends AppCompatActivity {
         input.setPadding(dp(20), dp(12), dp(20), dp(12));
         new MaterialAlertDialogBuilder(this)
                 .setTitle("生成配置分享码")
-                .setMessage("只上传可分享的设置；不会上传歌曲、歌词、本地目录、字体文件、设备标识、反馈记录或诊断数据。")
+                .setMessage("只上传可分享的设置，不含歌曲、歌词、本地目录、字体、设备标识与诊断数据。")
                 .setView(input)
                 .setPositiveButton("上传", (dialog, which) -> {
                     String description = input.getText() == null ? "" : input.getText().toString();
