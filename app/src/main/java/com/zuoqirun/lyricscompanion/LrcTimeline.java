@@ -16,17 +16,24 @@ final class LrcTimeline {
             "\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?]");
     private static final Pattern YRC_LINE = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$");
     private static final Pattern YRC_WORD = Pattern.compile("\\((\\d+),(\\d+),\\d+\\)");
+    private static final Pattern OFFSET_TAG = Pattern.compile(
+            "(?im)^\\s*\\[offset:\\s*([+-]?\\d+)\\s*]\\s*$");
     static final LrcTimeline EMPTY = new LrcTimeline(Collections.emptyList());
 
     /** Lossless cache format: includes translations and every word's timing. */
     byte[] toCacheBytes() throws java.io.IOException {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         java.io.DataOutputStream out = new java.io.DataOutputStream(bytes);
-        out.writeInt(1);
+        out.writeInt(2);
         out.writeInt(lines.size());
         for (Line line : lines) {
             out.writeLong(line.timeMs); out.writeLong(line.durationMs);
-            out.writeUTF(line.text); out.writeUTF(line.translated);
+            out.writeUTF(line.text);
+            out.writeInt(line.extendedLyrics.size());
+            for (ExtendedLyric extended : line.extendedLyrics) {
+                out.writeUTF(extended.kind);
+                out.writeUTF(extended.text);
+            }
             out.writeInt(line.words.size());
             for (Word word : line.words) {
                 out.writeLong(word.startMs); out.writeLong(word.durationMs); out.writeUTF(word.text);
@@ -37,15 +44,29 @@ final class LrcTimeline {
     }
 
     static LrcTimeline fromCacheBytes(byte[] bytes) throws java.io.IOException {
-        if (bytes.length > 2_000_000) throw new java.io.IOException("Cache too large");
+        if (bytes.length > 12_000_000) throw new java.io.IOException("Cache too large");
         java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes));
-        if (in.readInt() != 1) throw new java.io.IOException("Unknown cache version");
+        int version = in.readInt();
+        if (version != 1 && version != 2) throw new java.io.IOException("Unknown cache version");
         int count = in.readInt();
         if (count < 1 || count > 20_000) throw new java.io.IOException("Invalid line count");
         List<Line> result = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             long time = in.readLong(), duration = in.readLong();
-            String text = in.readUTF(), translation = in.readUTF();
+            String text = in.readUTF();
+            List<ExtendedLyric> extended = new ArrayList<>();
+            if (version == 1) {
+                String translation = in.readUTF();
+                if (!translation.isEmpty()) extended.add(new ExtendedLyric("translation", translation));
+            } else {
+                int extensionCount = in.readInt();
+                if (extensionCount < 0 || extensionCount > 16) {
+                    throw new java.io.IOException("Invalid extension count");
+                }
+                for (int e = 0; e < extensionCount; e++) {
+                    extended.add(new ExtendedLyric(in.readUTF(), in.readUTF()));
+                }
+            }
             int wordCount = in.readInt();
             if (time < 0 || duration < 0 || wordCount < 0 || wordCount > 20_000)
                 throw new java.io.IOException("Invalid cached line");
@@ -55,7 +76,8 @@ final class LrcTimeline {
                 if (start < 0 || length < 0) throw new java.io.IOException("Invalid cached word");
                 words.add(new Word(start, length, in.readUTF()));
             }
-            result.add(new Line(time, duration, text, translation, Collections.unmodifiableList(words)));
+            result.add(new Line(time, duration, text, extended,
+                    Collections.unmodifiableList(words)));
         }
         if (in.available() != 0) throw new java.io.IOException("Trailing cache data");
         return fromTimedLines(result);
@@ -79,9 +101,17 @@ final class LrcTimeline {
     }
 
     static LrcTimeline parse(String original, String translated, String wordByWord) {
-        TreeMap<Long, String> originals = parseTimedLines(original);
-        TreeMap<Long, String> translations = parseTimedLines(translated);
-        List<Line> enhanced = parseYrcLines(wordByWord, originals, translations);
+        return parse(original, translated, wordByWord, "");
+    }
+
+    static LrcTimeline parse(String original, String translated, String wordByWord,
+                             String romanized) {
+        long offsetMs = offsetOf(wordByWord, original, translated, romanized);
+        TreeMap<Long, String> originals = parseTimedLines(original, offsetMs);
+        TreeMap<Long, String> translations = parseTimedLines(translated, offsetMs);
+        TreeMap<Long, String> romaji = parseTimedLines(romanized, offsetMs);
+        List<Line> enhanced = parseYrcLines(wordByWord, originals, translations, romaji,
+                offsetMs);
         if (!enhanced.isEmpty()) {
             return new LrcTimeline(Collections.unmodifiableList(enhanced));
         }
@@ -91,7 +121,7 @@ final class LrcTimeline {
         List<Line> result = new ArrayList<>(originals.size());
         for (Map.Entry<Long, String> entry : originals.entrySet()) {
             result.add(new Line(entry.getKey(), 0L, entry.getValue(),
-                    closestTranslation(translations, entry.getKey()), Collections.emptyList()));
+                    extensions(translations, romaji, entry.getKey()), Collections.emptyList()));
         }
         return new LrcTimeline(Collections.unmodifiableList(result));
     }
@@ -215,6 +245,31 @@ final class LrcTimeline {
         return lines.size();
     }
 
+    int qualityScore() {
+        int score = 0;
+        for (Line line : lines) {
+            if (!line.words.isEmpty()) score += 4;
+            if (!line.translated.isEmpty()) score += 2;
+            if (!line.romaji.isEmpty()) score += 2;
+        }
+        return score;
+    }
+
+    boolean hasWordTiming() {
+        for (Line line : lines) if (!line.words.isEmpty()) return true;
+        return false;
+    }
+
+    boolean hasRomaji() {
+        for (Line line : lines) if (!line.romaji.isEmpty()) return true;
+        return false;
+    }
+
+    boolean hasTranslation() {
+        for (Line line : lines) if (!line.translated.isEmpty()) return true;
+        return false;
+    }
+
     boolean containsLyricText(String value) {
         String normalized = normalizeLyricText(value);
         if (normalized.isEmpty()) return false;
@@ -259,7 +314,8 @@ final class LrcTimeline {
         int end = Math.min(lines.size() - 1, currentIndex + 3);
         for (int index = start; index <= end; index++) {
             Line line = lines.get(index);
-            result.add(new NearbyLine(line.text, line.translated, index - currentIndex,
+            result.add(new NearbyLine(line.text, line.translated, line.romaji,
+                    index - currentIndex,
                     line.timeMs, line.durationMs, false));
         }
         return Collections.unmodifiableList(result);
@@ -271,20 +327,32 @@ final class LrcTimeline {
         int start = Math.max(0, previousIndex - 2);
         for (int index = start; index <= previousIndex; index++) {
             Line line = lines.get(index);
-            result.add(new NearbyLine(line.text, line.translated,
+            result.add(new NearbyLine(line.text, line.translated, line.romaji,
                     index - previousIndex - 1, line.timeMs, line.durationMs, false));
         }
         result.add(new NearbyLine("", "", 0, startMs, durationMs, true));
         int end = Math.min(lines.size() - 1, previousIndex + 3);
         for (int index = previousIndex + 1; index <= end; index++) {
             Line line = lines.get(index);
-            result.add(new NearbyLine(line.text, line.translated,
+            result.add(new NearbyLine(line.text, line.translated, line.romaji,
                     index - previousIndex, line.timeMs, line.durationMs, false));
         }
         return Collections.unmodifiableList(result);
     }
 
-    private static TreeMap<Long, String> parseTimedLines(String value) {
+    private static long offsetOf(String... inputs) {
+        for (String input : inputs) {
+            if (input == null) continue;
+            Matcher matcher = OFFSET_TAG.matcher(input);
+            if (matcher.find()) {
+                try { return Long.parseLong(matcher.group(1)); }
+                catch (NumberFormatException ignored) { return 0L; }
+            }
+        }
+        return 0L;
+    }
+
+    private static TreeMap<Long, String> parseTimedLines(String value, long offsetMs) {
         TreeMap<Long, String> result = new TreeMap<>();
         if (value == null || value.isEmpty()) return result;
         for (String rawLine : value.split("\\r?\\n")) {
@@ -292,7 +360,8 @@ final class LrcTimeline {
             List<Long> timestamps = new ArrayList<>();
             int textStart = -1;
             while (matcher.find()) {
-                timestamps.add(toMilliseconds(matcher.group(1), matcher.group(2), matcher.group(3)));
+                timestamps.add(Math.max(0L, toMilliseconds(matcher.group(1), matcher.group(2),
+                        matcher.group(3)) + offsetMs));
                 textStart = matcher.end();
             }
             if (timestamps.isEmpty() || textStart < 0) continue;
@@ -304,13 +373,14 @@ final class LrcTimeline {
     }
 
     private static List<Line> parseYrcLines(String value, TreeMap<Long, String> originalLines,
-                                            TreeMap<Long, String> translations) {
+                                            TreeMap<Long, String> translations,
+                                            TreeMap<Long, String> romaji, long offsetMs) {
         List<Line> result = new ArrayList<>();
         if (value == null || value.isEmpty()) return result;
         for (String rawLine : value.split("\\r?\\n")) {
             Matcher lineMatcher = YRC_LINE.matcher(rawLine);
             if (!lineMatcher.matches()) continue;
-            long lineStart = Long.parseLong(lineMatcher.group(1));
+            long lineStart = Math.max(0L, Long.parseLong(lineMatcher.group(1)) + offsetMs);
             String content = lineMatcher.group(3);
             Matcher wordMatcher = YRC_WORD.matcher(content);
             List<Word> words = new ArrayList<>();
@@ -322,7 +392,7 @@ final class LrcTimeline {
                     words.add(new Word(previousStart, previousDuration,
                             content.substring(textStart, wordMatcher.start())));
                 }
-                previousStart = Long.parseLong(wordMatcher.group(1));
+                previousStart = Math.max(0L, Long.parseLong(wordMatcher.group(1)) + offsetMs);
                 previousDuration = Long.parseLong(wordMatcher.group(2));
                 textStart = wordMatcher.end();
             }
@@ -337,9 +407,18 @@ final class LrcTimeline {
             for (Word word : words) text.append(word.text);
             String lineText = text.toString();
             if (!lineText.isEmpty()) {
+                List<ExtendedLyric> extended = new ArrayList<>();
+                String translation = enhancedTranslation(originalLines, translations,
+                        lineStart, lineText);
+                if (!translation.isEmpty()) {
+                    extended.add(new ExtendedLyric("translation", translation));
+                }
+                String romanized = closestTranslation(romaji, lineStart);
+                if (!romanized.isEmpty()) {
+                    extended.add(new ExtendedLyric("romaji", romanized));
+                }
                 result.add(new Line(lineStart, Long.parseLong(lineMatcher.group(2)), lineText,
-                        enhancedTranslation(originalLines, translations, lineStart, lineText),
-                        Collections.unmodifiableList(words)));
+                        extended, Collections.unmodifiableList(words)));
             }
         }
         return result;
@@ -445,11 +524,33 @@ final class LrcTimeline {
                 ? best.getValue() : "";
     }
 
+    private static List<ExtendedLyric> extensions(TreeMap<Long, String> translations,
+                                                   TreeMap<Long, String> romaji, long timestamp) {
+        List<ExtendedLyric> result = new ArrayList<>(2);
+        String translation = closestTranslation(translations, timestamp);
+        String romanized = closestTranslation(romaji, timestamp);
+        if (!translation.isEmpty()) result.add(new ExtendedLyric("translation", translation));
+        if (!romanized.isEmpty()) result.add(new ExtendedLyric("romaji", romanized));
+        return result;
+    }
+
+    static final class ExtendedLyric {
+        final String kind;
+        final String text;
+
+        ExtendedLyric(String kind, String text) {
+            this.kind = kind == null ? "" : kind;
+            this.text = text == null ? "" : text;
+        }
+    }
+
     static final class Line {
         final long timeMs;
         final long durationMs;
         final String text;
         final String translated;
+        final String romaji;
+        final List<ExtendedLyric> extendedLyrics;
         final List<Word> words;
 
         Line(long timeMs, long durationMs, String text) {
@@ -457,11 +558,28 @@ final class LrcTimeline {
         }
 
         Line(long timeMs, long durationMs, String text, String translated, List<Word> words) {
+            this(timeMs, durationMs, text,
+                    translated == null || translated.isEmpty() ? Collections.emptyList()
+                            : Collections.singletonList(new ExtendedLyric("translation", translated)),
+                    words);
+        }
+
+        Line(long timeMs, long durationMs, String text, List<ExtendedLyric> extendedLyrics,
+             List<Word> words) {
             this.timeMs = timeMs;
             this.durationMs = durationMs;
             this.text = text;
-            this.translated = translated;
+            this.extendedLyrics = Collections.unmodifiableList(new ArrayList<>(extendedLyrics));
+            this.translated = extension("translation");
+            this.romaji = extension("romaji");
             this.words = words;
+        }
+
+        private String extension(String kind) {
+            for (ExtendedLyric value : extendedLyrics) {
+                if (kind.equals(value.kind)) return value.text;
+            }
+            return "";
         }
     }
 
@@ -483,6 +601,7 @@ final class LrcTimeline {
         final String previousLyric;
         final String lyric;
         final String translatedLyric;
+        final String romajiLyric;
         final String nextLyric;
         final boolean interlude;
         final boolean wordTimed;
@@ -517,12 +636,21 @@ final class LrcTimeline {
             this.wordDurationMs = wordDurationMs;
             this.wordProgressPermille = wordProgressPermille;
             this.nearbyLines = nearbyLines == null ? Collections.emptyList() : nearbyLines;
+            String romanized = "";
+            for (NearbyLine line : this.nearbyLines) {
+                if (line.offset == 0) {
+                    romanized = line.romaji;
+                    break;
+                }
+            }
+            this.romajiLyric = romanized;
         }
     }
 
     static final class NearbyLine {
         final String text;
         final String translated;
+        final String romaji;
         final int offset;
         final long timeMs;
         final long durationMs;
@@ -530,8 +658,14 @@ final class LrcTimeline {
 
         NearbyLine(String text, String translated, int offset, long timeMs,
                    long durationMs, boolean interlude) {
+            this(text, translated, "", offset, timeMs, durationMs, interlude);
+        }
+
+        NearbyLine(String text, String translated, String romaji, int offset, long timeMs,
+                   long durationMs, boolean interlude) {
             this.text = text == null ? "" : text;
             this.translated = translated == null ? "" : translated;
+            this.romaji = romaji == null ? "" : romaji;
             this.offset = offset;
             this.timeMs = timeMs;
             this.durationMs = durationMs;

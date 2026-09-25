@@ -7,6 +7,23 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class LrcTimelineTest {
+    @Test public void offsetTagMovesLinesAndAbsoluteWordTimesTogether() {
+        LrcTimeline timeline = LrcTimeline.parse(
+                "[offset:+250]\n[00:01.00]你好", "[00:01.00]Hello",
+                "[1000,400](1000,200,0)你(1200,200,0)好");
+        assertEquals("", timeline.at(1_200L).lyric);
+        assertEquals("你好", timeline.at(1_300L).lyric);
+        assertEquals("Hello", timeline.at(1_300L).translatedLyric);
+        assertEquals("你", timeline.at(1_300L).currentWord);
+    }
+
+    @Test public void romajiSurvivesEnhancedCacheRoundTrip() throws Exception {
+        LrcTimeline original = LrcTimeline.parse("[00:01.00]空", "",
+                "[1000,300](1000,300,0)空", "[00:01.00]sora");
+        LrcTimeline restored = LrcTimeline.fromCacheBytes(original.toCacheBytes());
+        assertEquals("sora", restored.at(1_100L).romajiLyric);
+    }
+
     @Test public void parsesLrcAndClosestTranslation() {
         LrcTimeline timeline = LrcTimeline.parse(
                 "[00:01.00]第一句\n[00:04.500]第二句",

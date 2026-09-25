@@ -924,7 +924,7 @@ final class LyricsPanelView extends View {
         float previewShift = browseVisualOffsetPx;
         float unit = (secondary ? 1.12f : 1f) * contentScale;
         float densityUnit = density * unit;
-        boolean hasTranslation = !snapshot.lyrics.translatedLyric.isEmpty();
+        boolean hasTranslation = !secondaryLyric(snapshot).isEmpty();
         // 「歌词显示行数」：经典样式最多摆三行歌词（上一句 / 本句 / 下一句）。1 行时只画本句，
         // 2 行时画本句与下一句，空出来的位置不再留着（issue #26）。
         int lyricRows = ClassicLayoutMath.visibleRowCount(lyricLineCount);
@@ -1045,7 +1045,7 @@ final class LyricsPanelView extends View {
                     inactiveLyricColor(0xFFB1BCCB), currentLyricColor(0xFFFFCA66));
         }
         if (hasTranslation) {
-            drawAlignedLyric(canvas, snapshot.lyrics.translatedLyric, pad, usableWidth,
+            drawAlignedLyric(canvas, secondaryLyric(snapshot), pad, usableWidth,
                     translationBaseline + previewShift + basicScrollShift,
                     translationSize, currentLyricColor(0xFFB8C5D8),
                     Typeface.NORMAL);
@@ -1140,7 +1140,7 @@ final class LyricsPanelView extends View {
                         0L, 0L, false));
             }
             fallback.add(new LrcTimeline.NearbyLine(snapshot.lyrics.lyric,
-                    snapshot.lyrics.translatedLyric, 0,
+                    secondaryLyric(snapshot), 0,
                     snapshot.lyrics.lineStartMs, snapshot.lyrics.lineDurationMs,
                     snapshot.lyrics.interlude));
             if (!snapshot.lyrics.nextLyric.isEmpty()) {
@@ -1166,7 +1166,7 @@ final class LyricsPanelView extends View {
                 LrcTimeline.NearbyLine line = pureWindowLine(nearby, firstLineIndex + slot);
                 if (line == null) continue;
                 boolean translated = PureLyricLayout.hasDistinctTranslation(
-                        line.text, line.translated);
+                        line.text, secondaryLyric(line));
                 if (translated) translatedLineCount++;
                 if (line.offset == 0) currentTranslated = translated;
             }
@@ -1205,7 +1205,7 @@ final class LyricsPanelView extends View {
             float lineSize = current ? size : secondarySize;
             float baseline = lineTop + lineSize;
             boolean showTranslation = line != null && pureShowTranslation
-                    && PureLyricLayout.hasDistinctTranslation(line.text, line.translated);
+                    && PureLyricLayout.hasDistinctTranslation(line.text, secondaryLyric(line));
             if (current) {
                 drewCurrent = true;
                 if (line.interlude || snapshot.lyrics.interlude) {
@@ -1246,7 +1246,7 @@ final class LyricsPanelView extends View {
                         + translationSize;
                 int translationAlpha = current ? 190
                         : Math.max(56, 148 - Math.min(3, Math.abs(line.offset)) * 24);
-                drawAlignedLyric(canvas, line.translated, lyricLeft, maxWidth, translationBaseline,
+                drawAlignedLyric(canvas, secondaryLyric(line), lyricLeft, maxWidth, translationBaseline,
                         translationSize,
                         adjacentLyricColor(lyricColor(withAlpha(0xFFFFFFFF, translationAlpha)),
                                 line.offset),
@@ -1543,9 +1543,9 @@ final class LyricsPanelView extends View {
                 refinedLineHeights[i] = fontSize * 0.92f;
             } else {
                 refinedLineHeights[i] = wrappedTextHeight(line.text, fontSize, width, 3);
-                if (!line.translated.isEmpty()) {
+                if (!secondaryLyric(line).isEmpty()) {
                     refinedLineHeights[i] += fontSize * 0.12f
-                            + wrappedTextHeight(line.translated, translationSize, width, 2);
+                            + wrappedTextHeight(secondaryLyric(line), translationSize, width, 2);
                 }
             }
         }
@@ -1602,12 +1602,12 @@ final class LyricsPanelView extends View {
                 drawWrappedText(canvas, line.text, left, top, fontSize, lineColor,
                         width, Typeface.BOLD, 3);
             }
-            if (!line.interlude && !line.translated.isEmpty()) {
+            if (!line.interlude && !secondaryLyric(line).isEmpty()) {
                 float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
                 if (lineMask != null) paint.setMaskFilter(lineMask);
                 int translationAlpha = Math.round(opacityValue
                         * (offset == 0 ? 96f : 72f));
-                drawWrappedText(canvas, line.translated, left,
+                drawWrappedText(canvas, secondaryLyric(line), left,
                         top + originalHeight + fontSize * 0.12f, translationSize,
                         lyricColor(withAlpha(0xFFFFFFFF, translationAlpha)), width,
                         Typeface.NORMAL, 2);
@@ -1786,7 +1786,7 @@ final class LyricsPanelView extends View {
         boolean preferTranslation = compactTextOnly
                 ? AppPreferences.topLyricShowTranslation(getContext())
                 : AppPreferences.refinedShowTranslation(getContext(), secondary);
-        boolean showTranslation = preferTranslation && !snapshot.lyrics.translatedLyric.isEmpty();
+        boolean showTranslation = preferTranslation && !secondaryLyric(snapshot).isEmpty();
         boolean showNextLine = (!preferTranslation || !showTranslation)
                 && (compactTextOnly || AppPreferences.compactShowNextLine(getContext(), secondary))
                 && !snapshot.lyrics.nextLyric.isEmpty();
@@ -1814,7 +1814,7 @@ final class LyricsPanelView extends View {
         float secondaryBaseline = baseline + originalDescent + lineGap - secondaryAscent;
         // Center the current/secondary line pair in the stage to the left of the cover.
         String secondaryText = showSecondaryLine ? (showNextLine
-                ? snapshot.lyrics.nextLyric : snapshot.lyrics.translatedLyric) : "";
+                ? snapshot.lyrics.nextLyric : secondaryLyric(snapshot)) : "";
         // The current line, the line leaving it and the row under it all share this column and
         // alignment, so the dissolve eraser sweeps exactly over the glyphs it is replacing.
         Paint.Align lyricAlign = lyricTextAlign(Paint.Align.CENTER);
@@ -2232,9 +2232,9 @@ final class LyricsPanelView extends View {
                 heights[i] = fontSize * 1.75f;
             } else {
                 heights[i] = wrappedTextHeight(line.text, fontSize, width, 3);
-                if (refinedShowTranslation && !line.translated.isEmpty()) {
+                if (refinedShowTranslation && !secondaryLyric(line).isEmpty()) {
                     heights[i] += fontSize * 0.18f
-                            + wrappedTextHeight(line.translated, translationSize, width, 2);
+                            + wrappedTextHeight(secondaryLyric(line), translationSize, width, 2);
                 }
             }
         }
@@ -2302,9 +2302,9 @@ final class LyricsPanelView extends View {
                                 Math.round(opacity * 255f)), width,
                         refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL, 3);
             }
-            if (!line.interlude && refinedShowTranslation && !line.translated.isEmpty()) {
+            if (!line.interlude && refinedShowTranslation && !secondaryLyric(line).isEmpty()) {
                 float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
-                drawWrappedText(canvas, line.translated, lineLeft,
+                drawWrappedText(canvas, secondaryLyric(line), lineLeft,
                         top + originalHeight + fontSize * 0.18f, translationSize,
                         withAlpha(secondaryText, Math.round(opacity
                                 * (offset == 0 ? 205f : 180f))), width,
@@ -3113,8 +3113,8 @@ final class LyricsPanelView extends View {
                     lyricY - pipLyricSize, pipLyricSize, lyricWidth,
                     currentLyricColor(0xFF181513), 2);
         }
-        if (!snapshot.lyrics.translatedLyric.isEmpty()) {
-            drawLeft(canvas, snapshot.lyrics.translatedLyric, pad,
+        if (!secondaryLyric(snapshot).isEmpty()) {
+            drawLeft(canvas, secondaryLyric(snapshot), pad,
                     lyricY - pipLyricSize + currentHeight + 14f * density * contentScale,
                     11f * density * contentScale * textScale,
                     lyricColor(0xA85A5148), lyricWidth,
@@ -3185,7 +3185,7 @@ final class LyricsPanelView extends View {
                             lyricColor(0xFFB1BCCB), lyricColor(0xFFFFCA66));
                     break;
                 case LyricsLayoutConfig.TRANSLATION:
-                    drawLeft(canvas, snapshot.lyrics.translatedLyric, x, y,
+                    drawLeft(canvas, secondaryLyric(snapshot), x, y,
                             11f * density * contentScale * textScale,
                             lyricColor(0xB8D4DCE7), maxWidth,
                             Typeface.NORMAL);
@@ -3378,7 +3378,7 @@ final class LyricsPanelView extends View {
         drawPipSourceKaraoke(canvas, snapshot, currentText(snapshot), o15, lineY[0],
                 lyricSize, Math.max(1f, width - o15), text42, text, o150);
 
-        String currentTranslation = snapshot.lyrics.translatedLyric;
+        String currentTranslation = secondaryLyric(snapshot);
         if (!currentTranslation.isEmpty()) {
             drawPipSourceLine(canvas, currentTranslation, o15, lineY[1] - o10,
                     lyricSize - o5, text56, width - o15);
@@ -3459,9 +3459,18 @@ final class LyricsPanelView extends View {
         canvas.restoreToCount(save);
     }
 
+    private static String secondaryLyric(MusicSnapshot snapshot) {
+        return snapshot.lyrics.translatedLyric.isEmpty()
+                ? snapshot.lyrics.romajiLyric : snapshot.lyrics.translatedLyric;
+    }
+
+    private static String secondaryLyric(LrcTimeline.NearbyLine line) {
+        return line.translated.isEmpty() ? line.romaji : line.translated;
+    }
+
     private static String nearbyLine(MusicSnapshot snapshot, int offset, boolean translated) {
         for (LrcTimeline.NearbyLine line : snapshot.lyrics.nearbyLines) {
-            if (line.offset == offset) return translated ? line.translated : line.text;
+            if (line.offset == offset) return translated ? secondaryLyric(line) : line.text;
         }
         return offset == 1 && !translated ? snapshot.lyrics.nextLyric : "";
     }
