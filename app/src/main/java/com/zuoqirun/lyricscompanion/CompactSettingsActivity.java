@@ -97,7 +97,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
         spectrum.addView(spectrumStatus);
         addCard(root, spectrum);
 
-        TextView note = text("紧凑歌词会按窗口宽高自动缩放。双行模式会优先显示本句和下一句；逐字时间轴会保留逐字点亮和跟随滚动。", 12,
+        TextView note = text("紧凑歌词按窗口宽高自动缩放；双行模式优先显示本句与下一句。", 12,
                 0xFF8392A8, false);
         note.setPadding(dp(4), dp(14), dp(4), 0);
         root.addView(note);

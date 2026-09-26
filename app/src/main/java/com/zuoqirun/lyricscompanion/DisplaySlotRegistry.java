@@ -75,22 +75,64 @@ final class DisplaySlotRegistry {
     }
 
     /**
-     * The live display behind an entry, or {@code null} while that screen is not connected. The
-     * name wins over the id, because the id of a car's HUD input is not stable across reboots.
+     * The live display behind an entry, or {@code null} while that screen is not connected.
+     *
+     * <p>名字优先是有原因的（车机 HUD 输入的 id 重启后会变），但**同名屏**上名字没有区分能力：
+     * 哈弗 H6 会同时挂两块都叫「HDMI 屏幕」的面板（id 1 / id 2），按名字找永远返回第一块，第二块
+     * 便永远拿不到悬浮窗（issue #71）。所以名字唯一时才按名字走，同名时改用 id。
      */
     static Display resolve(Entry entry, DisplayManager manager) {
         if (entry == null || manager == null) return null;
-        Display byName = null;
+        String[] names = {};
+        int[] ids = {};
+        java.util.List<Display> candidates = new ArrayList<>();
         for (Display display : manager.getDisplays()) {
             if (display == null || display.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
-            if (entry.name.equals(display.getName())) {
-                byName = display;
-                break;
+            candidates.add(display);
+        }
+        names = new String[candidates.size()];
+        ids = new int[candidates.size()];
+        for (int index = 0; index < candidates.size(); index++) {
+            names[index] = candidates.get(index).getName();
+            ids[index] = candidates.get(index).getDisplayId();
+        }
+        int chosen = chooseIndex(entry.name, entry.displayId, names, ids);
+        return chosen < 0 ? null : candidates.get(chosen);
+    }
+
+    /**
+     * 按「名字 + id」挑一块屏（纯函数，便于测试）：
+     * 名字与 id 都对得上 → 就是它；名字唯一 → 按名字（老行为，id 不稳的车型不受影响）；
+     * 名字重复（没有区分能力）→ 按 id；id 也不在 → 退回第一块同名的。
+     *
+     * @return 下标，找不到返回 {@code -1}
+     */
+    static int chooseIndex(String entryName, int entryId, String[] names, int[] ids) {
+        if (names == null || ids == null || names.length == 0) return -1;
+        String name = entryName == null ? "" : entryName;
+        int sameNameCount = 0;
+        int firstSameName = -1;
+        int exact = -1;
+        for (int index = 0; index < names.length && index < ids.length; index++) {
+            if (!name.isEmpty() && name.equals(names[index])) {
+                if (firstSameName < 0) firstSameName = index;
+                sameNameCount++;
+                if (ids[index] == entryId) exact = index;
             }
         }
-        if (byName != null) return byName;
-        Display byId = manager.getDisplay(entry.displayId);
-        return byId != null && byId.getDisplayId() != Display.DEFAULT_DISPLAY ? byId : null;
+        if (exact >= 0) return exact;
+        if (sameNameCount == 1) return firstSameName;
+        if (sameNameCount > 1) {
+            // 同名多块：名字帮不上忙，按 id 找；找不到才退回第一块同名的。
+            for (int index = 0; index < names.length && index < ids.length; index++) {
+                if (ids[index] == entryId) return index;
+            }
+            return firstSameName;
+        }
+        for (int index = 0; index < names.length && index < ids.length; index++) {
+            if (ids[index] == entryId) return index;
+        }
+        return -1;
     }
 
     /**

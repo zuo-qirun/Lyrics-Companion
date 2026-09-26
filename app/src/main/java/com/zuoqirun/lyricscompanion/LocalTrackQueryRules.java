@@ -76,6 +76,11 @@ final class LocalTrackQueryRules {
         return trimSeparators(cleaned);
     }
 
+    /** 这一路来源能不能按「歌名」去匹配；诊断与本地查询共用同一条规则（issue #62 只做委派）。 */
+    static boolean canQueryByTitle(String source, String title, String artist) {
+        return shouldParse(source, title, artist);
+    }
+
     private static boolean shouldParse(String source, String title, String artist) {
         String normalizedSource = safe(source).toLowerCase(Locale.ROOT);
         return "media".equals(normalizedSource) || "xiaomi".equals(normalizedSource)

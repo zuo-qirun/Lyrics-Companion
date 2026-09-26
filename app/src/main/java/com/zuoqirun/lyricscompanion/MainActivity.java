@@ -332,11 +332,53 @@ public final class MainActivity extends AppCompatActivity {
         if (title != null) title.setTextColor(color);
     }
 
+    /**
+     * 分类栏的摆放（issue #70）：车机自己的左侧系统悬浮栏会压在竖排分类栏上，「显示 / 歌词 / 高级」
+     * 点不到。这类悬浮栏是系统 / 桌面层窗口，{@code WindowInsets} 一般报不出来，所以这里做两件事：
+     * 允许把分类栏挪到右边，并按「系统插边 / 手动留白取较大者」在起始侧补留白。
+     */
+    private void applySettingsNavPlacement(View shell) {
+        if (!(shell instanceof LinearLayout)) return;
+        LinearLayout shellLayout = (LinearLayout) shell;
+        View navigation = shellLayout.findViewById(R.id.main_navigation);
+        View scroll = shellLayout.findViewById(R.id.main_scroll);
+        if (navigation == null || scroll == null) return;
+        boolean landscape = getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        final String side = AppPreferences.settingsNavSide(this);
+        if (SettingsNavLayout.reordersNav(landscape) && SettingsNavLayout.navOnRight(side)) {
+            // 重新挂一遍：ScrollView 保持 layout_weight=1，分类栏落到右侧。
+            shellLayout.removeAllViews();
+            shellLayout.addView(scroll);
+            shellLayout.addView(navigation);
+        }
+        final int manualInsetPx = Math.round(AppPreferences.settingsNavInsetDp(this)
+                * getResources().getDisplayMetrics().density);
+        applySettingsNavPadding(navigation, side, manualInsetPx, 0, 0);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(shellLayout,
+                (view, insets) -> {
+                    applySettingsNavPadding(navigation, side, manualInsetPx,
+                            insets.getSystemWindowInsetLeft(),
+                            insets.getSystemWindowInsetRight());
+                    return insets;
+                });
+    }
+
+    private void applySettingsNavPadding(View navigation, String side, int manualInsetPx,
+                                         int insetLeftPx, int insetRightPx) {
+        if (navigation == null) return;
+        int base = dp(10);
+        int start = SettingsNavLayout.startPaddingPx(SettingsNavLayout.navOnRight(side),
+                insetLeftPx, insetRightPx, manualInsetPx);
+        navigation.setPadding(base + start, base, base, base);
+    }
+
     private View buildContent() {
         sectionPages.clear();
         sectionButtons.clear();
         conciseSettingsMode = AppPreferences.conciseSettingsMode(this);
         View shell = getLayoutInflater().inflate(R.layout.activity_main, null, false);
+        applySettingsNavPlacement(shell);
         LinearLayout root = shell.findViewById(R.id.main_content);
         LinearLayout pageHost = shell.findViewById(R.id.main_page_host);
         mainScroll = shell.findViewById(R.id.main_scroll);
@@ -405,6 +447,12 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton localLyricPath = button("手动填写歌词目录路径", false);
         localLyricPath.setOnClickListener(v -> editLocalLyricDirectoryPath());
         lyricCard.addView(localLyricPath, new LinearLayout.LayoutParams(-1, dp(48)));
+        // U 盘 / 视频场景的引导（issue #62）：播放器可能压根不发布元数据，只能靠同名 .lrc 或目录授权。
+        TextView localLyricHint = text("U 盘歌曲：把同名 .lrc 放在歌曲同目录，或在这里授权该目录；"
+                + "播放器不发布歌名时本应用也读不到（可在「音乐状态与诊断」里看到结论）。",
+                12, 0xFF74869D, false);
+        localLyricHint.setPadding(0, dp(6), 0, 0);
+        lyricCard.addView(localLyricHint);
         MaterialSwitch avrcp = toggle("蓝牙 AVRCP 歌曲识别");
         avrcp.setChecked(AppPreferences.avrcpEnabled(this));
         avrcp.setOnCheckedChangeListener((button, checked) -> {
@@ -438,7 +486,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("歌词显示开关"));
         mainOverlaySwitch = toggle("主屏悬浮窗",
-                "可拖动，双击强制返回，长按锁定并开启触摸穿透，点圆形 × 恢复");
+                "可拖动；双击返回，长按锁定并穿透，点 × 恢复");
         mainOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_MAIN_OVERLAY, checked).apply();
@@ -462,7 +510,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout startupCard = card();
         startupCard.addView(sectionLabel("启动与交互"));
         launchOverlaySwitch = toggle("点击图标启动悬浮窗",
-                "首次点击图标恢复已记忆的歌词显示，30 秒内再次点击进入主界面");
+                "首次点击恢复歌词，30 秒内再点进入主界面");
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         launchOverlaySwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -473,7 +521,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         startupCard.addView(launchOverlaySwitch);
         autoStartSwitch = toggle("开机 / 亮屏自启动悬浮窗",
-                "重启或每次亮屏时恢复已记忆的歌词显示；关闭服务并退出不影响此项");
+                "重启或每次亮屏时恢复已记忆的歌词");
         autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
         autoStartSwitch.setOnCheckedChangeListener((button, checked) -> {
             if (bindingUi) return;
@@ -508,8 +556,7 @@ public final class MainActivity extends AppCompatActivity {
         visibilityCard.addView(visibilityRules, visibilityRuleParams);
 
         MaterialSwitch topLyricStrip = toggle("通知栏显示歌词",
-                "在桌面顶部透明显示双行歌词（本句/下句、居中、逐字高亮）；需悬浮窗权限，"
-                        + "并会被图标启动和自启动记忆");
+                "在桌面顶部透明显示双行歌词；需悬浮窗权限");
         topLyricStrip.setChecked(AppPreferences.topLyricStrip(this));
         outputCard.addView(topLyricStrip);
         topLyricStrip.setOnCheckedChangeListener((button, checked) -> {
@@ -560,8 +607,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView extraLabel = text("其它屏幕同时显示", 13, 0xFF93A4B9, true);
         extraLabel.setPadding(0, dp(18), 0, 0);
         screenCard.addView(extraLabel);
-        TextView extraHelp = text("除「投屏屏幕」外，还能让更多显示器各自显示歌词，各有一套样式与位置。"
-                + "副屏选“自动选择”时建议先指定具体屏幕，避免同一块屏重复显示。",
+        TextView extraHelp = text("更多显示器可各自显示歌词，各有一套样式与位置。",
                 12, 0xFF74869D, false);
         extraHelp.setPadding(0, dp(4), 0, dp(6));
         screenCard.addView(extraHelp);
@@ -572,7 +618,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView joystickLabel = text("副屏位置微调", 13, 0xFF93A4B9, true);
         joystickLabel.setPadding(0, dp(16), 0, 0);
         screenCard.addView(joystickLabel);
-        TextView joystickHelp = text("按住摇杆持续移动；松手后自动回中。副屏接入并开启后生效。", 12,
+        TextView joystickHelp = text("按住摇杆移动，松手回中。", 12,
                 0xFF74869D, false);
         joystickHelp.setPadding(0, dp(4), 0, dp(4));
         screenCard.addView(joystickHelp);
@@ -658,7 +704,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout openSourceCard = card();
         openSourceCard.addView(sectionLabel("开源与致谢"));
         TextView openSourceSummary = text(
-                "歌词伴侣基于 GPL-3.0 开源；Refined Now Playing、PiPWindow 与 Apple Music-like Lyrics 样式参考对应开源项目，并以原生 Android 重写。",
+                "基于 GPL-3.0 开源；Refined、AMLL 与 PiPWindow 样式参考对应开源项目。",
                 13, 0xFFD8E1EE, false);
         openSourceSummary.setLineSpacing(0f, 1.2f);
         openSourceSummary.setPadding(0, dp(9), 0, dp(10));
@@ -693,7 +739,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout resetCard = card();
         resetCard.addView(sectionLabel("数据与重置"));
         TextView resetSummary = text(
-                "恢复显示、歌词、启动、频谱、蓝牙、目录和字体等默认设置；反馈记录与官方回复会保留。",
+                "恢复显示、歌词、启动等默认设置；反馈记录保留。",
                 12, 0xFF8392A8, false);
         resetSummary.setPadding(0, dp(9), 0, dp(10));
         resetCard.addView(resetSummary);
@@ -706,7 +752,7 @@ public final class MainActivity extends AppCompatActivity {
         onlineStatus = text("当前在线：正在连接…", 14, 0xFFD8E1EE, true);
         onlineStatus.setPadding(0, dp(9), 0, dp(3));
         communityCard.addView(onlineStatus);
-        TextView onlinePrivacy = text("匿名安装 ID 仅用于两分钟内去重，不读取设备硬件标识。", 12,
+        TextView onlinePrivacy = text("匿名安装 ID 仅用于去重。", 12,
                 0xFF8392A8, false);
         onlinePrivacy.setPadding(0, 0, 0, dp(10));
         communityCard.addView(onlinePrivacy);
@@ -755,7 +801,7 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout displayPage = sectionPage();
         if (conciseSettingsMode) {
-            TextView hint = text("只保留常用的尺寸、字号和透明度；颜色、描边、样式、位置、频谱等请切换到完整模式。", 13,
+            TextView hint = text("只保留常用的尺寸、字号和透明度；其余请切到完整模式。", 13,
                     0xFF8392A8, false);
             hint.setPadding(0, dp(10), 0, dp(4));
             displayPage.addView(hint);
@@ -788,7 +834,6 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout lyricsPage = sectionPage();
         lyricsPage.addView(lyricCard, cardMargins());
         lyricsPage.addView(stateCard, cardMargins());
-
         LinearLayout systemPage = sectionPage();
         if (conciseSettingsMode) {
             systemPage.addView(accessCard, cardMargins());
@@ -801,7 +846,7 @@ public final class MainActivity extends AppCompatActivity {
             systemPage.addView(openSourceCard, cardMargins());
         }
 
-        TextView footnote = text("提示：歌词优先读取系统媒体信息与音乐通知，通知不含进度时无法精准滚动。匹配优先复用本地缓存，仍不准确时可用“修正歌曲信息并重新匹配”。本应用不会向 iPhone CarPlay 仪表盘注入媒体信息。", 12,
+        TextView footnote = text("歌词来自系统媒体信息与音乐通知；不准时可用「修正歌曲信息并重新匹配」。", 12,
                 0xFF66788F, false);
         footnote.setLineSpacing(0f, 1.25f);
         LinearLayout.LayoutParams footnoteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -825,8 +870,8 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout card = card();
         card.addView(sectionLabel("设置模式"));
         TextView summary = text(conciseSettingsMode
-                        ? "精简模式：仅显示日常开关和常用入口，减少车机上的滚动与干扰。"
-                        : "完整模式：显示所有显示、样式、位置、颜色、歌词、诊断和系统选项。",
+                        ? "精简模式：只显示日常开关和常用入口。"
+                        : "完整模式：显示全部显示、样式、颜色与系统选项。",
                 13, 0xFFD8E1EE, false);
         summary.setPadding(0, dp(8), 0, dp(10));
         summary.setLineSpacing(0f, 1.18f);
@@ -843,21 +888,88 @@ public final class MainActivity extends AppCompatActivity {
         row.addView(complete, completeParams);
         card.addView(row);
         addSettingsUiScaleSelector(card);
+        addSettingsNavPlacementSelector(card);
         return card;
+    }
+
+    /**
+     * 分类栏位置控制必须放在「总览」这一页（issue #70）：车机左侧悬浮栏挡住分类栏时，「显示」那一栏
+     * 本身就点不进去，控制项要是放在那儿就等于没有。总览页的按钮实测还能点。
+     */
+    private void addSettingsNavPlacementSelector(LinearLayout parent) {
+        TextView label = sectionLabel("分类栏位置（横屏）");
+        label.setPadding(0, dp(16), 0, dp(4));
+        parent.addView(label);
+        final String[] values = {SettingsNavLayout.SIDE_LEFT, SettingsNavLayout.SIDE_RIGHT};
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        spinner.setPopupBackgroundDrawable(solid(0xFF132238, 14));
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this,
+                new String[]{"左侧（默认）", "右侧"}));
+        String current = AppPreferences.settingsNavSide(this);
+        spinner.setSelection(SettingsNavLayout.navOnRight(current) ? 1 : 0, false);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                  View view, int position, long id) {
+                if (values[position].equals(AppPreferences.settingsNavSide(MainActivity.this))) {
+                    return;
+                }
+                AppPreferences.setSettingsNavSide(MainActivity.this, values[position]);
+                recreate();
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        TextView insetLabel = sectionLabel("分类栏起始留白");
+        insetLabel.setPadding(0, dp(14), 0, dp(2));
+        parent.addView(insetLabel);
+        int currentInset = AppPreferences.settingsNavInsetDp(this);
+        TextView insetValue = text(currentInset + " dp", 13, 0xFF6EE7F2, true);
+        LinearLayout insetRow = new LinearLayout(this);
+        insetRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        insetRow.addView(text("系统悬浮栏压住分类栏时，把它往右推开", 13, 0xFF93A4B9, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        insetRow.addView(insetValue);
+        parent.addView(insetRow);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(SettingsNavLayout.MAX_MANUAL_INSET_DP);
+        seek.setProgress(currentInset);
+        if (Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
+                                                    boolean fromUser) {
+                insetValue.setText(progress + " dp");
+                if (!fromUser) return;
+                AppPreferences.setSettingsNavInsetDp(MainActivity.this, progress);
+                applySettingsNavPlacementNow();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+    }
+
+    /** 拖动留白时立刻生效，不必等 recreate（分类栏可能正被系统栏挡着）。 */
+    private void applySettingsNavPlacementNow() {
+        View root = findViewById(android.R.id.content);
+        if (root instanceof android.view.ViewGroup) {
+            View child = ((android.view.ViewGroup) root).getChildAt(0);
+            if (child != null) applySettingsNavPlacement(child);
+        }
     }
 
     private LinearLayout buildGettingStartedCard() {
         LinearLayout card = card();
         card.addView(sectionLabel("第一次使用，按这 3 步"));
-        TextView steps = text(
-                "1  授予“音乐读取权限”和“悬浮窗权限”\n"
-                        + "2  打开主屏、副屏或顶部歌词条\n"
-                        + "3  在下方预览确认歌词，再到“显示”微调样式",
+        TextView steps = text("授权  ·  打开悬浮窗  ·  微调样式",
                 13, 0xFFD8E1EE, false);
         steps.setLineSpacing(dp(4), 1.16f);
         steps.setPadding(0, dp(9), 0, dp(4));
         card.addView(steps);
-        TextView expert = text("熟悉应用后，可直接使用顶部分类；每个显示对象都有独立参数入口。",
+        TextView expert = text("熟悉后可直接用顶部分类；每个显示对象都有独立参数入口。",
                 12, 0xFF8392A8, false);
         expert.setPadding(0, dp(5), 0, 0);
         card.addView(expert);
@@ -867,7 +979,7 @@ public final class MainActivity extends AppCompatActivity {
     private LinearLayout buildDisplayDirectoryCard() {
         LinearLayout card = card();
         card.addView(sectionLabel("按显示对象直达"));
-        TextView summary = text("先选你想改变的对象；主屏和副屏的尺寸、字号等参数互不影响。",
+        TextView summary = text("先选要改的对象；主屏与副屏的参数互不影响。",
                 13, 0xFFD8E1EE, false);
         summary.setPadding(0, dp(8), 0, dp(10));
         card.addView(summary);
@@ -1092,8 +1204,8 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow", "纯净歌词"};
-        String[] values = {"refined", "amll", "default", "compact", "pip", "pure"};
+        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow", "纯净歌词", "灵动岛（胶囊）"};
+        String[] values = {"refined", "amll", "default", "compact", "pip", "pure", "island"};
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         String saved = AppPreferences.overlayStyle(styleContext, secondary);
@@ -1116,9 +1228,9 @@ public final class MainActivity extends AppCompatActivity {
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
         TextView help = text(secondary
                         ? (slot >= DisplaySlotRegistry.FIRST_EXTRA_SLOT
-                        ? "本屏样式只影响这块屏幕，与主屏、副屏互不影响。"
+                        ? "本屏样式只影响这块屏幕。"
                         : "副屏可独立选择样式。")
-                        : "Refined、Apple Music-like Lyrics 和 PiPWindow 为独立样式；经典样式保留默认布局。",
+                        : "经典为默认布局，Refined / AMLL / 极简为独立样式。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
@@ -1188,7 +1300,7 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView help = text("这是未单独设置播放器时的默认规则：自动模式优先使用识别出的播放器同源词库，手动模式先试所选词库；无结果后才依次查询下一词库。",
+        TextView help = text("未单独指定播放器时的默认词库：自动优先同源，无结果再依次查询。",
                 12, 0xFF74869D, false);
         help.setPadding(0, dp(5), 0, 0);
         parent.addView(help);
@@ -1209,7 +1321,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(4), 0, dp(4), 0);
-        TextView note = text("选择一个词库后可从所有已安装应用中多选；被选中的应用只从该词库匹配，未选择的应用沿用上方默认规则。",
+        TextView note = text("被选中的应用只从该词库匹配，其余沿用默认规则。",
                 13, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         content.addView(note);
@@ -1638,7 +1750,7 @@ public final class MainActivity extends AppCompatActivity {
         DisplayMetrics metrics = new DisplayMetrics();
         display.getRealMetrics(metrics);
         return new DisplayIdentity.Screen(display.getName(), metrics.widthPixels,
-                metrics.heightPixels, metrics.densityDpi);
+                metrics.heightPixels, metrics.densityDpi, display.getDisplayId());
     }
 
     /**
@@ -1696,8 +1808,7 @@ public final class MainActivity extends AppCompatActivity {
                 if (hit) count++;
             }
             if (count == 0) return "";
-            return "检测到 " + count + " 块屏幕疑似同一块（" + reason
-                    + "）：同一块屏叠两层歌词只会更粗更亮，还会重复渲染，建议只留一块。";
+            return "检测到 " + count + " 块屏幕疑似同一块（" + reason + "），建议只留一块。";
         }
     }
 
@@ -1750,15 +1861,36 @@ public final class MainActivity extends AppCompatActivity {
         return DisplaySlotRegistry.resolve(entry, manager);
     }
 
-    private static int indexOfDisplay(List<DisplaySlotRegistry.Entry> entries, Display display) {
-        for (int index = 0; index < entries.size(); index++) {
-            DisplaySlotRegistry.Entry entry = entries.get(index);
-            if (display.getDisplayId() == entry.displayId
-                    || display.getName().equals(entry.name)) {
-                return index;
+    private int indexOfDisplay(List<DisplaySlotRegistry.Entry> entries, Display display) {
+        // 先按 id 认：两块同名屏（哈弗 H6 的「HDMI 屏幕」id 1 / id 2）时，光比名字会把第二块认成
+        // 第一块，于是它永远加不进列表（issue #71）。名字只在「这一屏的名字的唯一一块」时才作数。
+        int sameNameCount = 0;
+        for (Display candidate : displaysSnapshot()) {
+            if (candidate != null && display.getName().equals(candidate.getName())) {
+                sameNameCount++;
             }
         }
+        for (int index = 0; index < entries.size(); index++) {
+            DisplaySlotRegistry.Entry entry = entries.get(index);
+            if (display.getDisplayId() == entry.displayId) return index;
+        }
+        if (sameNameCount > 1) return -1;
+        for (int index = 0; index < entries.size(); index++) {
+            if (display.getName().equals(entries.get(index).name)) return index;
+        }
         return -1;
+    }
+
+    /** 当前挂着的显示器快照（不含默认屏），用于判断某一屏的名字是否唯一。 */
+    private java.util.List<Display> displaysSnapshot() {
+        DisplayManager manager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        if (manager == null) return java.util.Collections.emptyList();
+        java.util.List<Display> result = new java.util.ArrayList<>();
+        for (Display candidate : manager.getDisplays()) {
+            if (candidate == null || candidate.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
+            result.add(candidate);
+        }
+        return result;
     }
 
     /** Opens the parameter page of one screen: 0 = 主屏, 1 = 副屏, 2+ = an extra screen. */
@@ -1814,7 +1946,7 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView mainThemeNote = text("主界面固定使用黑色主题；此选项只影响悬浮歌词背景与已开启跟随的自动歌词色。", 12,
+        TextView mainThemeNote = text("只影响悬浮歌词与自动歌词色，主界面固定黑色。", 12,
                 0xFF74869D, false);
         mainThemeNote.setPadding(0, dp(3), 0, dp(2));
         parent.addView(mainThemeNote);
@@ -1822,8 +1954,7 @@ public final class MainActivity extends AppCompatActivity {
         // 可选的时间段（issue #34）：打开后按下面的深色时段自动切换；关掉就按上面的模式判断，
         // 「跟随系统」即由系统的深浅色决定。
         MaterialSwitch schedule = toggle("按时间段自动切换深浅色",
-                "开启后按下面设定的时段使用夜晚配色，其余时间用白天配色；关闭则按上面的模式判断"
-                        + "（起止时间相同表示不启用）");
+                "按下面时段用夜晚配色，其余时间用白天配色");
         View startGroup = addThemeScheduleHour(parent, "深色开始（整点）", true);
         View endGroup = addThemeScheduleHour(parent, "深色结束（整点）", false);
         View[] scheduleRows = { startGroup, endGroup };
@@ -1917,7 +2048,7 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView note = text("仅放大设置页面的文字与控件，不改变主屏、副屏或通知栏歌词字号。", 12,
+        TextView note = text("只放大设置页文字与控件，不改变歌词字号。", 12,
                 0xFF74869D, false);
         note.setPadding(0, dp(3), 0, dp(2));
         parent.addView(note);
@@ -1972,7 +2103,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void addSupportControls(LinearLayout parent) {
         MaterialSwitch crashUpload = toggle("自动上传闪退诊断",
-                "含设备型号、系统与权限、播放器包名、曲目元数据及播放/歌词状态；不含歌词正文、通知正文或设备标识；默认关闭");
+                "含设备与播放器信息，不含歌词正文与设备标识；默认关闭");
         crashUpload.setChecked(AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false));
         crashUpload.setOnCheckedChangeListener((button, checked) -> {
@@ -2296,7 +2427,7 @@ public final class MainActivity extends AppCompatActivity {
         label.setPadding(0, dp(16), 0, dp(3));
         parent.addView(label);
         globalFontSummary = text("当前：" + CustomFontStore.selectedFontLabel(this)
-                + "（替换应用界面与全部歌词，支持 TTF / OTF / TTC）",
+                + "（替换界面与全部歌词）",
                 12, 0xFF9EAFBF, false);
         globalFontSummary.setPadding(0, 0, 0, dp(6));
         parent.addView(globalFontSummary);
@@ -2362,7 +2493,7 @@ public final class MainActivity extends AppCompatActivity {
         layout.addView(input);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("手动填写本地歌词目录")
-                .setMessage("用于没有系统目录选择器的车机：只在该目录及其子目录查找 .lrc，路径不会写入配置分享码。"
+                .setMessage("用于没有目录选择器的车机：只在该目录及子目录查找 .lrc。"
                         + LocalLyricClient.manualDirectoryRequirementNote(this))
                 .setView(layout)
                 .setNegativeButton("取消", null)

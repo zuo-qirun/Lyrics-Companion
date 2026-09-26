@@ -72,6 +72,26 @@ public class DisplayIdentityTest {
                         screen("HDMI screen", 1920, 720, 240)));
     }
 
+    /** issue #71：两块同名但 Display ID 不同的真屏，只能给「可能是两块屏」的保留提示。 */
+    @Test public void identicalNamesWithDifferentIdsAreOnlyHedged() {
+        DisplayIdentity.Screen first = new DisplayIdentity.Screen("HDMI screen", 1920, 720, 240, 1);
+        DisplayIdentity.Screen second = new DisplayIdentity.Screen("HDMI screen", 1920, 720, 240, 2);
+        assertEquals("名称与分辨率都相同，但 Display ID 不同（1 / 2），可能是两块屏",
+                DisplayIdentity.duplicateReason(first, second));
+        assertEquals("屏幕名称相同但分辨率不同（Display 1 / 2），可能是两块屏",
+                DisplayIdentity.duplicateReason(first,
+                        new DisplayIdentity.Screen("HDMI screen", 1280, 720, 240, 2)));
+        // 只给了一个 id（老调用点）时保持原来的强提示
+        assertEquals("名称与分辨率都相同",
+                DisplayIdentity.duplicateReason(first,
+                        new DisplayIdentity.Screen("HDMI screen", 1920, 720, 240)));
+        // 投屏通道对（_0 / _1）即使带 id 也仍然是强提示
+        assertEquals("名称只差通道编号 _0 / _1",
+                DisplayIdentity.duplicateReason(
+                        new DisplayIdentity.Screen(PROJECTION_0, 0, 0, 0, 3),
+                        new DisplayIdentity.Screen(PROJECTION_1, 1280, 720, 160, 4)));
+    }
+
     @Test public void differentScreensStaySilent() {
         // 分辨率相同但名字无关：不是同一块屏。
         assertEquals("", DisplayIdentity.duplicateReason(screen("HDMI screen", 1920, 720, 240),

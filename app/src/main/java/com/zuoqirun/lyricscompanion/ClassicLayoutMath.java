@@ -1,6 +1,14 @@
 package com.zuoqirun.lyricscompanion;
 
-/** Pure layout calculations for the classic lyrics card. */
+/**
+ * Pure layout calculations for the classic lyrics card.
+ *
+ * <p>Since issue #53 the classic style no longer stretches single rows to the panel edges: every
+ * row is packed into one block with a shared baseline gap, the block is then placed inside the
+ * usable area and the text shrinks only when the block genuinely does not fit. That keeps the
+ * 歌名—歌词 gap and the 歌词—歌词 gap in the same rhythm however tall the panel is, and it is what
+ * lets the card show more than three lyric rows (issue #64).
+ */
 final class ClassicLayoutMath {
     /** Below this the card is unreadable anyway, so fitting never goes further. */
     static final float MIN_TEXT_SCALE = 0.45f;
@@ -9,6 +17,12 @@ final class ClassicLayoutMath {
     /** Approximate Android font metrics: ascent ≈ 82% of the text size, descent ≈ 25%. */
     static final float ASCENT_RATIO = 0.82f;
     static final float DESCENT_RATIO = 0.25f;
+    /** 相邻两个歌词行之间至少留这么多基线距离（dp，未乘密度与内容缩放）。 */
+    static final float MIN_LYRIC_GAP_DP = 24f;
+    /** 歌名到相邻行的历史下限（dp）：歌名字号大时它跟着长，见 {@link #stackedGapDp}。 */
+    static final float MIN_TITLE_GAP_DP = 27f;
+    /** 本句与翻译之间单独排：翻译跟着本句走，不参与统一行距（否则多行时会离得很远）。 */
+    static final float MIN_TRANSLATION_GAP_DP = 22f;
 
     private ClassicLayoutMath() { }
 
@@ -22,89 +36,44 @@ final class ClassicLayoutMath {
     }
 
     /**
-     * The vertical geometry of one classic card frame, in pixels.
+     * The packed geometry of one classic card frame, in pixels.
      *
-     * <p>The layout decides which rows exist and where their baselines sit; the fit below only
-     * has to say how far the text must shrink for those rows not to touch. A row that is not
-     * drawn must not constrain anything — that is what the {@code has*} flags are for, because
-     * 「歌词显示行数」 can drop 上一句 or 下一句 (issue #26).
+     * <p>{@code baselinesPx[i]} is row {@code i}'s baseline measured from the top of the block, so
+     * the caller only has to decide where the block itself goes. The object is reused between
+     * frames: {@link #pack} rewrites it in place.
      */
-    static final class Card {
-        final float statusBaseline;
-        final float titleBaseline;
-        final float previousBaseline;
-        final float currentBaseline;
-        final float translationBaseline;
-        final float nextBaseline;
-        final boolean hasStatusRow;
-        final boolean hasPreviousRow;
-        final boolean hasTranslation;
-        final boolean hasNextRow;
+    static final class Block {
+        float[] baselinesPx;
+        /** 主行之间实际用到的统一基线行距（px）；测试与调试用。 */
+        float uniformGapPx;
+        float scale = 1f;
+        float heightPx;
 
-        Card(float statusBaseline, float titleBaseline, float previousBaseline,
-             float currentBaseline, float translationBaseline, float nextBaseline,
-             boolean hasStatusRow, boolean hasPreviousRow, boolean hasTranslation,
-             boolean hasNextRow) {
-            this.statusBaseline = statusBaseline;
-            this.titleBaseline = titleBaseline;
-            this.previousBaseline = previousBaseline;
-            this.currentBaseline = currentBaseline;
-            this.translationBaseline = translationBaseline;
-            this.nextBaseline = nextBaseline;
-            this.hasStatusRow = hasStatusRow;
-            this.hasPreviousRow = hasPreviousRow;
-            this.hasTranslation = hasTranslation;
-            this.hasNextRow = hasNextRow;
+        Block(int capacity) {
+            baselinesPx = new float[Math.max(1, capacity)];
+        }
+
+        void ensureCapacity(int capacity) {
+            if (baselinesPx.length < capacity) baselinesPx = new float[capacity];
         }
     }
 
-    static float constrainedTextScale(float requested, float density, float unit,
-                                      float titleScale, float nextScale,
-                                      float statusBaseline, float titleBaseline,
-                                      float previousBaseline, float currentBaseline,
-                                      float translationBaseline, float nextBaseline,
-                                      boolean hasTranslation) {
-        return constrainedTextScale(requested, density, unit, titleScale, nextScale,
-                new Card(statusBaseline, titleBaseline, previousBaseline, currentBaseline,
-                        translationBaseline, nextBaseline, true, true, hasTranslation, true));
+    /** 行数设置：经典样式现在最多摆 7 行歌词（上一句 ×3 + 本句 + 下一句 ×3，issue #64）。 */
+    static int visibleRowCount(int requested) {
+        return Math.max(1, Math.min(7, requested));
     }
 
-    static float constrainedTextScale(float requested, float density, float unit,
-                                      float titleScale, float nextScale, Card card) {
-        float safeDensityUnit = Math.max(0.01f, density * unit);
-        float limit = Math.max(MIN_TEXT_SCALE, requested);
+    /**
+     * 本句之后画几句。1 行 = 只有本句；2 行 = 本句 + 下一句；3 行 = 上一句 + 本句 + 下一句；
+     * 之后本句两侧交替补行（4 行再补一句下一句，5 行再补一句上一句……）。
+     */
+    static int followingRowCount(int rows) {
+        return Math.max(0, visibleRowCount(rows) / 2);
+    }
 
-        // Keeping those extents apart prevents glyphs from colliding.
-        if (card.hasPreviousRow) {
-            limit = Math.min(limit, adjacentLimit(card.previousBaseline - card.titleBaseline,
-                    15f * titleScale, 12f, safeDensityUnit, true));
-            limit = Math.min(limit, adjacentLimit(card.currentBaseline - card.previousBaseline,
-                    12f, 22f, safeDensityUnit, false));
-        } else {
-            // 只有本句（或本句 + 下一句）时，歌名下面就是当前句，约束要对着它算。
-            limit = Math.min(limit, adjacentLimit(card.currentBaseline - card.titleBaseline,
-                    15f * titleScale, 22f, safeDensityUnit, true));
-        }
-        if (card.hasTranslation) {
-            limit = Math.min(limit, adjacentLimit(card.translationBaseline - card.currentBaseline,
-                    22f, 12f, safeDensityUnit, false));
-            if (card.hasNextRow) {
-                limit = Math.min(limit, adjacentLimit(card.nextBaseline - card.translationBaseline,
-                        12f, 22f * nextScale, safeDensityUnit, false));
-            }
-        } else if (card.hasNextRow) {
-            limit = Math.min(limit, adjacentLimit(card.nextBaseline - card.currentBaseline,
-                    22f, 22f * nextScale, safeDensityUnit, false));
-        }
-
-        if (card.hasStatusRow) {
-            float titleAscent = ASCENT_RATIO * 15f * Math.max(0.5f, titleScale) * safeDensityUnit;
-            float statusRoom = card.titleBaseline - card.statusBaseline - titleAscent;
-            if (statusRoom > 0f) {
-                limit = Math.min(limit, statusRoom / (DESCENT_RATIO * 11f * safeDensityUnit));
-            }
-        }
-        return Math.max(MIN_TEXT_SCALE, Math.min(requested, limit));
+    /** 本句之前画几句，与 {@link #followingRowCount(int)} 配对。 */
+    static int precedingRowCount(int rows) {
+        return Math.max(0, (visibleRowCount(rows) - 1) / 2);
     }
 
     /**
@@ -133,10 +102,9 @@ final class ClassicLayoutMath {
      * How far a block of rows has to move so it sits at the requested vertical alignment.
      *
      * <p>{@code blockTop} is the top of the block (the first row's ascent above its baseline) and
-     * {@code blockHeight} its full extent. {@code ""} means "the style decides" and returns 0, so
-     * the historical placement is untouched; "top" / "center" / "bottom" place the block inside
-     * {@code [areaTop, areaBottom]}, which is how a panel dragged to the screen edge loses the
-     * strip of empty space above its text (issue #41).
+     * {@code blockHeight} its full extent. {@code ""} means "the style decides"; "top" / "center"
+     * / "bottom" place the block inside {@code [areaTop, areaBottom]}, which is how a panel dragged
+     * to the screen edge loses the strip of empty space above its text (issue #41).
      */
     static float alignedRowShift(String align, float blockTop, float blockHeight,
                                  float areaTop, float areaBottom) {
@@ -148,21 +116,111 @@ final class ClassicLayoutMath {
         return 0f;
     }
 
-    /** Lyric rows the classic style can place: 上一句 / 本句 / 下一句. */
-    static int visibleRowCount(int requested) {
-        return Math.max(1, Math.min(3, requested));
+    /**
+     * Packs {@code count} rows into one block: one uniform baseline gap for the main rows, the
+     * rows' own required gap for the ones that hang off another row, and a text scale that shrinks
+     * the rows only as far as {@code availableHeightPx} demands.
+     *
+     * <p>{@code sizesDp[i]} is the row's text size in dp, {@code scales[i]} whether 字号 applies to
+     * it (the song title follows 歌名与歌手字号 instead), {@code minimumGapsDp[i]} the historical
+     * lower bound for the gap above it, and {@code uniform[i]} whether it shares the uniform gap.
+     */
+    static void pack(Block out, int count, float[] sizesDp, boolean[] scales,
+                     float[] minimumGapsDp, boolean[] uniform, float densityUnit,
+                     float requestedScale, float availableHeightPx) {
+        float safeUnit = Math.max(0.01f, densityUnit);
+        float available = Math.max(1f, availableHeightPx);
+        float scale = Math.max(MIN_TEXT_SCALE, Math.min(4f, requestedScale));
+        out.ensureCapacity(count);
+        if (count <= 0) {
+            out.scale = scale;
+            out.heightPx = 0f;
+            out.uniformGapPx = 0f;
+            return;
+        }
+        // 装不下就缩字。高度对字号是单调不减的（行距也只跟着减小到自己的下限），所以直接二分：
+        // 比例收缩会被「行距下限不随字号缩小」卡住，二分一次就能收到真正的可行解。
+        if (heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit) > available
+                && scale > MIN_TEXT_SCALE) {
+            float low = MIN_TEXT_SCALE;
+            float high = scale;
+            for (int iteration = 0; iteration < 16; iteration++) {
+                float middle = (low + high) * 0.5f;
+                if (heightAt(middle, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit)
+                        <= available) {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            scale = low;
+        }
+        float uniformGap = uniformGapPx(count, sizesDp, scales, minimumGapsDp, uniform,
+                safeUnit, scale);
+        float baseline = 0f;
+        float previousSize = 0f;
+        for (int index = 0; index < count; index++) {
+            float size = rowSizePx(sizesDp[index], scales[index], safeUnit, scale);
+            if (index == 0) {
+                baseline = ascent(size);
+            } else {
+                float required = requiredGapPx(index, sizesDp, scales, minimumGapsDp,
+                        safeUnit, scale);
+                baseline += uniform[index] ? Math.max(required, uniformGap) : required;
+            }
+            out.baselinesPx[index] = baseline;
+            previousSize = size;
+        }
+        out.scale = scale;
+        out.uniformGapPx = uniformGap;
+        out.heightPx = baseline + descent(previousSize);
     }
 
-    private static float adjacentLimit(float baselineGap, float upperSize,
-                                       float lowerSize, float densityUnit,
-                                       boolean upperIsFixed) {
-        float safeGap = Math.max(0f, baselineGap - 2f * densityUnit);
-        if (upperIsFixed) {
-            float fixedDescent = DESCENT_RATIO * upperSize * densityUnit;
-            return Math.max(0f, safeGap - fixedDescent)
-                    / Math.max(0.01f, ASCENT_RATIO * lowerSize * densityUnit);
+    private static float heightAt(float scale, int count, float[] sizesDp, boolean[] scales,
+                                  float[] minimumGapsDp, boolean[] uniform, float densityUnit) {
+        float uniformGap = uniformGapPx(count, sizesDp, scales, minimumGapsDp, uniform,
+                densityUnit, scale);
+        return blockHeightPx(count, sizesDp, scales, minimumGapsDp, uniform, densityUnit,
+                scale, uniformGap);
+    }
+
+    /** 主行共用的那份基线行距：不小于各行自己的下限，也不小于任意一对相邻行的需求。 */
+    private static float uniformGapPx(int count, float[] sizesDp, boolean[] scales,
+                                      float[] minimumGapsDp, boolean[] uniform,
+                                      float densityUnit, float scale) {
+        float gap = 0f;
+        for (int index = 1; index < count; index++) {
+            if (!uniform[index]) continue;
+            gap = Math.max(gap, requiredGapPx(index, sizesDp, scales, minimumGapsDp,
+                    densityUnit, scale));
         }
-        float extent = DESCENT_RATIO * upperSize + ASCENT_RATIO * lowerSize;
-        return safeGap / Math.max(0.01f, extent * densityUnit);
+        return Math.max(gap, MIN_LYRIC_GAP_DP * densityUnit);
+    }
+
+    private static float blockHeightPx(int count, float[] sizesDp, boolean[] scales,
+                                       float[] minimumGapsDp, boolean[] uniform,
+                                       float densityUnit, float scale, float uniformGap) {
+        float baseline = ascent(rowSizePx(sizesDp[0], scales[0], densityUnit, scale));
+        float previousSize = rowSizePx(sizesDp[0], scales[0], densityUnit, scale);
+        for (int index = 1; index < count; index++) {
+            float size = rowSizePx(sizesDp[index], scales[index], densityUnit, scale);
+            float required = requiredGapPx(index, sizesDp, scales, minimumGapsDp,
+                    densityUnit, scale);
+            baseline += uniform[index] ? Math.max(required, uniformGap) : required;
+            previousSize = size;
+        }
+        return baseline + descent(previousSize);
+    }
+
+    private static float rowSizePx(float sizeDp, boolean scales, float densityUnit, float scale) {
+        return sizeDp * (scales ? scale : 1f) * densityUnit;
+    }
+
+    /** Baseline gap row {@code index} needs above itself so its glyphs never touch the row above. */
+    private static float requiredGapPx(int index, float[] sizesDp, boolean[] scales,
+                                       float[] minimumGapsDp, float densityUnit, float scale) {
+        float upper = sizesDp[index - 1] * (scales[index - 1] ? scale : 1f);
+        float lower = sizesDp[index] * (scales[index] ? scale : 1f);
+        return stackedGapDp(upper, lower, Math.max(0f, minimumGapsDp[index])) * densityUnit;
     }
 }

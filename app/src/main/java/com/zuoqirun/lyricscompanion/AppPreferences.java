@@ -32,7 +32,22 @@ final class AppPreferences {
     static final String KEY_COMPONENT_LAYOUT = "component_layout";
     static final String KEY_TEXT_SCALE = "text_scale";
     static final String KEY_TITLE_SCALE = "title_scale";
-    static final String KEY_THEME_MODE = "theme_mode";
+    /** 歌手字号（占歌名字号的百分比；-1 = 沿用样式原比例，issue #63）。 */
+    static final String KEY_ARTIST_SCALE = "artist_scale";
+    /** 面板内律动/频谱条的高度百分比（-1 = 沿用原来的 14–42dp / 15%，issue #57）与额外底部留白。 */
+    static final String KEY_SPECTRUM_HEIGHT_PERCENT = "spectrum_height_percent";
+    static final String KEY_SPECTRUM_GAP_DP = "spectrum_gap_dp";
+    /** 面板边缘阴影强度（0–100%，-1 = 各样式原样，issue #56）。 */
+    static final String KEY_PANEL_SHADOW_PERCENT = "panel_shadow_percent";
+    /** 背景遮罩档位（auto / off，issue #58）与背景亮度轴（-100..100）。 */
+    static final String KEY_STYLE_MASK_MODE = "style_mask_mode";
+    static final String KEY_STYLE_BRIGHTNESS = "style_brightness";
+    /** 允许面板移出屏幕边缘（issue #49）：按屏存，含可探出的百分比与内容留白。 */
+    static final String KEY_OVERLAY_ALLOW_OFFSCREEN = "overlay_allow_offscreen";
+    static final String KEY_OVERLAY_OFFSCREEN_PERCENT = "overlay_offscreen_percent";
+    static final String KEY_CONTENT_PADDING_PERCENT = "content_padding_percent";
+    /** 长句显示方式（issue #47）：marquee（默认）/ shrink / wrap。 */
+    static final String KEY_LONG_LINE_MODE = "long_line_mode";    static final String KEY_THEME_MODE = "theme_mode";
     static final String KEY_LYRICS_FOLLOW_THEME = "lyrics_follow_theme";
     static final String KEY_OPACITY = "opacity";
     static final String KEY_LYRIC_OFFSET = "lyric_offset";
@@ -133,6 +148,16 @@ final class AppPreferences {
     static final String KEY_REFINED_CURRENT_ALIGN = "refined_current_align";
     static final String KEY_REFINED_SHOW_TRANSLATION = "refined_show_translation";
     static final String KEY_REFINED_LYRIC_GLOW = "refined_lyric_glow";
+    /** 播放器不给封面时的行为（issue #50）：placeholder = 画占位，hide = 收起封面区域。 */
+    static final String KEY_COVER_MISSING_MODE = "cover_missing_mode";
+    /** 动态星空背景（issue #59）：背景类型里的 starfield 档，以及它的各项参数。 */
+    static final String KEY_STARFIELD_DENSITY = "starfield_density";
+    static final String KEY_STARFIELD_SPEED = "starfield_speed";
+    static final String KEY_STARFIELD_SIZE = "starfield_size";
+    static final String KEY_STARFIELD_FOLLOW_COVER = "starfield_follow_cover";
+    static final String KEY_STARFIELD_STILL = "starfield_still";
+    /** 星空渲染帧率（fps）：调低省电，调高更顺（issue #59）。 */
+    static final String KEY_STARFIELD_FPS = "starfield_fps";
     static final String KEY_COMPACT_SHOW_COVER = "compact_show_cover";
     static final String KEY_COMPACT_SHOW_BARS = "compact_show_bars";
     static final String KEY_COMPACT_SHOW_NEXT_LINE = "compact_show_next_line";
@@ -157,8 +182,22 @@ final class AppPreferences {
     static final String KEY_HIDE_OVERLAYS_IN_APPS = "hide_overlays_in_apps";
     static final String KEY_HIDE_SELECTED_APPS_ON_MAIN = "hide_selected_apps_on_main";
     static final String KEY_HIDE_SELECTED_APPS_ON_SECONDARY = "hide_selected_apps_on_secondary";
+    /** 无歌词 / 纯音乐时自动隐藏（issue #67）：按屏存，含宽限期与「不显示占位文案」开关。 */
+    static final String KEY_HIDE_WHEN_NO_LYRICS = "hide_when_no_lyrics";
+    static final String KEY_HIDE_NO_LYRIC_PLACEHOLDER = "hide_no_lyric_placeholder";
+    static final String KEY_NO_LYRIC_GRACE_MS = "no_lyric_grace_ms";
     static final String KEY_SHOW_PREVIOUS_BUTTON = "show_previous_button";
-    static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
+    /**
+     * 东风车机会话仲裁（issue #75）：默认在东风会话长时间没有变化时把活跃位让给真正在播放的其它
+     * 播放器；打开这个开关就回到老行为「东风只要还在报播放就一直按住」。
+     */
+    static final String KEY_DFTC_ALWAYS_PREFERRED = "dftc_always_preferred";
+    /** 设置页分类栏位置（issue #70）：left（默认）/ right，以及额外的起始留白（dp）。 */
+    static final String KEY_SETTINGS_NAV_SIDE = "settings_nav_side";
+    static final String KEY_SETTINGS_NAV_INSET_DP = "settings_nav_inset_dp";
+    /** 上一次读到的前台应用与时间（issue #61）：ROM 不返回前台事件时黑名单只能靠它。 */
+    static final String KEY_LAST_FOREGROUND_PACKAGE = "last_foreground_package";
+    static final String KEY_LAST_FOREGROUND_AT_MS = "last_foreground_at_ms";    static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
     static final String KEY_SHOW_NEXT_BUTTON = "show_next_button";
     static final String KEY_PLAYBACK_CONTROL_SCALE = "playback_control_scale";
     static final String KEY_PLAYBACK_CONTROL_X = "playback_control_x";
@@ -231,19 +270,105 @@ final class AppPreferences {
     }
 
     static boolean showPreviousButton(Context context) {
-        return get(context).getBoolean(KEY_SHOW_PREVIOUS_BUTTON, true);
+        return showPreviousButton(context, false);
+    }
+
+    /**
+     * 这一屏显示哪几个播放按键。主屏沿用原来的全局键；副屏没在「副屏播放控制」里单独调过时沿用主屏的
+     * 值，调过之后只影响副屏——以前副屏只有总开关，想少画一个键只能去主屏关，主副屏一起变
+     * （issue #72 / #30 剩下的那半截）。
+     */
+    static boolean showPreviousButton(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_SHOW_PREVIOUS_BUTTON,
+                get(context).getBoolean(KEY_SHOW_PREVIOUS_BUTTON, true));
     }
 
     static boolean showPlayPauseButton(Context context) {
-        return get(context).getBoolean(KEY_SHOW_PLAY_PAUSE_BUTTON, true);
+        return showPlayPauseButton(context, false);
+    }
+
+    static boolean showPlayPauseButton(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_SHOW_PLAY_PAUSE_BUTTON,
+                get(context).getBoolean(KEY_SHOW_PLAY_PAUSE_BUTTON, true));
     }
 
     static boolean showNextButton(Context context) {
-        return get(context).getBoolean(KEY_SHOW_NEXT_BUTTON, true);
+        return showNextButton(context, false);
+    }
+
+    static boolean showNextButton(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_SHOW_NEXT_BUTTON,
+                get(context).getBoolean(KEY_SHOW_NEXT_BUTTON, true));
     }
 
     static int displayId(Context context) {
         return get(context).getInt(KEY_DISPLAY_ID, -1);
+    }
+
+    /** 设置页分类栏在左还是在右（issue #70）：车机左侧系统悬浮栏会压住它。 */
+    static String settingsNavSide(Context context) {
+        return get(context).getString(KEY_SETTINGS_NAV_SIDE, SettingsNavLayout.SIDE_LEFT);
+    }
+
+    static void setSettingsNavSide(Context context, String value) {
+        get(context).edit().putString(KEY_SETTINGS_NAV_SIDE,
+                SettingsNavLayout.SIDE_RIGHT.equals(value)
+                        ? SettingsNavLayout.SIDE_RIGHT : SettingsNavLayout.SIDE_LEFT).apply();
+    }
+
+    /** 分类栏起始侧的额外留白（dp）：系统悬浮栏不报插边时靠它手动让开。 */
+    static int settingsNavInsetDp(Context context) {
+        return SettingsNavLayout.clampInsetDp(get(context).getInt(KEY_SETTINGS_NAV_INSET_DP, 0));
+    }
+
+    static void setSettingsNavInsetDp(Context context, int value) {
+        get(context).edit()
+                .putInt(KEY_SETTINGS_NAV_INSET_DP, SettingsNavLayout.clampInsetDp(value)).apply();
+    }
+
+    /** 上一次确实读到过的前台应用（issue #61）：车机 ROM 不返回前台事件时，黑名单只能靠它。 */
+    static String lastForegroundPackage(Context context) {
+        return get(context).getString(KEY_LAST_FOREGROUND_PACKAGE, "");
+    }
+
+    static void setLastForeground(Context context, String packageName, long wallTimeMs) {
+        if (packageName == null || packageName.trim().isEmpty()) return;
+        get(context).edit()
+                .putString(KEY_LAST_FOREGROUND_PACKAGE, packageName.trim())
+                .putLong(KEY_LAST_FOREGROUND_AT_MS, wallTimeMs).apply();
+    }
+
+    static long lastForegroundAtMs(Context context) {
+        return get(context).getLong(KEY_LAST_FOREGROUND_AT_MS, 0L);
+    }
+
+    /** 东风会话是否「始终优先」（issue #75）：默认 false —— 它长时间没变化时让位给真在播放的播放器。 */
+    static boolean dftcAlwaysPreferred(Context context) {
+        return get(context).getBoolean(KEY_DFTC_ALWAYS_PREFERRED, false);
+    }
+
+    /** 无歌词 / 纯音乐时自动隐藏（issue #67）：默认关闭，按屏保存。 */
+    static boolean hideWhenNoLyrics(Context context) { return hideWhenNoLyrics(context, false); }
+
+    static boolean hideWhenNoLyrics(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_HIDE_WHEN_NO_LYRICS, false);
+    }
+
+    /** 即使不隐藏面板，也可以选择不显示「暂无匹配歌词」这类占位文案（issue #67）。 */
+    static boolean hideNoLyricPlaceholder(Context context) {
+        return hideNoLyricPlaceholder(context, false);
+    }
+
+    static boolean hideNoLyricPlaceholder(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_HIDE_NO_LYRIC_PLACEHOLDER, false);
+    }
+
+    /** 「无歌词」要持续多久才隐藏（毫秒，issue #67）：默认 8 秒。 */
+    static int noLyricGraceMs(Context context) { return noLyricGraceMs(context, false); }
+
+    static int noLyricGraceMs(Context context, boolean secondary) {
+        return NoLyricVisibilityRules.normalizeGraceMs(displayInt(context, secondary,
+                KEY_NO_LYRIC_GRACE_MS, NoLyricVisibilityRules.DEFAULT_GRACE_MS));
     }
 
     /**
@@ -260,7 +385,7 @@ final class AppPreferences {
      * {@code default}，与 {@link #normalizeOverlayStyle(String)} 保持一致。
      */
     static final String[] OVERLAY_STYLES = {"default", "refined", "amll", "compact", "pip", "pure",
-            "custom"};
+            "custom", "island"};
 
     /**
      * 这些"共用显示参数"按 <b>屏 × 样式</b> 两级保存（issue #39）：字号、颜色与描边、背景不透明度、
@@ -292,7 +417,10 @@ final class AppPreferences {
                     KEY_INACTIVE_LYRIC_OUTLINE_ALPHA, KEY_INACTIVE_LYRIC_OUTLINE_WIDTH,
                     KEY_TITLE_COLOR, KEY_ARTIST_COLOR, KEY_PLAYER_COLOR, KEY_LYRIC_SOURCE_COLOR,
                     KEY_BACKGROUND_LIGHT_COLOR, KEY_BACKGROUND_DARK_COLOR,
-                    KEY_TRAILING_ACCENT)));
+                    KEY_TRAILING_ACCENT, KEY_REFINED_TEXT_EFFECT, KEY_ARTIST_SCALE,
+                    KEY_SPECTRUM_HEIGHT_PERCENT, KEY_SPECTRUM_GAP_DP,
+                    KEY_PANEL_SHADOW_PERCENT, KEY_STYLE_MASK_MODE, KEY_STYLE_BRIGHTNESS,
+                    KEY_CONTENT_PADDING_PERCENT, KEY_LONG_LINE_MODE)));
 
     /** 屏 × 样式两级键；样式为空时按默认样式（经典 {@code default}）算。 */
     static String styleScopedKey(String key, boolean secondary, String style) {
@@ -457,6 +585,104 @@ final class AppPreferences {
     }
 
     /**
+     * 歌手字号（歌名字号的百分比，issue #63）：{@link MetadataTypeScaleMath#UNSET} = 沿用各样式原本
+     * 的比例（升级观感不变），100 = 与歌名同号。按「屏 × 样式」保存。
+     */
+    static int artistScale(Context context) { return artistScale(context, false); }
+
+    static int artistScale(Context context, boolean secondary) {
+        return MetadataTypeScaleMath.normalizePercent(displayInt(context, secondary,
+                KEY_ARTIST_SCALE, MetadataTypeScaleMath.UNSET));
+    }
+
+    /**
+     * 面板内律动 / 频谱条的高度（占面板高度的百分比，issue #57）：{@link SpectrumLayoutMath#UNSET}
+     * 时沿用原来的 14–42dp / 15% 规则，老安装观感不变。按「屏 × 样式」保存。
+     */
+    static int spectrumHeightPercent(Context context) { return spectrumHeightPercent(context, false); }
+
+    static int spectrumHeightPercent(Context context, boolean secondary) {
+        return SpectrumLayoutMath.normalizePercent(displayInt(context, secondary,
+                KEY_SPECTRUM_HEIGHT_PERCENT, SpectrumLayoutMath.UNSET));
+    }
+
+    /** 频谱条与面板底部的额外留白（dp，issue #57），用于把律动和歌词 / 底边拉开一点。 */
+    static int spectrumGapDp(Context context) { return spectrumGapDp(context, false); }
+
+    static int spectrumGapDp(Context context, boolean secondary) {
+        return Math.max(0, Math.min(SpectrumLayoutMath.MAX_GAP_DP,
+                displayInt(context, secondary, KEY_SPECTRUM_GAP_DP, 0)));
+    }
+
+    /**
+     * 面板边缘阴影强度（百分比，issue #56）：{@link PanelShadowMath#UNSET} = 各样式原样（经典有写死的
+     * 投影，其余没有），0 = 明确关掉，>0 = 按强度画向内柔化的边缘。按「屏 × 样式」保存。
+     */
+    static int panelShadowPercent(Context context) { return panelShadowPercent(context, false); }
+
+    static int panelShadowPercent(Context context, boolean secondary) {
+        return PanelShadowMath.normalizePercent(displayInt(context, secondary,
+                KEY_PANEL_SHADOW_PERCENT, PanelShadowMath.UNSET));
+    }
+
+    /** 背景遮罩档位（issue #58）：auto = 沿用各样式原来的下限，off = 完全不画遮罩。 */
+    static String styleMaskMode(Context context) { return styleMaskMode(context, false); }
+
+    static String styleMaskMode(Context context, boolean secondary) {
+        return ArtworkBackgroundMath.normalizeMode(displayString(context, secondary,
+                KEY_STYLE_MASK_MODE, ArtworkBackgroundMath.MODE_AUTO));
+    }
+
+    /** 背景亮度（-100..100，issue #58）：只作用在「跟随封面」的背景图上。 */
+    static int styleBrightness(Context context) { return styleBrightness(context, false); }
+
+    static int styleBrightness(Context context, boolean secondary) {
+        return ArtworkBackgroundMath.normalizeBrightness(displayInt(context, secondary,
+                KEY_STYLE_BRIGHTNESS, 0));
+    }
+
+    /** 允许面板移出屏幕边缘（issue #49）：默认关闭，按屏保存。 */
+    static boolean overlayAllowOffscreen(Context context) {
+        return overlayAllowOffscreen(context, false);
+    }
+
+    static boolean overlayAllowOffscreen(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_OVERLAY_ALLOW_OFFSCREEN, false);
+    }
+
+    /** 允许探出屏幕的比例（相对面板尺寸，issue #49）：默认 30%，上限见 OverlayDragMath。 */
+    static int overlayOffscreenPercent(Context context) {
+        return overlayOffscreenPercent(context, false);
+    }
+
+    static int overlayOffscreenPercent(Context context, boolean secondary) {
+        return OverlayDragMath.normalizePercent(displayInt(context, secondary,
+                KEY_OVERLAY_OFFSCREEN_PERCENT, OverlayDragMath.DEFAULT_PERCENT));
+    }
+
+    /**
+     * 内容留白（占样式原本内边距的百分比，issue #49）：{@link ContentPaddingMath#UNSET} = 沿用样式原样，
+     * 0 = 文字尽量贴边。按「屏 × 样式」保存。
+     */
+    static int contentPaddingPercent(Context context) { return contentPaddingPercent(context, false); }
+
+    static int contentPaddingPercent(Context context, boolean secondary) {
+        return ContentPaddingMath.normalizePercent(displayInt(context, secondary,
+                KEY_CONTENT_PADDING_PERCENT, ContentPaddingMath.UNSET));
+    }
+
+    /**
+     * 长句显示方式（issue #47）：{@code marquee}（默认）/ {@code shrink} / {@code wrap}。
+     * 按「屏 × 样式」保存——1 行的纯净与 3 行的经典对同一句的取舍本来就不一样。
+     */
+    static String longLineMode(Context context) { return longLineMode(context, false); }
+
+    static String longLineMode(Context context, boolean secondary) {
+        return LongLineLayout.normalizeMode(displayString(context, secondary,
+                KEY_LONG_LINE_MODE, LongLineLayout.MODE_MARQUEE));
+    }
+
+    /**
      * Requested theme: {@code light}, {@code dark} or {@code auto} (follow the system). The
      * scheduled dark window is a separate switch; see {@link #themeScheduleEnabled}.
      */
@@ -587,6 +813,8 @@ final class AppPreferences {
             }
             return floor;
         }
+        // 灵动岛是矮胶囊：允许压到 48dp（issue #54），其它样式保持原来的下限。
+        if ("island".equals(style)) return 48;
         return "amll".equals(style) ? 210 : 176;
     }
 
@@ -1079,7 +1307,8 @@ final class AppPreferences {
     private static String normalizeOverlayStyle(String style) {
         if ("default".equals(style) || "refined".equals(style)
                 || "compact".equals(style) || "pip".equals(style)
-                || "custom".equals(style) || "amll".equals(style) || "pure".equals(style)) {
+                || "custom".equals(style) || "amll".equals(style) || "pure".equals(style)
+                || "island".equals(style)) {
             return style;
         }
         return "refined";
@@ -1162,6 +1391,69 @@ final class AppPreferences {
     static String refinedBackgroundType(Context context) { return refinedBackgroundType(context, false); }
     static String refinedBackgroundType(Context context, boolean secondary) {
         return displayString(context, secondary, KEY_REFINED_BACKGROUND_TYPE, "blur");
+    }
+
+    /**
+     * 播放器不给封面时的行为（issue #50）：{@code placeholder} 保持原样画一块占位，
+     * {@code hide} 把封面区域整个收起来，版面跟着内收。
+     */
+    static String coverMissingMode(Context context) { return coverMissingMode(context, false); }
+
+    static String coverMissingMode(Context context, boolean secondary) {
+        return displayString(context, secondary, KEY_COVER_MISSING_MODE, "placeholder");
+    }
+
+    static boolean hideCoverWithoutArt(Context context) { return hideCoverWithoutArt(context, false); }
+
+    static boolean hideCoverWithoutArt(Context context, boolean secondary) {
+        return "hide".equals(coverMissingMode(context, secondary));
+    }
+
+    /** 星空背景的密度（星点数百分比）、速度、星点大小（issue #59）。 */
+    static int starfieldDensityPercent(Context context) {
+        return starfieldDensityPercent(context, false);
+    }
+
+    static int starfieldDensityPercent(Context context, boolean secondary) {
+        return Math.max(10, Math.min(200,
+                displayInt(context, secondary, KEY_STARFIELD_DENSITY, 60)));
+    }
+
+    static int starfieldSpeedPercent(Context context) { return starfieldSpeedPercent(context, false); }
+
+    static int starfieldSpeedPercent(Context context, boolean secondary) {
+        return Math.max(0, Math.min(200,
+                displayInt(context, secondary, KEY_STARFIELD_SPEED, 100)));
+    }
+
+    static int starfieldSizePercent(Context context) { return starfieldSizePercent(context, false); }
+
+    static int starfieldSizePercent(Context context, boolean secondary) {
+        return Math.max(30, Math.min(250,
+                displayInt(context, secondary, KEY_STARFIELD_SIZE, 100)));
+    }
+
+    static boolean starfieldFollowCover(Context context) {
+        return starfieldFollowCover(context, false);
+    }
+
+    static boolean starfieldFollowCover(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_STARFIELD_FOLLOW_COVER, true);
+    }
+
+    /** 省电档：星点静止、不闪烁，也不要求连续帧（issue #59）。 */
+    static boolean starfieldStill(Context context) { return starfieldStill(context, false); }
+
+    static boolean starfieldStill(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_STARFIELD_STILL, false);
+    }
+
+    /** 星空渲染帧率：5 fps 最省电，60 fps 与屏幕刷新对齐（issue #59）。 */
+    static int starfieldFps(Context context) { return starfieldFps(context, false); }
+
+    static int starfieldFps(Context context, boolean secondary) {
+        return Math.max(StarfieldField.MIN_FPS, Math.min(StarfieldField.MAX_FPS,
+                displayInt(context, secondary, KEY_STARFIELD_FPS, StarfieldField.DEFAULT_FPS)));
     }
 
     static boolean refinedStaticFluid(Context context) { return refinedStaticFluid(context, false); }
@@ -1300,12 +1592,35 @@ final class AppPreferences {
         return Math.max(60, Math.min(160, get(context).getInt(KEY_PLAYBACK_CONTROL_SCALE, 100)));
     }
 
+    /** 播放按钮偏移的上限（百分比，issue #73）：原来 ±40% 在带鱼屏上够不到面板两端。 */
+    static final int PLAYBACK_CONTROL_OFFSET_LIMIT = 100;
+
     static int playbackControlX(Context context) {
-        return Math.max(-40, Math.min(40, get(context).getInt(KEY_PLAYBACK_CONTROL_X, 0)));
+        return playbackControlX(context, false);
+    }
+
+    /**
+     * 播放按钮水平偏移（面板宽度的百分比）。按屏保存：副屏没单独调过时沿用主屏（老裸键），调过只
+     * 影响这一屏（issue #73；写法同 {@link #showPreviousButton(Context, boolean)}）。
+     */
+    static int playbackControlX(Context context, boolean secondary) {
+        return clampPlaybackControlOffset(displayInt(context, secondary, KEY_PLAYBACK_CONTROL_X,
+                get(context).getInt(KEY_PLAYBACK_CONTROL_X, 0)));
     }
 
     static int playbackControlY(Context context) {
-        return Math.max(-40, Math.min(40, get(context).getInt(KEY_PLAYBACK_CONTROL_Y, 0)));
+        return playbackControlY(context, false);
+    }
+
+    static int playbackControlY(Context context, boolean secondary) {
+        return clampPlaybackControlOffset(displayInt(context, secondary, KEY_PLAYBACK_CONTROL_Y,
+                get(context).getInt(KEY_PLAYBACK_CONTROL_Y, 0)));
+    }
+
+    /** 纯函数：偏移量收口到 ±{@link #PLAYBACK_CONTROL_OFFSET_LIMIT}。 */
+    static int clampPlaybackControlOffset(int value) {
+        return Math.max(-PLAYBACK_CONTROL_OFFSET_LIMIT,
+                Math.min(PLAYBACK_CONTROL_OFFSET_LIMIT, value));
     }
 
     static String fullscreenCloseMode(Context context) {
@@ -1753,6 +2068,8 @@ final class AppPreferences {
         if ("amll".equals(style)) return 620;
         if ("pip".equals(style)) return 440;
         if ("custom".equals(style)) return 460;
+        // 灵动岛：一颗胶囊，横向偏长、竖向很矮（issue #54）。
+        if ("island".equals(style)) return 420;
         return 390;
     }
 
@@ -1764,6 +2081,8 @@ final class AppPreferences {
         if ("amll".equals(style)) return 350;
         if ("pip".equals(style)) return 220;
         if ("custom".equals(style)) return 260;
+        // 灵动岛：胶囊高度（issue #54），可以上下留白，后面按面板高度自适应当胶囊高。
+        if ("island".equals(style)) return 72;
         return 226;
     }
 

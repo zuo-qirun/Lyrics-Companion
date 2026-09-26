@@ -80,7 +80,7 @@ public final class QuickDisplaySettingsActivity extends AppCompatActivity implem
                         AppPreferences.KEY_OPACITY, value));
         addCard(root, panel);
 
-        TextView help = text("位置请直接拖动悬浮歌词；需要锁定、触摸穿透、逐字效果、播放控件、颜色或频谱时，请在首页切换到完整模式。",
+        TextView help = text("位置请直接拖动悬浮歌词；更多选项请切到完整模式。",
                 12, 0xFF8392A8, false);
         help.setLineSpacing(0f, 1.18f);
         help.setPadding(dp(4), dp(16), dp(4), 0);

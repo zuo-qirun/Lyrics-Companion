@@ -145,6 +145,29 @@ public class SessionChannelArbiterTest {
         assertTrue(arbiter.decide(bluetooth("夜曲", 4_000L), 4_000L).accepted);
     }
 
+    /** issue #75：东风常驻会话（有标题、有进度、但没有位置时间戳）不该按死带时间戳的播放会话。 */
+    @Test public void playingSessionWithAProgressClockTakesOverAFrozenVendorSlot() {
+        SessionChannelArbiter arbiter = new SessionChannelArbiter();
+        // 东风皓瀚：标题 + PLAYING，duration/位置时间戳都缺（AIDL 只给 NAME/TYPE/STATUS）。
+        assertTrue(arbiter.decide(media("dftc_media", "com.dftc.media", "夜曲", PLAYING, true,
+                0L, 0L, -1L), 0L).accepted);
+        // 酷我带着位置时间戳、明确在播放：不必等满 3 秒防抖窗口就能接管。
+        SessionChannelArbiter.Decision decision = arbiter.decide(
+                media("kuwo", "cn.kuwo.player", "夜曲", PLAYING, true, 4_000L, 600L, 240_000L),
+                600L);
+        assertTrue(decision.accepted);
+        assertTrue("active_no_position_evidence".equals(decision.reason));
+    }
+
+    /** 反过来：带时间戳的会话仍然不该被只有标题的会话抢走（防抖语义不变）。 */
+    @Test public void frozenVendorSlotDoesNotStealFromAWorkingSession() {
+        SessionChannelArbiter arbiter = new SessionChannelArbiter();
+        assertTrue(arbiter.decide(media("kuwo", "cn.kuwo.player", "夜曲", PLAYING, true,
+                4_000L, 0L, 240_000L), 0L).accepted);
+        assertFalse(arbiter.decide(media("dftc_media", "com.dftc.media", "夜曲", PLAYING, true,
+                0L, 0L, -1L), 400L).accepted);
+    }
+
     private static SessionChannelArbiter.Signal bluetooth(String title, long positionUpdatedAt) {
         return bluetooth(title, PLAYING, true, 30_000L, positionUpdatedAt, 240_000L);
     }

@@ -50,6 +50,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private TextView hiddenAppsSummary;
     private TextView ignoredAppsSummary;
+    /** 常驻的前台读取状态提示（issue #61）。 */
+    private TextView foregroundStatus;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -84,6 +86,20 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 "离开当前媒体会话所属的播放器后自动恢复",
                 AppPreferences.KEY_HIDE_OVERLAYS_IN_PLAYER,
                 AppPreferences.hideOverlaysInPlayer(this), true);
+        // 无歌词 / 纯音乐自动隐藏（issue #67）：按屏各自开关。
+        addTargetToggle(rules, "主屏：无歌词 / 纯音乐时隐藏",
+                AppPreferences.KEY_HIDE_WHEN_NO_LYRICS, false,
+                AppPreferences.hideWhenNoLyrics(this, false));
+        addTargetToggle(rules, "副屏：无歌词 / 纯音乐时隐藏",
+                AppPreferences.KEY_HIDE_WHEN_NO_LYRICS, true,
+                AppPreferences.hideWhenNoLyrics(this, true));
+        addTargetToggle(rules, "主屏：不显示「暂无匹配歌词」占位",
+                AppPreferences.KEY_HIDE_NO_LYRIC_PLACEHOLDER, false,
+                AppPreferences.hideNoLyricPlaceholder(this, false));
+        addTargetToggle(rules, "副屏：不显示「暂无匹配歌词」占位",
+                AppPreferences.KEY_HIDE_NO_LYRIC_PLACEHOLDER, true,
+                AppPreferences.hideNoLyricPlaceholder(this, true));
+        addGraceRow(rules);
         addCard(root, rules);
 
         LinearLayout appRules = card("指定应用（黑名单 / 白名单）");
@@ -105,14 +121,17 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         LinearLayout.LayoutParams desktopParams = new LinearLayout.LayoutParams(-1, dp(48));
         desktopParams.topMargin = dp(8);
         appRules.addView(desktopOnly, desktopParams);
-        TextView appRuleNote = text("黑名单：进入名单内的应用时隐藏。白名单：只在名单内的应用里显示，"
-                + "离开这些应用、或系统识别不到前台应用时都隐藏——车机桌面常常不发前台事件，白名单"
-                + "因此不需要识别桌面就能做到「只在桌面显示」。两种模式都依赖「使用情况访问」权限："
-                + "完全没有授权时白名单不会生效（否则会一直隐藏歌词），设置页与诊断日志都会提示。", 12,
+        TextView appRuleNote = text("黑名单：名单内隐藏。白名单：只在名单内显示，识别不到前台应用时也隐藏。"
+                + "两者都依赖「使用情况访问」权限，未授权时白名单不生效。", 12,
                 0xFF8392A8, false);
         appRuleNote.setPadding(0, dp(8), 0, 0);
         appRuleNote.setLineSpacing(0f, 1.2f);
         appRules.addView(appRuleNote);
+        // 常驻提示（issue #61）：读不到前台应用时必须说清原因，否则用户只会以为规则坏了。
+        foregroundStatus = text("", 12, 0xFFFFCA66, false);
+        foregroundStatus.setPadding(0, dp(8), 0, 0);
+        foregroundStatus.setLineSpacing(0f, 1.2f);
+        appRules.addView(foregroundStatus);
         addCard(root, appRules);
 
         LinearLayout ignored = card("忽略这些应用的媒体元数据");
@@ -128,13 +147,27 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         LinearLayout.LayoutParams bluetoothParams = new LinearLayout.LayoutParams(-1, dp(48));
         bluetoothParams.topMargin = dp(8);
         ignored.addView(ignoreBluetooth, bluetoothParams);
-        TextView ignoredNote = text("被忽略的应用不再更新歌词状态：车机自带媒体中心、导航或蓝牙通道"
-                + "抢走歌词时用得上。只影响它们发布给歌词伴侣的元数据，不影响这些应用自己的播放。"
-                + "蓝牙 AVRCP 与 CarPlay/媒体会话互相抢占时，也可以把蓝牙这条通道加进来。", 12,
+        TextView ignoredNote = text("被忽略的应用不再更新歌词状态（车机媒体中心、导航或蓝牙通道抢歌词时用）。"
+                + "只影响它们发布给本应用的元数据。", 12,
                 0xFF8392A8, false);
         ignoredNote.setPadding(0, dp(8), 0, 0);
         ignoredNote.setLineSpacing(0f, 1.2f);
         ignored.addView(ignoredNote);
+        // 东风车机的常驻会话会把活跃位按死，酷我之类的播放器出不来的话用这个开关（issue #75）。
+        MaterialSwitch dftcPriority = new MaterialSwitch(this);
+        dftcPriority.setText("东风播放器会话始终优先\n关闭时：它长时间没有换歌 / 状态变化就让位给正在播放的其它播放器");
+        dftcPriority.setTextColor(0xFFF3F7FC);
+        dftcPriority.setTextSize(14f);
+        dftcPriority.setGravity(Gravity.CENTER_VERTICAL);
+        dftcPriority.setPadding(0, dp(14), 0, dp(4));
+        dftcPriority.setLineSpacing(0f, 1.15f);
+        dftcPriority.setChecked(AppPreferences.dftcAlwaysPreferred(this));
+        dftcPriority.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_DFTC_ALWAYS_PREFERRED, checked).apply();
+            AppPreferences.changed(this);
+        });
+        ignored.addView(dftcPriority);
         addCard(root, ignored);
 
         setContentView(scroll);
@@ -180,6 +213,12 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     }
 
     private void addTargetToggle(LinearLayout parent, String title, String key, boolean initial) {
+        addTargetToggle(parent, title, key, false, initial);
+    }
+
+    /** 按屏开关（issue #67 的无歌词隐藏也用它）：写这一屏的 slot 文件，主 / 副屏各一份。 */
+    private void addTargetToggle(LinearLayout parent, String title, String key, boolean secondary,
+                                 boolean initial) {
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setText(title);
         toggle.setTextColor(0xFFF3F7FC);
@@ -187,11 +226,58 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         toggle.setPadding(0, dp(8), 0, 0);
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit().putBoolean(key, checked).apply();
+            if (secondary || isPerScreenKey(key)) {
+                AppPreferences.putDisplayBoolean(this, secondary, key, checked);
+            } else {
+                AppPreferences.get(this).edit().putBoolean(key, checked).apply();
+            }
             AppPreferences.changed(this);
             refreshHiddenAppsSummary();
         });
         parent.addView(toggle);
+    }
+
+    /** 这些键是按屏存的（主 / 副屏各一份），其余是本页原有的全局开关。 */
+    private static boolean isPerScreenKey(String key) {
+        return AppPreferences.KEY_HIDE_WHEN_NO_LYRICS.equals(key)
+                || AppPreferences.KEY_HIDE_NO_LYRIC_PLACEHOLDER.equals(key);
+    }
+
+    /** 「无歌词多久后隐藏」滑杆（issue #67）：主 / 副屏写同一个值，省得两地各有各的宽限期。 */
+    private void addGraceRow(LinearLayout parent) {
+        TextView label = text("无歌词多久后隐藏", 14, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(12), 0, dp(2));
+        parent.addView(label);
+        int seconds = AppPreferences.noLyricGraceMs(this, false) / 1_000;
+        TextView value = text(seconds + " 秒", 13, 0xFF6EE7F2, true);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(text("切歌匹配期间不会闪", 13, 0xFF93A4B9, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(value);
+        parent.addView(row);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(NoLyricVisibilityRules.MAX_GRACE_MS / 1_000);
+        seek.setProgress(seconds);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
+                                                    boolean fromUser) {
+                value.setText(progress + " 秒");
+                if (!fromUser) return;
+                AppPreferences.putDisplayInt(OverlayVisibilitySettingsActivity.this, false,
+                        AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
+                AppPreferences.putDisplayInt(OverlayVisibilitySettingsActivity.this, true,
+                        AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
+                AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
     }
 
     /** 某一屏的规则方向：黑名单（名单内隐藏）或白名单（只在名单内显示，issue #43）。 */
@@ -374,12 +460,35 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 ? "未选择应用，歌词不会因打开其它应用而隐藏"
                 : rule.isEmpty() ? "已选择 " + count + " 个应用，但主屏与副屏都还没启用这条规则"
                 : "已选择 " + count + " 个应用（" + rule + "）。"
-                + (whitelistInUse ? "白名单下离开名单里的应用就隐藏歌词，识别不到前台应用时也隐藏"
+                + (whitelistInUse ? "白名单下离开名单就隐藏歌词"
                 : "进入名单里的应用时隐藏歌词，离开后恢复");
         if (!rule.isEmpty() && !ForegroundAppDetector.hasUsageAccess(this)) {
-            summary += "\n⚠ 未授权使用情况访问，指定应用规则不会生效；请到首页「使用权限」授权。";
+            summary += "\n⚠ 未授权使用情况访问，指定应用规则不会生效。";
         }
         hiddenAppsSummary.setText(summary);
+        refreshForegroundStatus();
+    }
+
+    /**
+     * 常驻的前台读取状态（issue #61）：读不到前台应用时黑名单/白名单都会「看起来没生效」，
+     * 这里把具体原因写清楚，并提示白名单未授权时会一直不显示。
+     */
+    private void refreshForegroundStatus() {
+        if (foregroundStatus == null) return;
+        ForegroundAppDetector.Probe probe = ForegroundAppDetector.probe(this);
+        long ageMs = probe.lastEventWallTimeMs <= 0L ? -1L
+                : System.currentTimeMillis() - probe.lastEventWallTimeMs;
+        String line = ForegroundProbeDescription.describe(probe.reason, probe.packageName,
+                probe.lastEventType, ageMs);
+        String impact = ForegroundProbeDescription.ruleImpact(probe.reason,
+                AppPreferences.appRuleWhitelist(this, false)
+                        || AppPreferences.appRuleWhitelist(this, true));
+        boolean whitelist = AppPreferences.appRuleWhitelist(this, false)
+                || AppPreferences.appRuleWhitelist(this, true);
+        if (whitelist && !ForegroundAppDetector.hasUsageAccess(this)) {
+            impact = "⚠ 未授权「使用情况访问」：白名单不生效，歌词会一直不显示。";
+        }
+        foregroundStatus.setText(impact.isEmpty() ? line : line + "\n" + impact);
     }
 
     /** 「主屏白名单」/「副屏黑名单」；该屏没启用这条规则时是空串。 */

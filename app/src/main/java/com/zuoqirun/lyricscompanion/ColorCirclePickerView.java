@@ -20,6 +20,11 @@ final class ColorCirclePickerView extends View {
     private float centerY;
     private float radius;
     private int selectedColor = Color.WHITE;
+    /**
+     * 明度（0–1，issue #60）：原来固定 1，圆盘拖不出纯黑与深色。由外面的「亮度」滑杆驱动，
+     * 只改颜色本身，不动 alpha。
+     */
+    private float value = 1f;
     private Listener listener;
 
     ColorCirclePickerView(Context context) {
@@ -34,8 +39,25 @@ final class ColorCirclePickerView extends View {
 
     void setColor(int color) {
         selectedColor = color | 0xFF000000;
+        float[] hsv = new float[3];
+        Color.colorToHSV(selectedColor, hsv);
+        value = hsv[2];
         invalidate();
     }
+
+    /** 亮度轴（issue #60）：0 = 纯黑，1 = 原色。重画圆盘，让整盘跟着变暗。 */
+    void setValue(float newValue) {
+        float clamped = Math.max(0f, Math.min(1f, newValue));
+        if (Math.abs(clamped - value) < 0.001f) return;
+        value = clamped;
+        if (wheel != null) {
+            wheel.recycle();
+            wheel = buildWheel(Math.max(2, getWidth()), Math.max(2, getHeight()));
+        }
+        invalidate();
+    }
+
+    float value() { return value; }
 
     void setListener(Listener value) { listener = value; }
 
@@ -101,10 +123,9 @@ final class ColorCirclePickerView extends View {
     private void pick(float x, float y) {
         float dx = x - centerX;
         float dy = y - centerY;
-        float distance = (float) Math.sqrt(dx * dx + dy * dy);
-        float saturation = Math.min(1f, distance / Math.max(1f, radius));
-        float hue = (float) ((Math.toDegrees(-Math.atan2(dy, dx)) + 360d) % 360d);
-        int color = Color.HSVToColor(new float[]{hue, saturation, 1f});
+        // 明度用当前亮度轴的取值（issue #60）：拖到纯黑之后，圆盘上任何位置都给深色。
+        int color = ColorWheelMath.rgbFor(ColorWheelMath.hueFor(dx, dy),
+                ColorWheelMath.saturationFor(dx, dy, radius), value);
         if (color == selectedColor) return;
         selectedColor = color;
         invalidate();
@@ -130,9 +151,10 @@ final class ColorCirclePickerView extends View {
                     pixels[index] = Color.TRANSPARENT;
                     continue;
                 }
-                float hue = (float) ((Math.toDegrees(-Math.atan2(dy, dx)) + 360d) % 360d);
-                float saturation = Math.min(1f, distance / radius);
-                pixels[index] = Color.HSVToColor(new float[]{hue, saturation, 1f});
+                float hue = ColorWheelMath.hueFor(dx, dy);
+                float saturation = ColorWheelMath.saturationFor(dx, dy, radius);
+                // 圆盘整体跟着亮度轴变暗，这样「拖到的地方就是会得到的颜色」（issue #60）。
+                pixels[index] = ColorWheelMath.rgbFor(hue, saturation, value);
             }
         }
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height);

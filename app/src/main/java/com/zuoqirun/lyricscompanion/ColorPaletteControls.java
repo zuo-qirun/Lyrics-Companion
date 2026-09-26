@@ -75,6 +75,22 @@ final class ColorPaletteControls {
         applyText.setAllCaps(false);
         inputRow.addView(applyText, new LinearLayout.LayoutParams(-2, dp(context, 48)));
         controls.addView(inputRow);
+        // 纯黑 / 纯白快捷入口（issue #60）：用户想设纯黑时不用记色号。
+        LinearLayout quickRow = new LinearLayout(context);
+        quickRow.setPadding(0, dp(context, 6), 0, 0);
+        MaterialButton pureBlack = new MaterialButton(context);
+        pureBlack.setText("纯黑");
+        pureBlack.setTextSize(12f);
+        pureBlack.setAllCaps(false);
+        MaterialButton pureWhite = new MaterialButton(context);
+        pureWhite.setText("纯白");
+        pureWhite.setTextSize(12f);
+        pureWhite.setAllCaps(false);
+        quickRow.addView(pureBlack, new LinearLayout.LayoutParams(0, dp(context, 44), 1f));
+        LinearLayout.LayoutParams whiteParams = new LinearLayout.LayoutParams(0, dp(context, 44), 1f);
+        whiteParams.leftMargin = dp(context, 8);
+        quickRow.addView(pureWhite, whiteParams);
+        controls.addView(quickRow);
         TextView hint = text(context, "圆形调色盘：沿外圈选择色相，向中心降低饱和度", 12,
                 0xFF8392A8, false);
         hint.setPadding(0, dp(context, 8), 0, dp(context, 3));
@@ -84,6 +100,26 @@ final class ColorPaletteControls {
         circleParams.gravity = Gravity.CENTER_HORIZONTAL;
         controls.addView(circle, circleParams);
         circle.setColor(initial);
+        // 亮度轴（issue #60）：放在圆盘外面，自己的 SeekBar，避免和圆盘 / ScrollView 抢手势。
+        LinearLayout brightnessRow = new LinearLayout(context);
+        brightnessRow.setGravity(Gravity.CENTER_VERTICAL);
+        brightnessRow.setPadding(0, dp(context, 8), 0, 0);
+        brightnessRow.addView(text(context, "亮度", 13, 0xFFD7E1EE, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView brightnessValue = text(context, "100%", 13, 0xFF6EE7F2, true);
+        brightnessRow.addView(brightnessValue);
+        controls.addView(brightnessRow);
+        android.widget.SeekBar brightnessSeek = new android.widget.SeekBar(context);
+        brightnessSeek.setMax(100);
+        brightnessSeek.setProgress(Math.round(circle.value() * 100f));
+        brightnessValue.setText(Math.round(circle.value() * 100f) + "%");
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            brightnessSeek.setProgressTintList(
+                    android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            brightnessSeek.setThumbTintList(
+                    android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
+        controls.addView(brightnessSeek, new LinearLayout.LayoutParams(-1, dp(context, 38)));
         Runnable apply = () -> {
             int color = Color.rgb(rgb[0], rgb[1], rgb[2]);
             store.set(color);
@@ -118,6 +154,20 @@ final class ColorPaletteControls {
             }
             apply.run();
         });
+        brightnessSeek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
+                                                    boolean fromUser) {
+                brightnessValue.setText(progress + "%");
+                if (!fromUser) return;
+                circle.setValue(ColorWheelMath.normalizeValue(progress));
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        pureBlack.setOnClickListener(v -> setRgb(rgb, 0x000000, circle, apply, brightnessSeek,
+                brightnessValue));
+        pureWhite.setOnClickListener(v -> setRgb(rgb, 0xFFFFFF, circle, apply, brightnessSeek,
+                brightnessValue));
         parent.addView(controls);
         manual.setOnCheckedChangeListener((button, enabled) -> {
             controls.setVisibility(enabled ? View.VISIBLE : View.GONE);
@@ -130,9 +180,22 @@ final class ColorPaletteControls {
         });
     }
 
+    /** 纯黑 / 纯白快捷入口（issue #60）：写回 rgb[] 后走同一条 apply 路径，亮度轴同步。 */
+    private static void setRgb(int[] rgb, int color, ColorCirclePickerView circle, Runnable apply,
+                               android.widget.SeekBar brightnessSeek, TextView brightnessValue) {
+        rgb[0] = (color >> 16) & 0xFF;
+        rgb[1] = (color >> 8) & 0xFF;
+        rgb[2] = color & 0xFF;
+        circle.setColor(0xFF000000 | color);
+        int percent = Math.round(ColorWheelMath.valueFromColorComponents(rgb[0], rgb[1], rgb[2])
+                * 100f);
+        brightnessSeek.setProgress(percent);
+        brightnessValue.setText(percent + "%");
+        apply.run();
+    }
+
     private static Channel addChannel(Context context, LinearLayout parent, String title, int[] rgb,
-                                      int channel, Runnable apply) {
-        LinearLayout row = new LinearLayout(context);
+                                      int channel, Runnable apply) {        LinearLayout row = new LinearLayout(context);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(context, 6), 0, 0);
         row.addView(text(context, title, 13, 0xFFD7E1EE, false),

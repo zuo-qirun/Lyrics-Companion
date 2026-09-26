@@ -6,12 +6,25 @@ import java.util.Set;
 
 final class KuwoLyricClient {
     private static final String REFERER = "https://www.kuwo.cn/";
+    /**
+     * 逐字通道的负缓存（issue #74）：这条通道连不上时，每首歌都要先等一次连接超时才轮到老接口。
+     * 连续失败 {@link WordChannelGate#FAILURES_BEFORE_BACKOFF} 次就退避 15 分钟，成功一次立刻清零。
+     * 状态是静态的：每个匹配任务都会新建一个 client，实例字段留不住。
+     */
+    private static volatile int wordChannelFailures;
+    private static volatile long wordChannelBlockedUntilMs;
     private final Context context;
     private final LyricCache cache;
 
     KuwoLyricClient(Context context) {
         this.context = context.getApplicationContext();
         cache = new LyricCache(context, "kuwo");
+    }
+
+    /** 诊断用：逐字通道当前是否被退避、还剩多久（毫秒）。 */
+    static long wordChannelBlockedForMs() {
+        return WordChannelGate.remainingMs(android.os.SystemClock.elapsedRealtime(),
+                wordChannelBlockedUntilMs);
     }
 
     LrcTimeline load(String mediaId, String title, String artist, long durationMs)
@@ -62,26 +75,43 @@ final class KuwoLyricClient {
             LrcTimeline cachedEnhanced = LrcTimeline.parse("", "", enhanced);
             if (!cachedEnhanced.isEmpty()) return cachedEnhanced;
         }
-        try {
-            byte[] response = LyricHttp.getBytes("http://mlyric.kuwo.cn/mobi.s?f=web"
-                    + "&type=lyric&lrcx=1&rid=" + LyricHttp.encode(id)
-                    + "&encode=utf8", REFERER);
-            enhanced = KuwoWordLyricCodec.toEnhancedTimeline(
-                    LyricSourceRules.plainKuwoWordResponse()
-                            ? new String(response, java.nio.charset.StandardCharsets.UTF_8)
-                            : KuwoWordLyricCodec.decode(response));
-            LrcTimeline wordTimed = LrcTimeline.parse("", "", enhanced);
-            if (!wordTimed.isEmpty()) {
-                cache.write(id + "_enhanced_v2", enhanced);
-                log(route + " rid=" + id + " wordTimedLines=" + wordTimed.lineCount());
-                return wordTimed;
+        // 逐字通道最近连不上就跳过它（缓存与老接口照常走），不再让每首歌先等一次超时（issue #74）。
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (WordChannelGate.isOpen(now, wordChannelBlockedUntilMs)) {
+            try {
+                byte[] response = LyricHttp.getBytes("http://mlyric.kuwo.cn/mobi.s?f=web"
+                        + "&type=lyric&lrcx=1&rid=" + LyricHttp.encode(id)
+                        + "&encode=utf8", REFERER, LyricHttp.Timeouts.WORD_CHANNEL);
+                // 拿到响应就算通道可用，连续失败清零。
+                wordChannelFailures = 0;
+                wordChannelBlockedUntilMs = 0L;
+                enhanced = KuwoWordLyricCodec.toEnhancedTimeline(
+                        LyricSourceRules.plainKuwoWordResponse()
+                                ? new String(response, java.nio.charset.StandardCharsets.UTF_8)
+                                : KuwoWordLyricCodec.decode(response));
+                LrcTimeline wordTimed = LrcTimeline.parse("", "", enhanced);
+                if (!wordTimed.isEmpty()) {
+                    cache.write(id + "_enhanced_v2", enhanced);
+                    log(route + " rid=" + id + " wordTimedLines=" + wordTimed.lineCount());
+                    return wordTimed;
+                }
+            } catch (InterruptedException error) {
+                throw error;
+            } catch (Exception error) {
+                checkInterrupted();
+                // 传输层失败才退避；「连上了但没有逐字歌词」不算失败。
+                int failures = WordChannelGate.failuresAfterFailure(wordChannelFailures);
+                wordChannelFailures = failures;
+                wordChannelBlockedUntilMs = WordChannelGate.blockedUntil(
+                        android.os.SystemClock.elapsedRealtime(), failures);
+                log(route + " rid=" + id + " word channel="
+                        + error.getClass().getSimpleName() + " failures=" + failures
+                        + (wordChannelBlockedUntilMs > 0L
+                        ? " backoffMs=" + WordChannelGate.BACKOFF_MS : ""));
             }
-        } catch (InterruptedException error) {
-            throw error;
-        } catch (Exception error) {
-            checkInterrupted();
-            log(route + " rid=" + id + " word channel="
-                    + error.getClass().getSimpleName());
+        } else {
+            log(route + " rid=" + id + " word channel skipped backoffMs="
+                    + WordChannelGate.remainingMs(now, wordChannelBlockedUntilMs));
         }
         String cached = cache.read(id);
         if (cached != null) {

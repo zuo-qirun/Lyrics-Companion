@@ -154,6 +154,21 @@ final class MusicStateStore {
                 newMediaId = mediaId;
                 newDuration = durationMs;
                 incomingLiveSessionLyric = "";
+            } else if (!hasCompositeIdentity && anchoredCompositeIdentity(
+                    title, newTitle, newArtist, sameSource,
+                    stateValue == MusicPlaybackData.STATE_PLAYING, mediaId, newMediaId)) {
+                // LX-X Music 这类播放器把当前歌词行写进 TITLE、同时把 ARTIST 变成「歌名 - 歌手」：两个
+                // 字段一起变，通用规则会当成换歌，歌词就在「匹配到」和「暂无匹配歌词」之间来回跳
+                // （issue #68）。这里把它当作「歌词行 + 复合歌手」的实时歌词更新：标题锚定在已匹配的
+                // 歌名上，歌手取去掉前缀的干净版本，原始 TITLE 作为实时歌词显示。
+                Log.i(TAG, "Anchored composite identity from artist prefix: " + newTitle);
+                DiagnosticLog.record(context, "Playback",
+                        "anchored identity from prefix artist=" + newArtist);
+                if (!sameIdentityText(newTitle, title)) incomingLiveSessionLyric = newTitle;
+                newTitle = title;
+                newArtist = stableArtistFromComposite(title, newArtist);
+                if (!TextUtils.isEmpty(mediaId)) newMediaId = mediaId;
+                if (durationMs > 0L) newDuration = durationMs;
             } else if (!hasCompositeIdentity && shouldKeepLiveLyricTrackIdentity(
                     normalizedSource, sameSource, title, newTitle,
                     artist, newArtist, durationMs, newDuration,
@@ -596,7 +611,12 @@ final class MusicStateStore {
                 : snapshot.playing ? "播放中" : "已暂停")
                 + "\n" + snapshot.title
                 + (snapshot.artist.isEmpty() ? "" : " · " + snapshot.artist)
-                + "\n" + lyricState;
+                + "\n" + lyricState
+                // 「为什么没有歌词」的一句话结论（issue #62）：U 盘 / 视频场景最常见的原因直接写出来。
+                + "\n" + MediaDiagnosisRules.verdictText(MediaDiagnosisRules.classify(
+                snapshot.active, !snapshot.title.isEmpty(), !unknownProgress,
+                snapshot.lyricLoaded, snapshot.lyricAvailable, snapshot.lyricSourceName),
+                snapshot.lyricSourceName);
     }
 
     static String diagnosticDetails() {
@@ -626,7 +646,14 @@ final class MusicStateStore {
                     // 长度把"播放器没发歌词 / 只发了空白 / 真有词"三种情况分开，空白串正是
                     // 面板停在「即将开始」的那一种（issue #52）。
                     + "\nliveSessionLyricLength=" + liveSessionLyric.length()
-                    + "\nliveSessionLyricUsable=" + isLiveLyricUsable(liveSessionLyric);
+                    + "\nliveSessionLyricUsable=" + isLiveLyricUsable(liveSessionLyric)
+                    // U 盘 / 视频这类「播放器不给元数据」的场景一眼可判（issue #62）。
+                    + "\ndiagnosis=" + MediaDiagnosisRules.verdictText(
+                    MediaDiagnosisRules.classify(active, !TextUtils.isEmpty(title),
+                            !notificationProgressUnknown, lyricLoadFinished,
+                            !timeline.isEmpty() || isLiveLyricUsable(liveSessionLyric),
+                            lyricSourceName), lyricSourceName)
+                    + "\nkuwoWordChannelBackoffMs=" + KuwoLyricClient.wordChannelBlockedForMs();
         }
     }
 
@@ -701,6 +728,8 @@ final class MusicStateStore {
             if (thread != null) LyricHttp.cancel(thread);
             lyricLoadTask = null;
         }
+        // 换歌时也把还在跑的「缓存后台升级」掐掉：那是上一首歌的请求，别让它继续占线程（issue #74）。
+        MultiSourceLyricClient.cancelPendingUpgrade();
     }
 
     private static void scheduleAlbumArtLoad(long generation, String address) {
@@ -859,8 +888,36 @@ final class MusicStateStore {
         return titleChanged && !artistChanged && !durationChanged;
     }
 
-    static String stableArtistFromComposite(String stableTitle, String rawArtist) {
-        String titleValue = safe(stableTitle).trim();
+    /**
+     * 「锚定复合身份」判据（issue #68）。
+     *
+     * <p>LX-X Music（落雪音乐）这类播放器会把**当前歌词行**写进 TITLE，同时把 ARTIST 变成「歌名 - 歌手」。
+     * 两个字段一起变，通用规则（只认单字段实时歌词，{@link #shouldKeepLiveLyricTrackIdentity}）会判定成
+     * 换歌，于是歌词在「匹配到」和「暂无匹配歌词」之间来回跳。
+     *
+     * <p>命中条件：来源没变、正在播放、已存标题非空、进来的 ARTIST 以该标题开头（说明它是复合串）、
+     * 进来的 TITLE 既不是同一个标题、也不是「歌名 - 歌手」这种结构化标题，且播放器没有给出不同的稳定
+     * mediaId。命中时把标题锚定在已匹配的歌名上，ARTIST 取去掉前缀的干净版本，原始 TITLE 当实时歌词。
+     */
+    static boolean anchoredCompositeIdentity(String storedTitle, String incomingTitle,
+                                             String incomingArtist, boolean sameSource,
+                                             boolean playing, String storedMediaId,
+                                             String incomingMediaId) {
+        String stored = safe(storedTitle).trim();
+        String title = safe(incomingTitle).trim();
+        String artist = safe(incomingArtist).trim();
+        if (!sameSource || !playing) return false;
+        if (stored.isEmpty() || title.isEmpty() || artist.isEmpty()) return false;
+        if (artist.length() <= stored.length()) return false;
+        if (!artist.regionMatches(true, 0, stored, 0, stored.length())) return false;
+        if (sameIdentityText(title, stored)) return false;
+        if (LocalTrackQueryRules.looksLikeStructuredTrackTitle(title)) return false;
+        String storedId = safe(storedMediaId).trim();
+        String incomingId = safe(incomingMediaId).trim();
+        return storedId.isEmpty() || incomingId.isEmpty() || storedId.equals(incomingId);
+    }
+
+    static String stableArtistFromComposite(String stableTitle, String rawArtist) {        String titleValue = safe(stableTitle).trim();
         String artistValue = safe(rawArtist).trim();
         if (titleValue.isEmpty() || artistValue.length() <= titleValue.length()
                 || !artistValue.regionMatches(true, 0, titleValue, 0, titleValue.length())) {

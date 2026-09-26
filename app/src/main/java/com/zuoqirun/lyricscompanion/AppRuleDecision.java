@@ -20,7 +20,30 @@ import java.util.Set;
  * <p>不含 Android 类型，便于单测。
  */
 final class AppRuleDecision {
+    /** 「上一次已知前台应用」的有效期：超过它就不再拿旧值当依据（issue #61）。 */
+    static final long LAST_KNOWN_TTL_MS = 10L * 60L * 1_000L;
+
     private AppRuleDecision() {}
+
+    /**
+     * 这一次判定用哪个「前台应用」（issue #61）。
+     *
+     * <p>ROM（哈弗华阳实测）常常让 {@code queryEvents} 什么都不返回，于是黑名单永远命中不了；退一步用
+     * 「上一次已知前台应用」，但只在授权可读、且旧值仍然新鲜（{@value #LAST_KNOWN_TTL_MS} 毫秒内）时
+     * 才用——否则一个过期包名会把歌词莫名其妙地藏起来。白名单那边仍然按「读不到就不隐藏」的安全阀走，
+     * 所以这里只影响黑名单的实际命中率。
+     */
+    static String effectiveForeground(String liveForeground, String lastKnownForeground,
+                                      long lastKnownAgeMs, boolean accessGranted) {
+        String live = liveForeground == null ? "" : liveForeground.trim();
+        if (!live.isEmpty()) return live;
+        if (!accessGranted) return "";
+        String lastKnown = lastKnownForeground == null ? "" : lastKnownForeground.trim();
+        if (lastKnown.isEmpty() || lastKnownAgeMs < 0L || lastKnownAgeMs > LAST_KNOWN_TTL_MS) {
+            return "";
+        }
+        return lastKnown;
+    }
 
     static boolean hides(boolean ruleEnabled, boolean whitelist, boolean whitelistUsable,
                          Set<String> listedApps, String foregroundPackage) {

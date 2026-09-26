@@ -89,8 +89,8 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
 
         LinearLayout background = card("背景");
         addChoice(background, "类型", AppPreferences.KEY_REFINED_BACKGROUND_TYPE,
-                new String[]{"流体", "模糊", "渐变", "纯色", "无"},
-                new String[]{"fluid", "blur", "gradient", "solid", "none"},
+                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘"},
+                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield"},
                 AppPreferences.refinedBackgroundType(this, secondary));
         addToggle(background, "静态流体", AppPreferences.KEY_REFINED_STATIC_FLUID,
                 AppPreferences.refinedStaticFluid(this, secondary));
@@ -129,7 +129,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         addToggle(lyric, "当前歌词辉光", AppPreferences.KEY_REFINED_LYRIC_GLOW,
                 AppPreferences.refinedLyricGlow(this, secondary));
 
-        TextView note = text("逐字动画保持完整 Unicode 字符跳变；没有逐字时间轴的普通 LRC 仍按整句切换。BetterNCM 的鼠标悬停、评论区和播放器底栏选项不属于悬浮窗渲染范围。",
+        TextView note = text("逐字动画按完整 Unicode 字符跳变；无逐字时间轴的 LRC 仍整句切换。",
                 12, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         note.setPadding(dp(4), dp(14), dp(4), 0);

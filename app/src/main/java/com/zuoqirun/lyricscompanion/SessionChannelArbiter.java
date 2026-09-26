@@ -115,6 +115,15 @@ final class SessionChannelArbiter {
             return score;
         }
 
+        /**
+         * 东风皓瀚播放器的会话（issue #75）：它的 AIDL 只给 NAME/TYPE/STATUS，数据永远是「有标题、
+         * 有（恒为 0 的）进度、没有位置时间戳」，位置不会推进。别的通知型发布者同样可能没有时间戳，
+         * 但它们的防抖语义必须保持不变，所以这里按包名 / 源 id 收窄。
+         */
+        boolean isFrozenVendorSlot() {
+            return "com.dftc.media".equals(packageName) || "dftc_media".equals(sourceId);
+        }
+
         /** Whether this feed can keep the panel populated on its own. */
         boolean isHealthy() {
             return hasTitle && hasProgress;
@@ -248,6 +257,11 @@ final class SessionChannelArbiter {
         String reason;
         if (challengerScore - activeScore >= TAKEOVER_SCORE_DELTA) {
             reason = "score_delta";
+        } else if (incoming.playing && incoming.hasPositionTimestamp
+                && active.isFrozenVendorSlot() && !active.hasPositionTimestamp) {
+            // 东风车机的常驻会话位置永远不动；另一路带着位置时间戳、又明确在播放的会话必须能接管，
+            // 否则酷我之类的播放器永远出不来（issue #75）。
+            reason = "active_no_position_evidence";
         } else if (!active.isFresh(nowElapsedMs, PROGRESS_STALE_MS)) {
             reason = "active_stalled";
         } else if (quietForMs >= HOLD_MS) {

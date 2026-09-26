@@ -18,6 +18,14 @@ import java.util.concurrent.atomic.AtomicReference;
 final class MultiSourceLyricClient {
     private static final String TAG = "LyricsCatalog";
     private static final ExecutorService FALLBACK_EXECUTOR = Executors.newFixedThreadPool(6);
+    /**
+     * 缓存后台升级（issue #74）：它只是「顺带把更好的逐字版本补进缓存」，绝不该占着 fallback 线程池
+     * 的位置——以前它 fire-and-forget 跑在 6 线程池上、线程又不登记，一首歌最长能占住一个槽位
+     * ~51 秒（酷我逐字通道连接超时），切歌也取消不掉。改成独立的单线程队列：新任务开始前先取消上一
+     * 个，永远只占一个自己的线程。
+     */
+    private static final ExecutorService UPGRADE_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final AtomicReference<Thread> UPGRADE_THREAD = new AtomicReference<>();
     private final NetEaseLyricClient netease;
     private final QQMusicLyricClient qq;
     private final KugouLyricClient kugou;
@@ -94,11 +102,19 @@ final class MultiSourceLyricClient {
                     matchedCache.markUpgradeChecked(key);
                     final String upgradeProvider = provider;
                     final String upgradeId = directMediaId(currentSource, provider, mediaId);
-                    FALLBACK_EXECUTOR.execute(() -> {
-                        Result upgraded = tryProvider(upgradeProvider, sourcePackage, upgradeId,
-                                title, artist, durationMs);
-                        if (upgraded.timeline.qualityScore() > cached.qualityScore()) {
-                            matchedCache.write(key, upgraded.timeline);
+                    final int cachedScore = cached.qualityScore();
+                    cancelPendingUpgrade();
+                    UPGRADE_EXECUTOR.execute(() -> {
+                        UPGRADE_THREAD.set(Thread.currentThread());
+                        try {
+                            Result upgraded = tryProvider(upgradeProvider, sourcePackage, upgradeId,
+                                    title, artist, durationMs);
+                            if (Thread.currentThread().isInterrupted()) return;
+                            if (upgraded.timeline.qualityScore() > cachedScore) {
+                                matchedCache.write(key, upgraded.timeline);
+                            }
+                        } finally {
+                            UPGRADE_THREAD.compareAndSet(Thread.currentThread(), null);
                         }
                     });
                 }
@@ -193,6 +209,15 @@ final class MultiSourceLyricClient {
     private static final class ProviderTask {
         final AtomicReference<Thread> thread = new AtomicReference<>();
         Future<Result> future;
+    }
+
+    /** 取消上一次还在跑的缓存升级（换歌时顺手做，别让旧曲目的请求白占一条线程，issue #74）。 */
+    static void cancelPendingUpgrade() {
+        Thread thread = UPGRADE_THREAD.getAndSet(null);
+        if (thread != null) {
+            thread.interrupt();
+            LyricHttp.cancel(thread);
+        }
     }
 
     /**

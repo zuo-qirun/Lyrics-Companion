@@ -1,5 +1,6 @@
 package com.zuoqirun.lyricscompanion;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -60,5 +61,27 @@ public class AppRuleDecisionTest {
         Set<String> set = new HashSet<>();
         Collections.addAll(set, values);
         return set;
+    }
+
+    @Test public void lastKnownForegroundBacksTheBlacklistWhenTheRomReportsNothing() {
+        // issue #61：华阳车机的 queryEvents 什么都不返回，黑名单永远命中不了；退一步用新鲜的上一次值。
+        assertEquals("com.byd.mediacenter", AppRuleDecision.effectiveForeground(
+                "", "com.byd.mediacenter", 5_000L, true));
+        // 过期的旧值不能拿来判断，否则歌词会莫名其妙地藏起来
+        assertEquals("", AppRuleDecision.effectiveForeground(
+                "", "com.byd.mediacenter", AppRuleDecision.LAST_KNOWN_TTL_MS + 1_000L, true));
+        // 没授权时连旧值也不该用（白名单那边本来就按「读不到就不隐藏」的安全阀走）
+        assertEquals("", AppRuleDecision.effectiveForeground(
+                "", "com.byd.mediacenter", 5_000L, false));
+        // 真的读到了就以实时的为准
+        assertEquals("com.x", AppRuleDecision.effectiveForeground(
+                "com.x", "com.byd.mediacenter", 1_000L, true));
+        assertEquals("", AppRuleDecision.effectiveForeground("", "", 0L, true));
+        // 黑名单因此真的能命中（旧值为空时保持原行为：不动）
+        assertTrue(AppRuleDecision.hides(true, false, true, setOf("com.byd.mediacenter"),
+                AppRuleDecision.effectiveForeground("", "com.byd.mediacenter", 5_000L, true)));
+        assertFalse(AppRuleDecision.hides(true, false, true, setOf("com.byd.mediacenter"),
+                AppRuleDecision.effectiveForeground("", "com.byd.mediacenter",
+                        AppRuleDecision.LAST_KNOWN_TTL_MS + 1_000L, true)));
     }
 }

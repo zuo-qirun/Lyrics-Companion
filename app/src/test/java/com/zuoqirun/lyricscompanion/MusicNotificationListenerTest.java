@@ -47,4 +47,24 @@ public class MusicNotificationListenerTest {
         assertFalse(MusicNotificationListener.shouldYieldToActiveDftcSession(
                 DFTC, true, false, DFTC, true));
     }
+
+    /** issue #75：东风会话常驻却不再变化时，正在播放的其它播放器必须能接管。 */
+    @Test public void staleVendorSessionStopsHoldingAPlayingPlayer() {
+        assertTrue("东风还在推进时继续按住", MusicNotificationListener.shouldYieldToActiveDftcSession(
+                DFTC, true, true, NETEASE, true, true, false));
+        assertFalse("东风 60 秒没变化就让位给正在播放的酷我",
+                MusicNotificationListener.shouldYieldToActiveDftcSession(
+                        DFTC, true, true, NETEASE, true, false, false));
+        // 进来的一路没在播放时照旧让位（防抖语义不变）
+        assertTrue(MusicNotificationListener.shouldYieldToActiveDftcSession(
+                DFTC, true, true, GHOST, false, false, false));
+        // 用户选了「始终优先东风」时回到老行为
+        assertTrue(MusicNotificationListener.shouldYieldToActiveDftcSession(
+                DFTC, true, true, NETEASE, true, false, true));
+        // 与东风无关的分支不受影响
+        assertFalse(MusicNotificationListener.shouldYieldToActiveDftcSession(
+                NETEASE, true, true, NETEASE, true, false, false));
+        assertFalse(MusicNotificationListener.shouldYieldToActiveDftcSession(
+                DFTC, false, true, NETEASE, true, false, false));
+    }
 }

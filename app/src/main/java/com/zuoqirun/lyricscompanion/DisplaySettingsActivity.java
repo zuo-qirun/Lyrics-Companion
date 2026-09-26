@@ -88,10 +88,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             changed();
         });
         styleScope.addView(copyToStyles, new LinearLayout.LayoutParams(-1, dp(48)));
-        styleScope.addView(text("颜色、字号、行数、不透明度、粒子与逐字、对齐、圆角、封面与匹配动画"
-                + "现在都按「屏幕 × 样式」各存一份：在某个样式下调好的参数，切到别的样式不会带过去。"
-                + "没调过的项沿用本屏原来的共用值（升级后观感不变），只有你在这个样式下改过的项"
-                + "才会被单独保存——上面的按钮只会复制这些项。", 12, 0xFFD7E1EE, false));
+        styleScope.addView(text("颜色、字号、行数、对齐、圆角、封面等按「屏幕 × 样式」各存一份；"
+                + "按钮只复制你改过的项。", 12, 0xFFD7E1EE, false));
         addCard(root, styleScope);
 
         LinearLayout panel = card("悬浮窗尺寸与文字");
@@ -106,6 +104,13 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 maximumHeight,
                 AppPreferences.panelHeightDp(this, secondary), " dp",
                 value -> AppPreferences.setPanelHeightDp(this, secondary, value));
+        // 「允许移出屏幕边缘」（issue #49）：默认关，开启后可以贴到真正的屏幕边。
+        addToggle(panel, "允许面板移出屏幕边缘", AppPreferences.KEY_OVERLAY_ALLOW_OFFSCREEN,
+                AppPreferences.overlayAllowOffscreen(this, secondary), null);
+        addSeek(panel, "可移出屏幕的比例", 0, OverlayDragMath.PERCENT_LIMIT,
+                AppPreferences.overlayOffscreenPercent(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_OVERLAY_OFFSCREEN_PERCENT, value));
         addSeek(panel, "字号", 75, 220,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
@@ -114,6 +119,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.titleScale(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_TITLE_SCALE, value));
+        // 歌手字号（issue #63）：0% = 跟随各样式原本比例，100% = 与歌名同号。
+        addSeek(panel, "歌手字号（0 = 跟随样式）", 0, MetadataTypeScaleMath.MAX_PERCENT,
+                Math.max(0, AppPreferences.artistScale(this, secondary)), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_ARTIST_SCALE,
+                        value <= 0 ? MetadataTypeScaleMath.UNSET : value));
         addSeek(panel, "下一句字号", 45, 160,
                 AppPreferences.nextLyricScale(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
@@ -136,13 +147,27 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.contentAlign(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_CONTENT_ALIGN, value));
-        panel.addView(text("把悬浮窗拖到屏幕顶端后选「顶部」，歌词才会真正贴到面板上沿；「跟随样式」保持原来的摆法。", 12, 0xFFD7E1EE, false));
+        panel.addView(text("拖到屏幕顶端后选「顶部」，歌词才会贴到面板上沿。", 12, 0xFFD7E1EE, false));
         addChoice(panel, "歌词水平对齐（经典 / 紧凑 / 纯净）",
                 new String[]{"跟随样式（默认）", "居中", "居左"},
                 new String[]{"", "center", "left"},
                 AppPreferences.lyricAlign(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_LYRIC_ALIGN, value));
+        // 内容留白（issue #49）：0% = 文字尽量贴边，100% = 样式原样。
+        addSeek(panel, "内容留白（0 = 贴边）", 0, ContentPaddingMath.MAX_PERCENT,
+                Math.max(0, AppPreferences.contentPaddingPercent(this, secondary)), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_CONTENT_PADDING_PERCENT,
+                        value <= 0 ? 0 : value));
+        // 长句显示方式（issue #47）：默认跑马灯；换行会吃掉相邻行位（顶部歌词条永远跑马灯）。
+        addChoice(panel, "长句显示方式（紧凑 / 纯净）",
+                new String[]{"横向跑马灯（默认）", "缩小字号", "换行"},
+                new String[]{LongLineLayout.MODE_MARQUEE, LongLineLayout.MODE_SHRINK,
+                        LongLineLayout.MODE_WRAP},
+                AppPreferences.longLineMode(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_LONG_LINE_MODE, value));
         // 粒子量 and 逐字歌词及时擦除 belong to the dissolve: they are only offered while it is
         // switched on, and go away with it. The holder exists because the master toggle is built
         // before the rows it controls.
@@ -172,22 +197,25 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         MaterialSwitch lockToggle = addToggle(panel, "锁定位置并穿透（保留播放控制按键）",
                 AppPreferences.KEY_OVERLAY_POSITION_LOCKED,
                 AppPreferences.overlayPositionLocked(this, secondary), null);
-        panel.addView(text("锁定后点击会穿透到下面的应用，只保留播放控制按键可点；歌词旁出现 × 手柄，"
-                + "点第一下只提示、再点一下才解除（避免想操作歌词时误触）。与下面的「锁定并触摸穿透」"
-                + "不能同时开启。Android 12 及以上会把整窗不透明度压到 79% 才能穿透，歌词会比平时略暗。",
+        panel.addView(text("锁定后点击穿透到下层应用，仅播放按键可点；点 × 两次解除。"
+                + "与「锁定并触摸穿透」二选一；Android 12 起穿透会让歌词略暗。",
                 12, 0xFF8392A8, false));
         addTouchThroughToggle(panel, lockToggle);
         addSeek(panel, "歌词显示行数", 1, 7,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_STYLE_LYRIC_LINES, value));
-        panel.addView(text("经典样式最多摆三行（上一句 / 本句 / 下一句）：2 行＝本句 + 下一句，1 行＝只画本句；纯净与极简按设置的行数显示。", 12, 0xFFD7E1EE, false));
+        // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
+        addChoice(panel, "文字效果（全部样式）",
+                new String[]{"无（各样式原样）", "文字阴影", "文字辉光"},
+                new String[]{"none", "shadow", "glow"},
+                AppPreferences.refinedTextEffect(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_REFINED_TEXT_EFFECT, value));
         // 无逐字时间轴时估算逐字进度（issue #21）。
         addToggle(panel, "无逐字时间轴时按本句时长估算逐字进度", AppPreferences.KEY_ESTIMATED_WORD_KARAOKE,
                 AppPreferences.estimatedWordKaraoke(this, secondary), null);
-        panel.addView(text("普通 .lrc 只有行时间轴，原本整句一次性变色；打开后按「本句已播放比例」由白到蓝"
-                + "逐字推进，紧凑 / HUD / 顶部条 / 经典 / Refined 观感统一。长音、拖腔与行内停顿会让"
-                + "估算提前或滞后（只影响观感，不影响同步），所以默认关闭。", 12, 0xFFD7E1EE, false));
+        panel.addView(text("普通 .lrc 按本句已播放比例逐字推进；长音与停顿会有偏差，默认关闭。", 12, 0xFFD7E1EE, false));
         // 「正在匹配歌词」的呈现方式（issue #45）。
         final View[][] matchingDependents = new View[1][];
         MaterialSwitch matching = addToggle(panel, "匹配歌词时显示动画",
@@ -201,9 +229,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         AppPreferences.KEY_MATCHING_ANIMATION_DELAY, value * 1_000));
         matchingDependents[0] = new View[] { matchingDelayRow[0], matchingDelayRow[1] };
         setDependentVisibility(matching.isChecked(), matchingDependents[0]);
-        panel.addView(text("匹配期间歌名照常显示，面板底部给一排从中心向两侧发散的小点；关闭后回到原来"
-                + "「正在匹配歌词…」的静止文字。默认匹配超过 3 秒才出现，避免瞬间匹配成功时闪一下；"
-                + "动画期间会保持约 30 fps，老旧车机可以关掉省电。", 12, 0xFFD7E1EE, false));
+        panel.addView(text("匹配期间面板底部显示发散小点；默认超过 3 秒才出现，动画约 30 fps。",
+                12, 0xFFD7E1EE, false));
         if ("pure".equals(AppPreferences.overlayStyle(this, secondary))) {
             addToggle(panel, "纯净歌词显示翻译", AppPreferences.KEY_PURE_SHOW_TRANSLATION,
                     AppPreferences.pureShowTranslation(this, secondary));
@@ -232,6 +259,16 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.spectrumColorMode(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_SPECTRUM_COLOR_MODE, value));
+        // 律动/频谱条的大小（issue #57）：0% = 沿用原来的 14–42dp / 面板高 15%。
+        addSeek(spectrum, "律动高度（0 = 跟随样式）", 0, SpectrumLayoutMath.MAX_HEIGHT_PERCENT,
+                Math.max(0, AppPreferences.spectrumHeightPercent(this, secondary)), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_SPECTRUM_HEIGHT_PERCENT,
+                        value <= 0 ? SpectrumLayoutMath.UNSET : value));
+        addSeek(spectrum, "律动与底边留白", 0, SpectrumLayoutMath.MAX_GAP_DP,
+                AppPreferences.spectrumGapDp(this, secondary), " dp",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_SPECTRUM_GAP_DP, value));
         addCard(root, spectrum);
 
         if (!secondary) {
@@ -240,14 +277,16 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     AppPreferences.playbackControlScale(this), "%",
                     value -> AppPreferences.get(this).edit()
                             .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_SCALE, value).apply());
-            addSeek(controls, "播放按钮水平位置", -40, 40,
-                    AppPreferences.playbackControlX(this), "%",
-                    value -> AppPreferences.get(this).edit()
-                            .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_X, value).apply());
-            addSeek(controls, "播放按钮垂直位置", -40, 40,
-                    AppPreferences.playbackControlY(this), "%",
-                    value -> AppPreferences.get(this).edit()
-                            .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_Y, value).apply());
+            addSeek(controls, "播放按钮水平位置", -AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.playbackControlX(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_PLAYBACK_CONTROL_X, value));
+            addSeek(controls, "播放按钮垂直位置", -AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.playbackControlY(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_PLAYBACK_CONTROL_Y, value));
             addChoice(controls, "全屏右上角关闭按钮",
                     new String[]{"自动弱化", "始终显示", "隐藏"},
                     new String[]{"fade", "always", "hidden"},
@@ -266,6 +305,28 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             addToggle(controls, "显示上一首 / 播放暂停 / 下一首按钮",
                     AppPreferences.KEY_SECONDARY_PLAYBACK_CONTROLS,
                     AppPreferences.showPlaybackControls(this, true));
+            // 副屏可以只留一两个键，不必去主屏关掉再两屏一起变（issue #72 / #30）。
+            addToggle(controls, "上一首", AppPreferences.KEY_SHOW_PREVIOUS_BUTTON,
+                    AppPreferences.showPreviousButton(this, true));
+            addToggle(controls, "播放 / 暂停", AppPreferences.KEY_SHOW_PLAY_PAUSE_BUTTON,
+                    AppPreferences.showPlayPauseButton(this, true));
+            addToggle(controls, "下一首", AppPreferences.KEY_SHOW_NEXT_BUTTON,
+                    AppPreferences.showNextButton(this, true));
+            // 副屏自己的位置/大小（issue #73）：以前副屏只能跟着主屏的偏移走。
+            addSeek(controls, "播放按钮大小", 60, 160,
+                    AppPreferences.playbackControlScale(this), "%",
+                    value -> AppPreferences.get(this).edit()
+                            .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_SCALE, value).apply());
+            addSeek(controls, "播放按钮水平位置", -AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.playbackControlX(this, true), "%",
+                    value -> AppPreferences.putDisplayInt(this, true,
+                            AppPreferences.KEY_PLAYBACK_CONTROL_X, value));
+            addSeek(controls, "播放按钮垂直位置", -AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.PLAYBACK_CONTROL_OFFSET_LIMIT,
+                    AppPreferences.playbackControlY(this, true), "%",
+                    value -> AppPreferences.putDisplayInt(this, true,
+                            AppPreferences.KEY_PLAYBACK_CONTROL_Y, value));
             addCard(root, controls);
         }
 
@@ -288,7 +349,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.lyricCacheLimitMb(this), " MB",
                 value -> AppPreferences.get(this).edit()
                         .putInt(AppPreferences.KEY_LYRIC_CACHE_LIMIT_MB, value).apply());
-        cache.addView(text("匹配成功后保存歌词、翻译和逐字时间轴；再次播放优先读取本地缓存，无需联网搜索。默认上限 128 MB；手动重新匹配会跳过歌曲匹配缓存。", 12, 0xFFD7E1EE, false));
+        cache.addView(text("缓存歌词、翻译与逐字时间轴，再次播放优先读缓存；清除后重新联网匹配（各屏共用）。", 12, 0xFFD7E1EE, false));
         // 缓存占用与清除入口（issue #20）。
         TextView cacheUsage = text(cacheUsageLabel(), 13, 0xFF6EE7F2, false);
         cacheUsage.setPadding(0, dp(10), 0, dp(6));
@@ -303,13 +364,18 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 android.content.res.ColorStateList.valueOf(0xFF25364D));
         clearCache.setOnClickListener(v -> confirmClearLyricCache(cacheUsage));
         cache.addView(clearCache, new LinearLayout.LayoutParams(-1, dp(48)));
-        cache.addView(text("「按容量自动淘汰」（默认）现在也带 30 天上限：歌少、总量到不了上限时，"
-                + "旧缓存不会再一直命中，「永久保留」不受影响。清除会同时删掉歌词与匹配结果缓存，"
-                + "下次播放重新联网匹配；缓存是全部屏幕共用的，任一屏清除都会清掉同一份。", 12,
+        cache.addView(text("「按容量自动淘汰」与「保留 30 天」都带 30 天上限，「永久保留」不受影响。", 12,
                 0xFFD7E1EE, false));
         addCard(root, cache);
 
         LinearLayout artwork = card("背景与封面");
+        // 播放器不给封面时的行为（issue #50）。
+        addChoice(artwork, "播放器不给封面时",
+                new String[]{"显示占位方块", "隐藏封面区域（版面内收）"},
+                new String[]{"placeholder", "hide"},
+                AppPreferences.coverMissingMode(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_COVER_MISSING_MODE, value));
         addSeek(artwork, "背景不透明度", 0, 100,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_OPACITY, 88), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_OPACITY, value));
@@ -323,18 +389,33 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addSeek(artwork, "封面背景遮罩", 0, 80,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, 38), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, value));
-        // 面板圆角（issue #37）：0 = 直角矩形，可以把面板当成一整块实心色板。
-        addSeek(artwork, "面板圆角（0 = 直角）", 0, 50, displayedCornerPercent(), "%",
+        // 遮罩 0 = 不压暗（issue #58）；「完全不画遮罩」档用于「遮罩调 0 还是压暗」的老样式。
+        addChoice(artwork, "遮罩方式",
+                new String[]{"按样式（默认）", "不画遮罩"},
+                new String[]{ArtworkBackgroundMath.MODE_AUTO, ArtworkBackgroundMath.MODE_OFF},
+                AppPreferences.styleMaskMode(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_STYLE_MASK_MODE, value));
+        addSeek(artwork, "背景亮度", -ArtworkBackgroundMath.MAX_BRIGHTNESS,
+                ArtworkBackgroundMath.MAX_BRIGHTNESS,
+                AppPreferences.styleBrightness(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_STYLE_BRIGHTNESS, value));
+        // 面板圆角（issue #37）：0 = 直角矩形，可以把面板当成一整块实心色板。
+        addSeek(artwork, "面板圆角（0 = 直角）", 0, 50, displayedCornerPercent(), "%",                value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_CORNER_RADIUS_PERCENT, value));
-        artwork.addView(text("圆角按面板短边的百分比计算；0% 就是直角矩形，配合「背景不透明度」100% "
-                + "可以把面板整块盖住后面的原车界面。没调过时显示的是当前样式原本的圆角。", 12,
+        artwork.addView(text("0% 为直角；配合「背景不透明度」100% 可整块盖住后面的界面。", 12,
                 0xFFD7E1EE, false));
+        // 面板边缘阴影（issue #56）：0 = 关掉，滑到最右最强；滑杆最左是「各样式原样」。
+        addSeek(artwork, "面板阴影", 0, PanelShadowMath.MAX_PERCENT,
+                Math.max(0, AppPreferences.panelShadowPercent(this, secondary)), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_PANEL_SHADOW_PERCENT,
+                        value <= 0 ? PanelShadowMath.UNSET : value));
         // 圆形封面（紧凑 / AMLL，issue #22）+ 碟片旋转。
         addToggle(artwork, "圆形封面（紧凑 / AMLL）", AppPreferences.KEY_ROUND_COVER,
                 AppPreferences.roundCover(this, secondary), null);
-        artwork.addView(text("打开后紧凑歌词与 AMLL 的专辑封面改为正圆（Refined 用它自己的"
-                + "「方形专辑封面」开关，关掉即圆形）。「碟片旋转」只对圆形封面生效。", 12,
+        artwork.addView(text("圆形封面只对紧凑与 AMLL 生效（Refined 关掉「方形专辑封面」即圆形）。", 12,
                 0xFFD7E1EE, false));
         final View[][] coverDependents = new View[1][];
         MaterialSwitch coverSpin = addToggle(artwork, "圆形封面碟片旋转",
@@ -348,11 +429,35 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         AppPreferences.KEY_COVER_ROTATION_PERIOD_SECONDS, value));
         coverDependents[0] = new View[] { periodRow[0], periodRow[1] };
         setDependentVisibility(coverSpin.isChecked(), coverDependents[0]);
-        artwork.addView(text("只对圆形封面生效（紧凑 / AMLL 需先打开上面的「圆形封面」，Refined 关掉"
-                + "「方形专辑封面」）：按播放进度旋转，暂停即停、拖动进度会跟着跳，不会因为系统时钟"
-                + "在暂停后继续转；方形与圆角封面不变。默认 20 秒一圈 ≈ 3 转/分。旋转期间会按屏幕刷新"
-                + "率（约 60 fps）重绘，比平时费电：车机较弱、觉得卡顿时关掉即可。", 12,
+        artwork.addView(text("仅对圆形封面生效：按播放进度旋转，暂停即停；旋转期间约 60 fps，费电。", 12,
                 0xFFD7E1EE, false));
+        // 动态星空背景 + 发光歌词（issue #59）：背景类型里的「星空」档与它的四个参数。
+        addChoice(artwork, "背景类型（Refined / 紧凑）",
+                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘"},
+                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield"},
+                AppPreferences.refinedBackgroundType(this, secondary),
+                value -> AppPreferences.putDisplayString(this, secondary,
+                        AppPreferences.KEY_REFINED_BACKGROUND_TYPE, value));
+        addSeek(artwork, "星空密度", 10, 200,
+                AppPreferences.starfieldDensityPercent(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_STARFIELD_DENSITY, value));
+        addSeek(artwork, "星空流速", 0, 200,
+                AppPreferences.starfieldSpeedPercent(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_STARFIELD_SPEED, value));
+        addSeek(artwork, "星点大小", 30, 250,
+                AppPreferences.starfieldSizePercent(this, secondary), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_STARFIELD_SIZE, value));
+        addSeek(artwork, "星空帧率", StarfieldField.MIN_FPS, StarfieldField.MAX_FPS,
+                AppPreferences.starfieldFps(this, secondary), " fps",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_STARFIELD_FPS, value));
+        addToggle(artwork, "星空跟随封面取色", AppPreferences.KEY_STARFIELD_FOLLOW_COVER,
+                AppPreferences.starfieldFollowCover(this, secondary), null);
+        addToggle(artwork, "星空静止（省电档）", AppPreferences.KEY_STARFIELD_STILL,
+                AppPreferences.starfieldStill(this, secondary), null);
         addCard(root, artwork);
 
         setContentView(scroll);
@@ -395,11 +500,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             changed();
         });
         parent.addView(toggle);
-        TextView note = text("开启后点击会穿透到下面的应用，穿透期间歌词也拖不动（窗口不再接受触摸）；"
-                + "通过本页关闭即可恢复交互。它与上面「锁定位置并穿透（保留播放控制按键）」是二选一，"
-                + "开这个会关掉那个。锁定后歌词旁会出现 × 手柄：点第一下只提示，再点一下才解除。"
-                + "Android 12 及以上为了能穿透，系统要求整窗不透明度低于 80%（当前实现为 79%），"
-                + "所以歌词会比平时略暗一点，关闭穿透即恢复。", 12,
+        TextView note = text("穿透期间歌词拖不动，也无法点击其他区域；与上面的「锁定位置并穿透」二选一。"
+                + "Android 12 起穿透会让歌词略暗。", 12,
                 0xFF8392A8, false);
         note.setPadding(0, 0, 0, dp(4));
         parent.addView(note);
@@ -417,6 +519,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         if ("compact".equals(style)) return "紧凑";
         if ("pip".equals(style)) return "极简";
         if ("pure".equals(style)) return "纯净";
+        if ("island".equals(style)) return "灵动岛";
         if ("custom".equals(style)) return "自定义";
         return style;
     }

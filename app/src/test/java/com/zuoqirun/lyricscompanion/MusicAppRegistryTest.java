@@ -388,6 +388,35 @@ public class MusicAppRegistryTest {
         }
     }
 
+    /** issue #68：LX-X Music 把歌词行写进 TITLE、同时把 ARTIST 变成「歌名 - 歌手」时不该被当成换歌。 */
+    @Test public void anchoredCompositeIdentitySurvivesTheArtistFlip() {
+        // 已匹配《我走后（深情版）》，播放器开始把当前歌词行写进 TITLE，ARTIST 变成复合串。
+        assertTrue(MusicStateStore.anchoredCompositeIdentity(
+                "我走后（深情版）", "只有我们两个人没法懂得", "我走后（深情版）- en（王翊恩）",
+                true, true, "track-a", "track-a"));
+        // 去掉前缀后就是干净的歌手名，可以继续显示
+        assertEquals("en（王翊恩）", MusicStateStore.stableArtistFromComposite(
+                "我走后（深情版）", "我走后（深情版）- en（王翊恩）"));
+        // 真换歌：结构化标题 + 新的 mediaId
+        assertFalse(MusicStateStore.anchoredCompositeIdentity(
+                "我走后（深情版）", "夜曲 - 周杰伦", "我走后（深情版）- en（王翊恩）",
+                true, true, "track-a", "track-b"));
+        // 暂停时的元数据变化不锚定（可能是真的切歌）
+        assertFalse(MusicStateStore.anchoredCompositeIdentity(
+                "我走后（深情版）", "只有我们两个人没法懂得", "我走后（深情版）- en（王翊恩）",
+                true, false, "track-a", "track-a"));
+        // 来源变了、标题没变、歌手不是复合串时不命中
+        assertFalse(MusicStateStore.anchoredCompositeIdentity(
+                "我走后（深情版）", "只有我们两个人没法懂得", "我走后（深情版）- en（王翊恩）",
+                false, true, "track-a", "track-a"));
+        assertFalse(MusicStateStore.anchoredCompositeIdentity(
+                "我走后（深情版）", "我走后（深情版）", "我走后（深情版）- en（王翊恩）",
+                true, true, "track-a", "track-a"));
+        assertFalse(MusicStateStore.anchoredCompositeIdentity(
+                "我走后（深情版）", "只有我们两个人没法懂得", "en（王翊恩）",
+                true, true, "track-a", "track-a"));
+    }
+
     @Test public void netEaseDirectSongIdStillRefreshesIdentity() {
         String first = MusicStateStore.lyricTrackKey("netease", "夜曲", "周杰伦",
                 -1L, "", "auto", true);

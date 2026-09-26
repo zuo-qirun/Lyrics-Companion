@@ -47,6 +47,14 @@ final class DftcMediaSessionReader implements MusicSessionReader {
     private boolean playerBound;
     private IBinder playerBinder;
     private long lastUsableSessionElapsedMs;
+    /**
+     * 最近一次「东风会话有变化」的时刻：换歌或播放状态变化（issue #75）。
+     *
+     * <p>这套 AIDL 只有 GET_NAME / GET_TYPE / GET_STATUS，拿不到播放位置，所以「还在推进」只能用
+     * 曲目或状态变化当证据。会话常驻却并不真的在放歌时（一直报 PLAYING、曲目也不再变），这个时间戳
+     * 就会一路变老，另一路真在播放的会话才有机会接管。
+     */
+    private long lastEvidenceElapsedMs;
     private String playerTitle = "";
     private String playerType = "";
     private int playerStatus = -1;
@@ -94,8 +102,10 @@ final class DftcMediaSessionReader implements MusicSessionReader {
                     // The vendor swapped GET_NAME to the current lyric line of the anchored
                     // song. Keep publishing the anchored identity so the matched timeline
                     // survives; only the live status refreshes.
+                    long now = SystemClock.elapsedRealtime();
+                    if (status != playerStatus) lastEvidenceElapsedMs = now;
                     playerStatus = status;
-                    lastUsableSessionElapsedMs = SystemClock.elapsedRealtime();
+                    lastUsableSessionElapsedMs = now;
                     callback.onReadSuccess(1);
                     emitCurrentSession();
                 }
@@ -125,10 +135,15 @@ final class DftcMediaSessionReader implements MusicSessionReader {
     }
 
     private void acceptRead(String title, String type, int status) {
+        long now = SystemClock.elapsedRealtime();
+        // 换歌或播放状态变化才算「还在推进」（issue #75）：600ms 轮询里的同一份快照不算。
+        if (!title.equals(playerTitle) || !type.equals(playerType) || status != playerStatus) {
+            lastEvidenceElapsedMs = now;
+        }
         playerTitle = title;
         playerType = type;
         playerStatus = status;
-        lastUsableSessionElapsedMs = SystemClock.elapsedRealtime();
+        lastUsableSessionElapsedMs = now;
         callback.onReadSuccess(1);
         emitCurrentSession();
     }
@@ -195,6 +210,7 @@ final class DftcMediaSessionReader implements MusicSessionReader {
         playerType = "";
         playerStatus = -1;
         lastUsableSessionElapsedMs = 0L;
+        lastEvidenceElapsedMs = 0L;
     }
 
     boolean hasUsableSession() {
@@ -203,6 +219,15 @@ final class DftcMediaSessionReader implements MusicSessionReader {
         if (!binderAlive) return false;
         return shouldReuseRetainedSnapshot(playerTitle, binderAlive,
                 SystemClock.elapsedRealtime() - lastUsableSessionElapsedMs);
+    }
+
+    /**
+     * 最近一次东风会话发生变化（换歌 / 播放状态变化）的时刻，0 = 还没看到过任何变化。调用方用
+     * {@code now - lastEvidenceElapsedMs()} 判断它是不是「常驻空转」，决定要不要把活跃位让给别的
+     * 播放器（issue #75）。
+     */
+    long lastEvidenceElapsedMs() {
+        return lastEvidenceElapsedMs;
     }
 
     /** Whether the retained snapshot currently describes an actively playing vendor session. */

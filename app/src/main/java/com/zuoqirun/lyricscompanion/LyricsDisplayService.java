@@ -21,6 +21,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
@@ -91,6 +92,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private BottomSpectrumView bottomSpectrumView;
     private boolean settingsVisible;
     private boolean overlaysHiddenForPlayback;
+    /**
+     * 「无歌词」从什么时候开始、当时是哪首歌（issue #67）：主屏 / 副屏各一份。放在服务里而不是判定
+     * 函数里，是因为判定每 500ms 跑一次，计时器只能被推进一次。
+     */
+    private final long[] lyricUnavailableSinceElapsedMs = {-1L, -1L};
+    private final String[] lyricUnavailableTrackKey = {"", ""};
     private boolean secondaryHiddenForPlayback;
     private String lastVisibilityDiagnostic = "";
     private boolean screenReceiverRegistered;
@@ -425,10 +432,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         String style = AppPreferences.overlayStyle(this, false);
         String xKey = AppPreferences.overlayPositionKey(false, style, true);
         String yKey = AppPreferences.overlayPositionKey(false, style, false);
-        mainParams.x = clamp(AppPreferences.overlayPosition(this, false, style, true, dp(this, 18)),
-                0, Math.max(0, screen.x - width));
-        mainParams.y = clamp(AppPreferences.overlayPosition(this, false, style, false, dp(this, 100)),
-                0, Math.max(0, screen.y - height));
+        int mainOffscreenPercent = AppPreferences.overlayOffscreenPercent(this, false);
+        boolean mainAllowOffscreen = AppPreferences.overlayAllowOffscreen(this, false);
+        float mainDensity = getResources().getDisplayMetrics().density;
+        mainParams.x = OverlayDragMath.clampAxis(
+                AppPreferences.overlayPosition(this, false, style, true, dp(this, 18)),
+                screen.x, width, OverlayDragMath.offsetLimitPx(mainAllowOffscreen,
+                        mainOffscreenPercent, width, mainDensity));
+        mainParams.y = OverlayDragMath.clampAxis(
+                AppPreferences.overlayPosition(this, false, style, false, dp(this, 100)),
+                screen.y, height, OverlayDragMath.offsetLimitPx(mainAllowOffscreen,
+                        mainOffscreenPercent, height, mainDensity));
         attachDrag(mainPanel, mainWindowManager, mainParams, screen, xKey, yKey, true, false);
         try {
             mainWindowManager.addView(mainPanel, mainParams);
@@ -480,10 +494,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             String style = AppPreferences.overlayStyle(this, true);
             String xKey = AppPreferences.overlayPositionKey(true, style, true);
             String yKey = AppPreferences.overlayPositionKey(true, style, false);
-            secondaryParams.x = clamp(AppPreferences.overlayPosition(this, true, style, true, defaultX),
-                    0, Math.max(0, screen.x - width));
-            secondaryParams.y = clamp(AppPreferences.overlayPosition(this, true, style, false, defaultY),
-                    0, Math.max(0, screen.y - height));
+            boolean secondaryAllowOffscreen = AppPreferences.overlayAllowOffscreen(this, true);
+            int secondaryOffscreenPercent = AppPreferences.overlayOffscreenPercent(this, true);
+            float secondaryDensity = getResources().getDisplayMetrics().density;
+            secondaryParams.x = OverlayDragMath.clampAxis(
+                    AppPreferences.overlayPosition(this, true, style, true, defaultX),
+                    screen.x, width, OverlayDragMath.offsetLimitPx(secondaryAllowOffscreen,
+                            secondaryOffscreenPercent, width, secondaryDensity));
+            secondaryParams.y = OverlayDragMath.clampAxis(
+                    AppPreferences.overlayPosition(this, true, style, false, defaultY),
+                    screen.y, height, OverlayDragMath.offsetLimitPx(secondaryAllowOffscreen,
+                            secondaryOffscreenPercent, height, secondaryDensity));
             attachDrag(secondaryPanel, secondaryWindowManager, secondaryParams, screen,
                     xKey, yKey, false, true);
             secondaryWindowManager.addView(secondaryPanel, secondaryParams);
@@ -547,10 +568,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         for (ExtraOverlay overlay : extraOverlays) {
             if (overlay.slot != slot) continue;
             Point screen = displaySize(overlay.display);
-            overlay.params.x = clamp(overlay.params.x + dx, 0,
-                    Math.max(0, screen.x - overlay.params.width));
-            overlay.params.y = clamp(overlay.params.y + dy, 0,
-                    Math.max(0, screen.y - overlay.params.height));
+            // 「允许移出屏幕边缘」（issue #49）：副屏没单独调过时沿用主屏设置。
+            boolean allowOffscreen = AppPreferences.overlayAllowOffscreen(overlay.context, true);
+            int percent = AppPreferences.overlayOffscreenPercent(overlay.context, true);
+            float density = overlay.panel.getResources().getDisplayMetrics().density;
+            overlay.params.x = OverlayDragMath.clampAxis(overlay.params.x + dx, screen.x,
+                    overlay.params.width, OverlayDragMath.offsetLimitPx(allowOffscreen, percent,
+                            overlay.params.width, density));
+            overlay.params.y = OverlayDragMath.clampAxis(overlay.params.y + dy, screen.y,
+                    overlay.params.height, OverlayDragMath.offsetLimitPx(allowOffscreen, percent,
+                            overlay.params.height, density));
             AppPreferences.putOverlayPosition(overlay.context, true, overlay.xKey,
                     overlay.params.x);
             AppPreferences.putOverlayPosition(overlay.context, true, overlay.yKey,
@@ -672,10 +699,18 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                                 secondary)) return true;
                         float dx = event.getRawX() - downRawX;
                         float dy = event.getRawY() - downRawY;
-                        params.x = clamp(downX + Math.round(dx), 0,
-                                Math.max(0, screen.x - params.width));
-                        params.y = clamp(downY + Math.round(dy), 0,
-                                Math.max(0, screen.y - params.height));
+                        // 「允许移出屏幕边缘」（issue #49）：默认关闭，行为与改动前一致。
+                        boolean allowOffscreen = AppPreferences.overlayAllowOffscreen(
+                                LyricsDisplayService.this, secondary);
+                        int percent = AppPreferences.overlayOffscreenPercent(
+                                LyricsDisplayService.this, secondary);
+                        float density = v.getResources().getDisplayMetrics().density;
+                        params.x = OverlayDragMath.clampAxis(downX + Math.round(dx), screen.x,
+                                params.width, OverlayDragMath.offsetLimitPx(allowOffscreen,
+                                        percent, params.width, density));
+                        params.y = OverlayDragMath.clampAxis(downY + Math.round(dy), screen.y,
+                                params.height, OverlayDragMath.offsetLimitPx(allowOffscreen,
+                                        percent, params.height, density));
                         try { manager.updateViewLayout(v, params); }
                         catch (Throwable ignored) { }
                         return true;
@@ -1299,7 +1334,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
         if (display != null) display.getRealMetrics(metrics);
         return new DisplayIdentity.Screen(display == null ? "" : display.getName(), size.x, size.y,
-                metrics.densityDpi);
+                metrics.densityDpi, display == null ? -1 : display.getDisplayId());
     }
 
     private void showExtra(int slot, Display display) {
@@ -1316,10 +1351,17 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             String style = AppPreferences.overlayStyle(context, true);
             String xKey = AppPreferences.overlayPositionKey(true, style, true);
             String yKey = AppPreferences.overlayPositionKey(true, style, false);
-            params.x = clamp(AppPreferences.overlayPosition(context, true, style, true,
-                    Math.max(0, (screen.x - width) / 2)), 0, Math.max(0, screen.x - width));
-            params.y = clamp(AppPreferences.overlayPosition(context, true, style, false,
-                    Math.max(0, Math.round(screen.y * 0.10f))), 0, Math.max(0, screen.y - height));
+            boolean extraAllowOffscreen = AppPreferences.overlayAllowOffscreen(context, true);
+            int extraOffscreenPercent = AppPreferences.overlayOffscreenPercent(context, true);
+            float extraDensity = context.getResources().getDisplayMetrics().density;
+            params.x = OverlayDragMath.clampAxis(AppPreferences.overlayPosition(context, true,
+                    style, true, Math.max(0, (screen.x - width) / 2)), screen.x, width,
+                    OverlayDragMath.offsetLimitPx(extraAllowOffscreen, extraOffscreenPercent,
+                            width, extraDensity));
+            params.y = OverlayDragMath.clampAxis(AppPreferences.overlayPosition(context, true,
+                    style, false, Math.max(0, Math.round(screen.y * 0.10f))), screen.y, height,
+                    OverlayDragMath.offsetLimitPx(extraAllowOffscreen, extraOffscreenPercent,
+                            height, extraDensity));
             ExtraOverlay overlay = new ExtraOverlay(slot, display, context, manager, params, panel,
                     xKey, yKey);
             attachExtraDrag(overlay, screen);
@@ -1393,10 +1435,19 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                         if (!moved || AppPreferences.overlayPositionLocked(overlay.context, true)) {
                             return true;
                         }
-                        overlay.params.x = clamp(downX + Math.round(dx), 0,
-                                Math.max(0, screen.x - overlay.params.width));
-                        overlay.params.y = clamp(downY + Math.round(dy), 0,
-                                Math.max(0, screen.y - overlay.params.height));
+                        boolean allowOffscreen = AppPreferences.overlayAllowOffscreen(
+                                overlay.context, true);
+                        int offscreenPercent = AppPreferences.overlayOffscreenPercent(
+                                overlay.context, true);
+                        float dragDensity = view.getResources().getDisplayMetrics().density;
+                        overlay.params.x = OverlayDragMath.clampAxis(downX + Math.round(dx),
+                                screen.x, overlay.params.width,
+                                OverlayDragMath.offsetLimitPx(allowOffscreen, offscreenPercent,
+                                        overlay.params.width, dragDensity));
+                        overlay.params.y = OverlayDragMath.clampAxis(downY + Math.round(dy),
+                                screen.y, overlay.params.height,
+                                OverlayDragMath.offsetLimitPx(allowOffscreen, offscreenPercent,
+                                        overlay.params.height, dragDensity));
                         try { overlay.windowManager.updateViewLayout(view, overlay.params); }
                         catch (Throwable ignored) { }
                         return true;
@@ -1717,21 +1768,50 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         java.util.Set<String> listedApps = AppPreferences.hiddenOverlayApps(this);
         String foreground = foregroundPackage != null ? foregroundPackage
                 : hideInPlayer || appRuleOn ? ForegroundAppDetector.foregroundPackage(this) : "";
+        // ROM 不返回前台事件时（哈弗华阳实测，issue #61），黑名单永远命中不了：退一步用「上一次已知
+        // 前台应用」，只在授权可读且旧值仍新鲜时生效；白名单仍按「读不到就不隐藏」的安全阀走。
+        String effectiveForeground = AppRuleDecision.effectiveForeground(foreground,
+                AppPreferences.lastForegroundPackage(this),
+                System.currentTimeMillis() - AppPreferences.lastForegroundAtMs(this),
+                ForegroundAppDetector.hasUsageAccess(this));
         boolean playerInForeground = hideInPlayer && ForegroundAppDetector.samePackage(
-                MusicNotificationListener.activePlayerPackageName(), foreground);
+                MusicNotificationListener.activePlayerPackageName(), effectiveForeground);
         // 黑名单 / 白名单的判定口径见 AppRuleDecision（issue #43 / #28）。白名单唯一的例外是
         // 「连使用情况访问都没授权」：那意味着永远识别不到任何前台应用，白名单会把歌词一律藏掉，
         // 用户只会以为应用坏了；这种可检测的情况按不隐藏处理，设置页与诊断日志都会提示去授权。
-        boolean whitelistUsable = !foreground.isEmpty() || ForegroundAppDetector.hasUsageAccess(this);
+        boolean whitelistUsable = !effectiveForeground.isEmpty()
+                || ForegroundAppDetector.hasUsageAccess(this);
         boolean appRuleSaysHide = AppRuleDecision.hides(appRuleOn, whitelist, whitelistUsable,
-                listedApps, foreground);
+                listedApps, effectiveForeground);
+        // 无歌词 / 纯音乐自动隐藏（issue #67）：必须「确实在播放 + 这一首此时没有可用歌词 + 超过宽限期」，
+        // 否则切歌匹配期间会一闪一闪。宽限计时器由 syncOverlayVisibility 每轮推进一次。
+        boolean noLyricHide = AppPreferences.hideWhenNoLyrics(this, secondary)
+                && snapshot.active && snapshot.playing && !snapshot.lyricAvailable
+                && NoLyricVisibilityRules.graceElapsed(SystemClock.elapsedRealtime(),
+                lyricUnavailableSinceElapsedMs[secondary ? 1 : 0],
+                AppPreferences.noLyricGraceMs(this, secondary));
         return OverlayPlaybackVisibility.shouldHide(
                 AppPreferences.hideOverlaysWhenNotPlaying(this), snapshot.playing,
-                hideInPlayer, playerInForeground, appRuleSaysHide);
+                hideInPlayer, playerInForeground, appRuleSaysHide,
+                AppPreferences.hideWhenNoLyrics(this, secondary), noLyricHide);
     }
 
     private void syncOverlayVisibility(MusicSnapshot snapshot) {
-        String foreground = ForegroundAppDetector.foregroundPackage(this);
+        ForegroundAppDetector.Probe probe = ForegroundAppDetector.probe(this);
+        String foreground = probe.packageName;
+        if (!foreground.isEmpty()) {
+            AppPreferences.setLastForeground(this, foreground, System.currentTimeMillis());
+        }
+        // 宽限计时器必须在下面的「隐藏状态没变就 return」之前推进（issue #67）：否则宽限期过了也
+        // 永远不会触发隐藏。
+        long nowElapsed = SystemClock.elapsedRealtime();
+        String trackKey = snapshot.title + "\u0000" + snapshot.artist;
+        for (int index = 0; index < lyricUnavailableSinceElapsedMs.length; index++) {
+            lyricUnavailableSinceElapsedMs[index] = NoLyricVisibilityRules.nextUnavailableSince(
+                    snapshot.lyricAvailable, trackKey, lyricUnavailableTrackKey[index],
+                    nowElapsed, lyricUnavailableSinceElapsedMs[index]);
+            lyricUnavailableTrackKey[index] = trackKey;
+        }
         boolean hideMain = shouldHideOverlays(snapshot, false, foreground);
         boolean hideSecondary = shouldHideOverlays(snapshot, true, foreground);
         boolean usageAccess = ForegroundAppDetector.hasUsageAccess(this);
@@ -1739,7 +1819,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 + " secondaryHidden=" + hideSecondary
                 + " foreground=" + (foreground.isEmpty() ? "空" : foreground)
                 + " usageAccess=" + usageAccess
-                + " 规则=主屏" + appRuleMode(false) + "/副屏" + appRuleMode(true);
+                + " 规则=主屏" + appRuleMode(false) + "/副屏" + appRuleMode(true)
+                // 说清「为什么读不到」：没授权 / queryEvents 无事件 / 调用失败（issue #61）
+                + " probe=" + ForegroundProbeDescription.describe(probe.reason, foreground,
+                probe.lastEventType,
+                probe.lastEventWallTimeMs <= 0L ? -1L
+                        : System.currentTimeMillis() - probe.lastEventWallTimeMs)
+                + " lastKnown=" + AppPreferences.lastForegroundPackage(this);
         if (!diagnostic.equals(lastVisibilityDiagnostic)) {
             DiagnosticLog.record(this, "Overlay", diagnostic);
             lastVisibilityDiagnostic = diagnostic;

@@ -20,6 +20,7 @@ import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.os.Build;
 import android.util.LruCache;
+import android.view.Choreographer;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -47,6 +48,15 @@ final class LyricsPanelView extends View {
     private final LruCache<TextLayoutKey, String> ellipsizedTextCache =
             new LruCache<>(96);
     private final LruCache<Integer, BlurMaskFilter> blurMaskCache = new LruCache<>(16);
+    /**
+     * 模糊歌词的离屏位图（issue #59 后续）：同一行 + 同字号 / 颜色 / 宽度 / 模糊半径只渲染一次，
+     * 之后每帧只贴一次图。逐字消散中的行缓存不住，用 {@link #blurScratch} 逐帧重画。
+     */
+    private final LruCache<String, Bitmap> blurredLineCache = new LruCache<>(6);
+    private Bitmap blurScratch;
+    /** 星空底色（夜幕 + 星云）预渲染成的位图，只在尺寸或调色板变化时重建。 */
+    private Bitmap starfieldBackdrop;
+    private String starfieldBackdropKey = "";
     private float[] refinedLineHeights = new float[8];
     private float[] refinedLineTops = new float[8];
     private float textScale = 1f;
@@ -87,6 +97,25 @@ final class LyricsPanelView extends View {
     private float previousLyricScale = ClassicLayoutMath.LEGACY_PREVIOUS_SCALE;
     /** 内容垂直对齐: "" follows the style, otherwise top / center / bottom (issue #41). */
     private String contentAlign = "";
+    /**
+     * 经典样式的行表（issue #53/#64）：一行一个字号，排布交给 {@link ClassicLayoutMath#pack}。这些
+     * 数组与 {@code classicBlock} 逐帧复用，避免每帧新建对象。
+     */
+    private static final int CLASSIC_ROW_STATUS = 0;
+    private static final int CLASSIC_ROW_TITLE = 1;
+    private static final int CLASSIC_ROW_LYRIC = 2;
+    private static final int CLASSIC_ROW_TRANSLATION = 3;
+    private static final int CLASSIC_ROW_CAPACITY = 11;
+    private final float[] classicRowSizes = new float[CLASSIC_ROW_CAPACITY];
+    private final boolean[] classicRowScales = new boolean[CLASSIC_ROW_CAPACITY];
+    private final float[] classicRowMinGaps = new float[CLASSIC_ROW_CAPACITY];
+    private final boolean[] classicRowUniform = new boolean[CLASSIC_ROW_CAPACITY];
+    private final int[] classicRowKinds = new int[CLASSIC_ROW_CAPACITY];
+    private final int[] classicRowOffsets = new int[CLASSIC_ROW_CAPACITY];
+    private final ClassicLayoutMath.Block classicBlock =
+            new ClassicLayoutMath.Block(CLASSIC_ROW_CAPACITY);
+    /** 星空背景的固定种子：同一片星空每帧都一样（issue #59）。 */
+    private static final int STARFIELD_SEED = 0x5EED1234;
     /** 面板圆角占短边百分比; -1 keeps each style's own radius, 0 is a square corner (#37). */
     private int cornerRadiusPercent = -1;
     /** 圆形封面（紧凑 / AMLL，issue #22），以及按播放进度旋转的开关与一圈时长。 */
@@ -104,6 +133,42 @@ final class LyricsPanelView extends View {
     /** This frame's playback position and state, so the rotating cover has a clock. */
     private long framePositionMs = -1L;
     private boolean framePlaying;
+    /** 本帧播放器给没给封面：决定「无封面时」设置要不要生效（issue #50）。 */
+    private boolean frameAlbumArtMissing;
+    /** 无封面时收起封面区域，版面跟着内收（issue #50）。 */
+    private boolean hideCoverWithoutArt;
+    /** 星空背景的四个参数（issue #59）：密度、速度、星点大小、跟随封面取色、静止省电档。 */
+    private int starfieldDensityPercent = 60;
+    private int starfieldSpeedPercent = 100;
+    private int starfieldSizePercent = 100;
+    private boolean starfieldFollowCover = true;
+    private boolean starfieldStill;
+    /** 星空渲染帧率（fps，issue #59）：决定星空的帧间隔。 */
+    private int starfieldFps = StarfieldField.DEFAULT_FPS;
+    /** 歌手字号（歌名的百分比，-1 = 沿用各样式原比例，issue #63）。 */
+    private int artistScalePercent = MetadataTypeScaleMath.UNSET;
+    /** 面板边缘阴影强度（-1 = 各样式原样，issue #56）与它的一次性柔化位图。 */
+    private int panelShadowPercent = PanelShadowMath.UNSET;
+    private Bitmap panelShadowHaloBitmap;
+    private String panelShadowHaloKey = "";
+    /** 背景遮罩档位与亮度（issue #58）：auto / off，以及 -100..100 的亮度轴。 */
+    private String styleMaskMode = ArtworkBackgroundMath.MODE_AUTO;
+    private int styleBrightnessPercent;
+    private android.graphics.ColorFilter backgroundBrightnessFilter;
+    private int backgroundBrightnessPercent;
+    /** 内容留白比例（issue #49）：-1 = 各样式原本的内边距。 */
+    private int contentPaddingPercent = ContentPaddingMath.UNSET;
+    /** 长句显示方式（issue #47）：marquee（默认）/ shrink / wrap。 */
+    private String longLineMode = LongLineLayout.MODE_MARQUEE;
+    /**
+     * 动态背景按帧率排下一帧用的 vsync 回调（issue #59）。{@code backgroundFramePosted} 防止同一帧
+     * 里重复挂回调（歌词更新等其它原因也会触发 onDraw）。
+     */
+    private final Choreographer.FrameCallback backgroundFrameCallback = frameTimeNanos -> {
+        backgroundFramePosted = false;
+        invalidate();
+    };
+    private boolean backgroundFramePosted;
     /** Last time the scheduled theme was re-checked; see {@link #refreshScheduledTheme(long)}. */
     private long lastThemeCheckMs;
     private boolean previousLyricParticles = true;
@@ -314,6 +379,19 @@ final class LyricsPanelView extends View {
         refinedRectangleCover = AppPreferences.refinedRectangleCover(getContext(), secondary);
         refinedCoverShadow = AppPreferences.refinedCoverShadow(getContext(), secondary);
         refinedBackgroundType = AppPreferences.refinedBackgroundType(getContext(), secondary);
+        hideCoverWithoutArt = AppPreferences.hideCoverWithoutArt(getContext(), secondary);
+        starfieldDensityPercent = AppPreferences.starfieldDensityPercent(getContext(), secondary);
+        starfieldSpeedPercent = AppPreferences.starfieldSpeedPercent(getContext(), secondary);
+        starfieldSizePercent = AppPreferences.starfieldSizePercent(getContext(), secondary);
+        starfieldFollowCover = AppPreferences.starfieldFollowCover(getContext(), secondary);
+        starfieldStill = AppPreferences.starfieldStill(getContext(), secondary);
+        starfieldFps = AppPreferences.starfieldFps(getContext(), secondary);
+        artistScalePercent = AppPreferences.artistScale(getContext(), secondary);
+        panelShadowPercent = AppPreferences.panelShadowPercent(getContext(), secondary);
+        styleMaskMode = AppPreferences.styleMaskMode(getContext(), secondary);
+        styleBrightnessPercent = AppPreferences.styleBrightness(getContext(), secondary);
+        contentPaddingPercent = AppPreferences.contentPaddingPercent(getContext(), secondary);
+        longLineMode = AppPreferences.longLineMode(getContext(), secondary);
         refinedStaticFluid = AppPreferences.refinedStaticFluid(getContext(), secondary);
         refinedDynamicGradient = AppPreferences.refinedDynamicGradient(getContext(), secondary);
         refinedLyricFontSize = AppPreferences.refinedLyricFontSize(getContext(), secondary);
@@ -328,9 +406,9 @@ final class LyricsPanelView extends View {
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext(), secondary);
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext(), secondary);
         customTypeface = CustomFontStore.load(getContext());
-        setLayerType((usesRefinedVisualStyle() && refinedLyricBlur)
-                        || "amll".equals(overlayStyle)
-                ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
+        // 模糊歌词改走离屏位图（见 drawBlurredLine），面板本身不再需要软件渲染：以前 Refined / 紧凑
+        // 打开「歌词模糊」、AMLL 一律把整块面板丢给 CPU，帧率再高也拉不回来（issue #59 后续）。
+        setLayerType(LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext(), secondary);
         recycleBlurPreview();
         blurPreview = null;
@@ -369,6 +447,7 @@ final class LyricsPanelView extends View {
         // 本帧的播放位置供碟片旋转使用（issue #22），并在同一处推进「正在匹配」的状态（issue #45）。
         framePositionMs = snapshot.positionMs;
         framePlaying = snapshot.playing;
+        frameAlbumArtMissing = snapshot.albumArt == null || snapshot.albumArt.isRecycled();
         updateMatchingState(snapshot, now);
         refreshScheduledTheme(now);
 
@@ -407,6 +486,10 @@ final class LyricsPanelView extends View {
         } else if ("pure".equals(overlayStyle)) {
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
             drawPure(canvas, snapshot, density);
+        } else if ("island".equals(overlayStyle)) {
+            // 灵动岛也是「悬浮小条」：先清一帧，避免上一帧的像素残留（issue #54）。
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            drawIsland(canvas, snapshot, density);
         } else if ("pip".equals(overlayStyle)) {
             drawPip(canvas, snapshot, density);
         } else if ("custom".equals(overlayStyle)) {
@@ -414,6 +497,8 @@ final class LyricsPanelView extends View {
         } else {
             drawDefault(canvas, snapshot, density);
         }
+        // 面板边缘阴影画在内容之后、控件之前（issue #56）：只压到边缘留白，不盖文字与按键。
+        drawPanelEdgeShadow(canvas);
         if (browsingLyrics || browseUntilElapsedMs > now) {
             drawBrowseIndicator(canvas, snapshot, density);
         }
@@ -434,11 +519,44 @@ final class LyricsPanelView extends View {
         // A fixed 16 ms delay is not synchronized with the display. On some devices the
         // runnable lands just after VSync, causing the first part of a lyric transition to
         // alternate between frames. Let the compositor schedule animation frames instead.
-        if (delayMs <= 16L) {
+        // 17 ms 也是「一帧」的量级（60 Hz ≈ 16.7 ms），星空的 60 fps 档同样走这条路。
+        if (delayMs <= 17L) {
             postInvalidateOnAnimation();
-        } else {
-            postInvalidateDelayed(delayMs);
+            return;
         }
+        // 星空 / 流体这类按帧率跑的背景：固定延时落在两个刷新周期之间时，画面会在「差一帧」和
+        // 「差两帧」之间来回跳，看起来就是一顿一顿。改由 Choreographer 按刷新周期对齐（issue #59）。
+        if (hasAnimatedRefinedBackground()) {
+            scheduleBackgroundFrame(delayMs);
+            return;
+        }
+        postInvalidateDelayed(delayMs);
+    }
+
+    /**
+     * 按用户设的帧率排下一帧：把间隔换算成整数个刷新周期，再用 {@link Choreographer} 在对应的
+     * vsync 上触发重绘。既保住「帧率可调」（省电），又不会像 {@code postInvalidateDelayed} 那样
+     * 和 vsync 错位（issue #59）。
+     */
+    private void scheduleBackgroundFrame(long delayMs) {
+        if (backgroundFramePosted) return;
+        long period = displayFramePeriodMs();
+        long frames = Math.max(1L, Math.round(delayMs / (float) period));
+        if (frames <= 1L) {
+            postInvalidateOnAnimation();
+            return;
+        }
+        backgroundFramePosted = true;
+        Choreographer.getInstance().postFrameCallbackDelayed(backgroundFrameCallback,
+                frames * period);
+    }
+
+    /** 这一块屏幕一个刷新周期多少毫秒；取不到时按 60 Hz 算。 */
+    private long displayFramePeriodMs() {
+        android.view.Display display = getDisplay();
+        float refreshRate = display == null ? 60f : display.getRefreshRate();
+        if (!(refreshRate > 1f) || refreshRate > 240f) refreshRate = 60f;
+        return Math.max(4L, Math.round(1_000f / refreshRate));
     }
 
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
@@ -454,29 +572,47 @@ final class LyricsPanelView extends View {
         if (browseUntilElapsedMs > nowElapsedMs) {
             return Math.max(16L, Math.min(250L, browseUntilElapsedMs - nowElapsedMs));
         }
-        if (!snapshot.active) return 750L;
         // 匹配动画与碟片旋转都要连续帧：16 ms 走 postInvalidateOnAnimation，跟屏幕刷新对齐，
         // 30 fps 的固定延迟会在某些车机上和 vsync 打架，看起来一顿一顿（issue #22/#45）。
         if (matchingIndicatorVisible(nowElapsedMs)) return 16L;
         if (coverRotation && snapshot.playing && coverCanRotate()) return 16L;
-        if (!snapshot.playing) return 400L;
-        if (previousLyricDissolve.isAnimating(nowElapsedMs)) return 16L;
-        if (wordDissolve && previousLyricParticles
-                && previousLyricDissolve.isEraseAnimating(snapshot.lyrics.lineStartMs)) return 16L;
-        if (snapshot.lyrics.wordTimed && snapshot.lyrics.wordDurationMs > 0L
-                && !snapshot.lyrics.currentWord.isEmpty()) return 16L;
+        if (snapshot.active) {
+            if (previousLyricDissolve.isAnimating(nowElapsedMs)) return 16L;
+            if (wordDissolve && previousLyricParticles
+                    && previousLyricDissolve.isEraseAnimating(snapshot.lyrics.lineStartMs)) {
+                return 16L;
+            }
+            if (snapshot.lyrics.wordTimed && snapshot.lyrics.wordDurationMs > 0L
+                    && !snapshot.lyrics.currentWord.isEmpty()) return 16L;
+        }
         if ("amll".equals(overlayStyle)) return 33L;
-        // Fluid and dynamic-gradient backgrounds are time-based.  The old 100 ms idle
-        // cadence made them visibly step at 10 fps even when no word-timed lyric was active.
-        if (hasAnimatedRefinedBackground()) return 33L;
+        // Fluid, dynamic-gradient and starfield backgrounds are time-based, and they keep their own
+        // cadence whether or not music is playing: gating them behind 播放中 made the starfield step
+        // at 2.5 fps while paused, which is exactly the 「一顿一顿」 this setting is meant to fix.
+        if (hasAnimatedRefinedBackground()) return animatedBackgroundFrameDelay();
+        if (!snapshot.active) return 750L;
+        if (!snapshot.playing) return 400L;
         if (snapshot.lyrics.interlude) return 33L;
         return 100L;
     }
 
     private boolean hasAnimatedRefinedBackground() {
         if (!usesRefinedVisualStyle()) return false;
+        // 顶部歌词条画自己的背景（drawTopLyricBackground），不吃「背景类型」，也就没必要为了它保持帧率。
+        if (compactTextOnly) return false;
         return ("fluid".equals(refinedBackgroundType) && !refinedStaticFluid)
-                || ("gradient".equals(refinedBackgroundType) && refinedDynamicGradient);
+                || ("gradient".equals(refinedBackgroundType) && refinedDynamicGradient)
+                // 星空要连续帧才会流动；「静止」是定格星点，不需要（issue #59）。
+                || ("starfield".equals(refinedBackgroundType) && !starfieldStill);
+    }
+
+    /**
+     * 动态背景的一帧间隔：星空按用户设的帧率（issue #59 的「星空帧率」，最低 5 fps 最省电），流体与
+     * 动态渐变沿用 30 fps。逐字歌词、碟片旋转这些跟歌词同步的动画仍然优先走 16 ms，星空跟着一起画。
+     */
+    private long animatedBackgroundFrameDelay() {
+        if (!"starfield".equals(refinedBackgroundType) || starfieldStill) return 33L;
+        return StarfieldField.frameDelayMs(starfieldFps);
     }
 
     boolean isLyricGestureRegion(float x, float y) {
@@ -509,30 +645,18 @@ final class LyricsPanelView extends View {
                 || getWidth() <= 0 || getHeight() <= 0) return null;
         float density = getResources().getDisplayMetrics().density;
         PlaybackControlLayout layout = playbackControlLayout(density);
+        updatePlaybackButtons(layout);
         float left = Float.MAX_VALUE;
         float right = -Float.MAX_VALUE;
         float top = Float.MAX_VALUE;
         float bottom = -Float.MAX_VALUE;
-        if (AppPreferences.showPreviousButton(getContext())) {
-            float x = layout.centerX - layout.spacing;
-            left = Math.min(left, x - layout.radius);
-            right = Math.max(right, x + layout.radius);
-            top = Math.min(top, layout.centerY - layout.radius);
-            bottom = Math.max(bottom, layout.centerY + layout.radius);
-        }
-        if (AppPreferences.showPlayPauseButton(getContext())) {
-            float radius = layout.radius * 1.12f;
-            left = Math.min(left, layout.centerX - radius);
-            right = Math.max(right, layout.centerX + radius);
+        for (int index = 0; index < playbackButtonShown.length; index++) {
+            if (!playbackButtonShown[index]) continue;
+            float radius = playbackButtonRadius(layout, index);
+            left = Math.min(left, playbackButtonX[index] - radius);
+            right = Math.max(right, playbackButtonX[index] + radius);
             top = Math.min(top, layout.centerY - radius);
             bottom = Math.max(bottom, layout.centerY + radius);
-        }
-        if (AppPreferences.showNextButton(getContext())) {
-            float x = layout.centerX + layout.spacing;
-            left = Math.min(left, x - layout.radius);
-            right = Math.max(right, x + layout.radius);
-            top = Math.min(top, layout.centerY - layout.radius);
-            bottom = Math.max(bottom, layout.centerY + layout.radius);
         }
         if (right <= left) return null;
         // A little slack so a fingertip aimed at a button edge still lands on it.
@@ -548,18 +672,20 @@ final class LyricsPanelView extends View {
                 || getWidth() <= 0 || getHeight() <= 0) return null;
         float density = getResources().getDisplayMetrics().density;
         PlaybackControlLayout layout = playbackControlLayout(density);
-        if (AppPreferences.showPreviousButton(getContext())
-                && insideCircle(x, y, layout.centerX - layout.spacing, layout.centerY,
-                layout.radius)) {
+        updatePlaybackButtons(layout);
+        if (playbackButtonShown[PLAYBACK_BUTTON_PREVIOUS]
+                && insideCircle(x, y, playbackButtonX[PLAYBACK_BUTTON_PREVIOUS],
+                layout.centerY, layout.radius)) {
             return MediaControlAction.PREVIOUS;
         }
-        if (AppPreferences.showPlayPauseButton(getContext())
-                && insideCircle(x, y, layout.centerX, layout.centerY, layout.radius * 1.12f)) {
+        if (playbackButtonShown[PLAYBACK_BUTTON_PLAY_PAUSE]
+                && insideCircle(x, y, playbackButtonX[PLAYBACK_BUTTON_PLAY_PAUSE],
+                layout.centerY, layout.radius * 1.12f)) {
             return MediaControlAction.TOGGLE_PLAY_PAUSE;
         }
-        if (AppPreferences.showNextButton(getContext())
-                && insideCircle(x, y, layout.centerX + layout.spacing, layout.centerY,
-                layout.radius)) {
+        if (playbackButtonShown[PLAYBACK_BUTTON_NEXT]
+                && insideCircle(x, y, playbackButtonX[PLAYBACK_BUTTON_NEXT],
+                layout.centerY, layout.radius)) {
             return MediaControlAction.NEXT;
         }
         return null;
@@ -722,13 +848,46 @@ final class LyricsPanelView extends View {
         return true;
     }
 
+    /** 这一屏实际显示的播放按键与它们的圆心（issue #72）：三个调用点共用一份排布，避免各算各的。 */
+    private static final int PLAYBACK_BUTTON_PREVIOUS = 0;
+    private static final int PLAYBACK_BUTTON_PLAY_PAUSE = 1;
+    private static final int PLAYBACK_BUTTON_NEXT = 2;
+    private final boolean[] playbackButtonShown = new boolean[3];
+    private final float[] playbackButtonX = new float[3];
+
+    /** 按这一屏的开关算出每个按钮画在哪：只显示 1~2 个时整组围绕 {@code layout.centerX} 居中。 */
+    private void updatePlaybackButtons(PlaybackControlLayout layout) {
+        playbackButtonShown[PLAYBACK_BUTTON_PREVIOUS] =
+                AppPreferences.showPreviousButton(getContext(), secondary);
+        playbackButtonShown[PLAYBACK_BUTTON_PLAY_PAUSE] =
+                AppPreferences.showPlayPauseButton(getContext(), secondary);
+        playbackButtonShown[PLAYBACK_BUTTON_NEXT] =
+                AppPreferences.showNextButton(getContext(), secondary);
+        int count = PlaybackControlLayoutMath.visibleCount(
+                playbackButtonShown[PLAYBACK_BUTTON_PREVIOUS],
+                playbackButtonShown[PLAYBACK_BUTTON_PLAY_PAUSE],
+                playbackButtonShown[PLAYBACK_BUTTON_NEXT]);
+        int slot = 0;
+        for (int index = 0; index < playbackButtonShown.length; index++) {
+            playbackButtonX[index] = playbackButtonShown[index]
+                    ? layout.centerX + PlaybackControlLayoutMath.slotOffset(slot++, count,
+                            layout.spacing)
+                    : layout.centerX;
+        }
+    }
+
+    private float playbackButtonRadius(PlaybackControlLayout layout, int index) {
+        return index == PLAYBACK_BUTTON_PLAY_PAUSE ? layout.radius * 1.12f : layout.radius;
+    }
+
     private void drawPlaybackControls(Canvas canvas, MusicSnapshot snapshot, float density) {
-        boolean showPrevious = AppPreferences.showPreviousButton(getContext());
-        boolean showPlayPause = AppPreferences.showPlayPauseButton(getContext());
-        boolean showNext = AppPreferences.showNextButton(getContext());
+        PlaybackControlLayout layout = playbackControlLayout(density);
+        updatePlaybackButtons(layout);
+        boolean showPrevious = playbackButtonShown[PLAYBACK_BUTTON_PREVIOUS];
+        boolean showPlayPause = playbackButtonShown[PLAYBACK_BUTTON_PLAY_PAUSE];
+        boolean showNext = playbackButtonShown[PLAYBACK_BUTTON_NEXT];
         if (!showPrevious && !showPlayPause && !showNext) return;
 
-        PlaybackControlLayout layout = playbackControlLayout(density);
         int fill = snapshot.active ? 0xC92B405A : 0x8A26384E;
         int icon = snapshot.active ? 0xFFF5F9FF : 0xFF9AAABB;
         int accent = snapshot.playing ? 0xFFFFCA66 : 0xFF6EE7F2;
@@ -737,10 +896,16 @@ final class LyricsPanelView extends View {
             fill = snapshot.active ? 0x8C243B52 : 0x62243852;
             primaryFill = snapshot.active ? 0xC13A5872 : fill;
         } else if ("compact".equals(overlayStyle)) {
-            workRect.set(layout.centerX - layout.spacing - layout.radius * 1.65f,
-                    layout.centerY - layout.radius * 1.42f,
-                    layout.centerX + layout.spacing + layout.radius * 1.65f,
-                    layout.centerY + layout.radius * 1.42f);
+            // 底板按实际显示的按钮收窄（issue #72）：三键时与改动前的宽度完全一致。
+            float extent = 0f;
+            for (int index = 0; index < playbackButtonShown.length; index++) {
+                if (!playbackButtonShown[index]) continue;
+                extent = Math.max(extent, Math.abs(playbackButtonX[index] - layout.centerX)
+                        + playbackButtonRadius(layout, index));
+            }
+            float halfWidth = PlaybackControlLayoutMath.backdropHalfWidth(extent, layout.radius);
+            workRect.set(layout.centerX - halfWidth, layout.centerY - layout.radius * 1.42f,
+                    layout.centerX + halfWidth, layout.centerY + layout.radius * 1.42f);
             paint.setColor(snapshot.active ? 0xC51A2535 : 0x8A1A2535);
             canvas.drawRoundRect(workRect, layout.radius * 1.45f, layout.radius * 1.45f, paint);
             fill = 0x00000000;
@@ -762,15 +927,16 @@ final class LyricsPanelView extends View {
         }
 
         if (showPrevious) {
-            drawPlaybackButton(canvas, layout.centerX - layout.spacing, layout.centerY,
+            drawPlaybackButton(canvas, playbackButtonX[PLAYBACK_BUTTON_PREVIOUS], layout.centerY,
                     layout.radius, fill, icon, MediaControlAction.PREVIOUS, false);
         }
         if (showPlayPause) {
-            drawPlaybackButton(canvas, layout.centerX, layout.centerY, layout.radius * 1.12f,
-                    primaryFill, accent, MediaControlAction.TOGGLE_PLAY_PAUSE, snapshot.playing);
+            drawPlaybackButton(canvas, playbackButtonX[PLAYBACK_BUTTON_PLAY_PAUSE],
+                    layout.centerY, layout.radius * 1.12f, primaryFill, accent,
+                    MediaControlAction.TOGGLE_PLAY_PAUSE, snapshot.playing);
         }
         if (showNext) {
-            drawPlaybackButton(canvas, layout.centerX + layout.spacing, layout.centerY,
+            drawPlaybackButton(canvas, playbackButtonX[PLAYBACK_BUTTON_NEXT], layout.centerY,
                     layout.radius, fill, icon, MediaControlAction.NEXT, false);
         }
     }
@@ -874,13 +1040,42 @@ final class LyricsPanelView extends View {
         }
         radius *= controlScale;
         spacing *= controlScale;
-        centerX += getWidth() * AppPreferences.playbackControlX(getContext()) / 100f;
-        centerY += getHeight() * AppPreferences.playbackControlY(getContext()) / 100f;
-        float horizontalInset = spacing + radius * 1.18f;
-        centerX = Math.max(horizontalInset, Math.min(width - horizontalInset, centerX));
-        centerY = Math.max(radius + 4f * density * contentScale,
-                Math.min(height - radius - 4f * density * contentScale, centerY));
+        // 偏移按面板尺寸的百分比算、按屏读（issue #73）；夹取用「这一组按钮实际占的半宽/半高」，
+        // 而不是写死的三键 inset——只留 1 个键时也能真的贴到面板边上。
+        centerX = PlaybackControlLayoutMath.resolvedCenter(centerX, width,
+                AppPreferences.playbackControlX(getContext(), secondary));
+        centerY = PlaybackControlLayoutMath.resolvedCenter(centerY, height,
+                AppPreferences.playbackControlY(getContext(), secondary));
+        float halfWidth = playbackButtonsHalfExtent(radius, spacing, true)
+                + 4f * density * contentScale;
+        float halfHeight = radius * 1.12f + 4f * density * contentScale;
+        centerX = PlaybackControlLayoutMath.clampCenter(centerX, width, halfWidth);
+        centerY = PlaybackControlLayoutMath.clampCenter(centerY, height, halfHeight);
         return new PlaybackControlLayout(centerX, centerY, radius, spacing);
+    }
+
+    /**
+     * 这一屏实际显示的按钮组在某个方向上的半尺寸（横向含间距，纵向只有半径）。用于把整组夹在面板
+     * 内：只显示 1 个键时它比三键小得多，以前写死的 inset 会让按钮离边缘很远（issue #73）。
+     */
+    private float playbackButtonsHalfExtent(float radius, float spacing, boolean horizontal) {
+        boolean previous = AppPreferences.showPreviousButton(getContext(), secondary);
+        boolean playPause = AppPreferences.showPlayPauseButton(getContext(), secondary);
+        boolean next = AppPreferences.showNextButton(getContext(), secondary);
+        int count = PlaybackControlLayoutMath.visibleCount(previous, playPause, next);
+        if (count == 0) return radius;
+        int slot = 0;
+        float extent = radius;
+        for (int index = 0; index < 3; index++) {
+            boolean shown = index == 0 ? previous : index == 1 ? playPause : next;
+            if (!shown) continue;
+            float buttonRadius = index == PLAYBACK_BUTTON_PLAY_PAUSE ? radius * 1.12f : radius;
+            float offset = horizontal
+                    ? Math.abs(PlaybackControlLayoutMath.slotOffset(slot, count, spacing)) : 0f;
+            extent = Math.max(extent, offset + buttonRadius);
+            slot++;
+        }
+        return extent;
     }
 
     private static final class PlaybackControlLayout {
@@ -904,11 +1099,16 @@ final class LyricsPanelView extends View {
         return dx * dx + dy * dy <= radius * radius;
     }
 
+    /** 内容留白（issue #49）：未设置（-1）时原样返回各样式写死的值，0% = 文字贴边。 */
+    private float contentPad(float legacyPadPx) {
+        return ContentPaddingMath.padPx(legacyPadPx, contentPaddingPercent);
+    }
+
     private void drawDefault(Canvas canvas, MusicSnapshot snapshot, float density) {
         float width = getWidth();
         float height = getHeight();
         float contentScale = ClassicLayoutMath.contentScale(width, height, density);
-        float pad = 18f * density * contentScale;
+        float pad = contentPad(18f * density * contentScale);
         if (opacity > 0) {
             drawPanelShadow(canvas, 24f * density * contentScale,
                     Color.argb(Math.round(opacity * 2.55f), 6, 15, 27));
@@ -924,136 +1124,161 @@ final class LyricsPanelView extends View {
         float previewShift = browseVisualOffsetPx;
         float unit = (secondary ? 1.12f : 1f) * contentScale;
         float densityUnit = density * unit;
-        boolean hasTranslation = !secondaryLyric(snapshot).isEmpty();
-        // 「歌词显示行数」：经典样式最多摆三行歌词（上一句 / 本句 / 下一句）。1 行时只画本句，
-        // 2 行时画本句与下一句，空出来的位置不再留着（issue #26）。
+        String translation = secondaryLyric(snapshot);
+        boolean hasTranslation = !translation.isEmpty();
+        // 「歌词显示行数」：经典样式最多摆 7 行歌词（上一句 ×3 / 本句 / 下一句 ×3）。1 行时只画本句，
+        // 2 行时画本句与下一句，之后本句两侧交替补行，空行位保留着不动（issue #26 / #64）。
         int lyricRows = ClassicLayoutMath.visibleRowCount(lyricLineCount);
-        boolean showPreviousRow = lyricRows >= 3;
-        boolean showNextRow = lyricRows >= 2;
+        int followingRows = ClassicLayoutMath.followingRowCount(lyricRows);
+        int precedingRows = ClassicLayoutMath.precedingRowCount(lyricRows);
         float controlReserve = AppPreferences.showPlaybackControls(getContext(), secondary)
                 ? 31f * density * contentScale : 0f;
-        float nextBaseline = height - 37f * density * contentScale - controlReserve;
-        float lyricClipBottom = height - 21f * density * contentScale;
+        // 可用区：所有行都排在这条线以上。频谱打开时它再往上让出频谱那一段。
+        float areaBottom = height - 21f * density * contentScale - controlReserve;
         if (AppPreferences.spectrumEnabled(getContext(), secondary)) {
-            float spectrumHeight = Math.max(14f * density,
-                    Math.min(42f * density, height * 0.15f));
+            float spectrumHeight = SpectrumLayoutMath.heightPx(
+                    AppPreferences.spectrumHeightPercent(getContext(), secondary), density,
+                    height, SpectrumLayoutMath.LEGACY_MIN_DP, SpectrumLayoutMath.LEGACY_MAX_DP,
+                    SpectrumLayoutMath.LEGACY_PANEL_RATIO);
             boolean controlsVisible = AppPreferences.showPlaybackControls(getContext(), secondary)
-                    && (AppPreferences.showPreviousButton(getContext())
-                    || AppPreferences.showPlayPauseButton(getContext())
-                    || AppPreferences.showNextButton(getContext()));
-            float spectrumBottom = height - Math.max(3f * density,
-                    controlsVisible ? 42f * density : 5f * density);
-            float spectrumTop = spectrumBottom - spectrumHeight;
-            lyricClipBottom = spectrumTop;
-            nextBaseline = Math.min(nextBaseline,
-                    spectrumTop - 5f * density * contentScale);
+                    && (AppPreferences.showPreviousButton(getContext(), secondary)
+                    || AppPreferences.showPlayPauseButton(getContext(), secondary)
+                    || AppPreferences.showNextButton(getContext(), secondary));
+            float spectrumBottom = height - SpectrumLayoutMath.bottomInsetPx(density,
+                    controlsVisible, AppPreferences.spectrumGapDp(getContext(), secondary));
+            areaBottom = spectrumBottom - spectrumHeight - 5f * density * contentScale;
         }
-        // 关掉「显示播放器与歌词来源状态行」时，状态行占的那一段也一并收回去，不再留一块空白
-        // （issue #41）；开着时基线与原来完全一致。
-        float statusBaseline = (showPlayerStatus ? 33f : 10f) * density * contentScale;
-        // 行距跟着字号走：调大歌名字号时把下面几行推开，而不是把整块歌词一起缩小（issue #38）。
-        float titleBaseline = statusBaseline + ClassicLayoutMath.stackedGapDp(
-                11f, 15f * titleScale, 24f) * densityUnit;
-        float previousBaseline = titleBaseline + ClassicLayoutMath.stackedGapDp(
-                15f * titleScale, 22f * previousLyricScale, 27f) * densityUnit;
-        // 没有上一句时，歌名下面就是本句：上边界换成歌名 + 它自己的行距。
-        float lyricTopBound = showPreviousRow
-                ? previousBaseline
-                : titleBaseline + ClassicLayoutMath.stackedGapDp(
-                        15f * titleScale, 22f, 24f) * densityUnit;
-        float nominalGapTotal = (hasTranslation ? 80f : 56f) * densityUnit;
-        float availableGapTotal = Math.max(1f, nextBaseline - lyricTopBound);
-        float gapScale = Math.min(1f, availableGapTotal / nominalGapTotal);
-        // With the normal three-line classic layout, center the active line exactly between
-        // previous and next.  It avoids the visible uneven "32dp then leftover" spacing.
-        // 有上一句且带翻译时本句靠上（原样保留）；只剩本句一行时让它在可用区里居中。
-        float currentBaseline = hasTranslation && showPreviousRow
-                ? lyricTopBound + 32f * densityUnit * gapScale
-                : (lyricTopBound + nextBaseline) * 0.5f;
-        float translationBaseline = currentBaseline + 24f * densityUnit * gapScale;
-        float classicTextScale = ClassicLayoutMath.constrainedTextScale(textScale, density, unit,
-                titleScale, nextLyricScale, new ClassicLayoutMath.Card(statusBaseline,
-                        titleBaseline, previousBaseline, currentBaseline, translationBaseline,
-                        nextBaseline, showPlayerStatus, showPreviousRow, hasTranslation,
-                        showNextRow));
+        float areaTop = pad;
+        float availableHeight = Math.max(1f, areaBottom - areaTop);
+
+        // 行表：字号先行，行距由相邻两行的字号推出来，主行再用同一份行距排齐（issue #53/#64）。
+        int rowCount = 0;
+        if (showPlayerStatus) {
+            classicRowKinds[rowCount] = CLASSIC_ROW_STATUS;
+            classicRowOffsets[rowCount] = 0;
+            classicRowSizes[rowCount] = 11f;
+            classicRowScales[rowCount] = true;
+            classicRowMinGaps[rowCount] = 0f;
+            classicRowUniform[rowCount] = true;
+            rowCount++;
+        }
+        int titleIndex = rowCount;
+        classicRowKinds[titleIndex] = CLASSIC_ROW_TITLE;
+        classicRowOffsets[titleIndex] = 0;
+        classicRowSizes[titleIndex] = 15f * titleScale;
+        // 歌名走「歌名与歌手字号」，不再乘「字号」，所以不参与整体缩放（issue #38）。
+        classicRowScales[titleIndex] = false;
+        classicRowMinGaps[titleIndex] = titleIndex > 0 ? ClassicLayoutMath.MIN_LYRIC_GAP_DP : 0f;
+        classicRowUniform[titleIndex] = true;
+        rowCount++;
+        for (int offset = -precedingRows; offset <= followingRows; offset++) {
+            boolean current = offset == 0;
+            classicRowKinds[rowCount] = CLASSIC_ROW_LYRIC;
+            classicRowOffsets[rowCount] = offset;
+            classicRowSizes[rowCount] = current
+                    ? 22f
+                    : 22f * (offset < 0 ? previousLyricScale : nextLyricScale);
+            classicRowScales[rowCount] = true;
+            // 歌名下面那一行沿用历史下限（上一句 27dp / 本句 24dp），歌词行之间 24dp。
+            classicRowMinGaps[rowCount] = rowCount == 0 ? 0f
+                    : (rowCount == titleIndex + 1 && offset < 0
+                            ? ClassicLayoutMath.MIN_TITLE_GAP_DP
+                            : ClassicLayoutMath.MIN_LYRIC_GAP_DP);
+            classicRowUniform[rowCount] = true;
+            rowCount++;
+            if (current && hasTranslation) {
+                classicRowKinds[rowCount] = CLASSIC_ROW_TRANSLATION;
+                classicRowOffsets[rowCount] = 0;
+                classicRowSizes[rowCount] = 12f;
+                classicRowScales[rowCount] = true;
+                classicRowMinGaps[rowCount] = ClassicLayoutMath.MIN_TRANSLATION_GAP_DP;
+                // 翻译贴着本句走，不参与统一行距，否则多行时它会离本句很远。
+                classicRowUniform[rowCount] = false;
+                rowCount++;
+            }
+        }
+        ClassicLayoutMath.pack(classicBlock, rowCount, classicRowSizes, classicRowScales,
+                classicRowMinGaps, classicRowUniform, densityUnit, textScale, availableHeight);
+        float classicTextScale = classicBlock.scale;
+        float blockTop;
+        if (contentAlign.isEmpty()) {
+            // 歌名与各歌词行平均分配行距，整块在面板里居中：面板调高只是上下留白更多，行距不再被
+            // 面板高度拉开，歌名也不会再和相邻歌词挤在一起（issue #53）。
+            blockTop = areaTop + Math.max(0f, availableHeight - classicBlock.heightPx) * 0.5f;
+        } else {
+            // 「内容垂直对齐」：整块歌词在面板里靠上 / 居中 / 靠下（issue #41）。
+            blockTop = ClassicLayoutMath.alignedRowShift(contentAlign, 0f, classicBlock.heightPx,
+                    areaTop, areaBottom);
+        }
         float statusSize = 11f * densityUnit * classicTextScale;
         float titleSize = 15f * densityUnit * titleScale;
-        float previousSize = 22f * densityUnit * classicTextScale * previousLyricScale;
         float currentSize = 22f * densityUnit * classicTextScale;
         float translationSize = 12f * densityUnit * classicTextScale;
-        float nextSize = currentSize * nextLyricScale;
-        // 「内容垂直对齐」：整块歌词在面板里靠上 / 居中 / 靠下。留空表示沿用样式自己的摆法，
-        // 观感与改动前一致；贴顶时选「顶部」就能真正顶格（issue #41）。
-        if (!contentAlign.isEmpty()) {
-            float lastBaseline = showNextRow ? nextBaseline
-                    : (hasTranslation ? translationBaseline : currentBaseline);
-            float lastSize = showNextRow ? nextSize
-                    : (hasTranslation ? translationSize : currentSize);
-            float blockTop = showPlayerStatus
-                    ? statusBaseline - ClassicLayoutMath.ascent(statusSize)
-                    : titleBaseline - ClassicLayoutMath.ascent(titleSize);
-            float blockHeight = lastBaseline + ClassicLayoutMath.descent(lastSize) - blockTop;
-            float shift = ClassicLayoutMath.alignedRowShift(contentAlign, blockTop, blockHeight,
-                    pad, lyricClipBottom);
-            statusBaseline += shift;
-            titleBaseline += shift;
-            previousBaseline += shift;
-            currentBaseline += shift;
-            translationBaseline += shift;
-            nextBaseline += shift;
-        }
         String lyricSource = snapshot.lyricSourceName.isEmpty()
                 ? "" : "  ·  歌词/" + snapshot.lyricSourceName;
         String status = snapshot.active
                 ? snapshot.sourceName + (snapshot.playing ? "  ·  播放中" : "  ·  已暂停")
                 + lyricSource : "歌词伴侣  ·  等待音乐";
-        int classicTextSave = canvas.save();
-        canvas.clipRect(0f, 0f, width, Math.max(1f, lyricClipBottom));
-        // Panel metadata: its own colours, and never an outline.
-        drawingMetadata = true;
-        if (showPlayerStatus) {
-            drawCentered(canvas, status, statusBaseline, statusSize,
-                    snapshot.playing ? 0xFF6EE7F2 : 0xFF8392A8, usableWidth, Typeface.BOLD);
-        }
-
-        drawCentered(canvas, snapshot.active ? snapshot.title : "打开音乐播放器并开始播放",
-                titleBaseline, titleSize, 0xFFF6F9FF, usableWidth, Typeface.BOLD);
-        drawingMetadata = false;
         float basicScrollShift = basicLyricEntryShift(snapshot.lyrics.lineStartMs,
                 32f * density * unit);
         // Every lyric row of this style shares one column and one alignment, so the current line,
         // its translation and the neighbouring lines never drift apart.
         Paint.Align lyricAlign = lyricTextAlign(Paint.Align.CENTER);
-        if (showPreviousRow) {
-            drawAlignedDissolving(canvas, snapshot.lyrics.previousLyric, pad, usableWidth,
-                    previousBaseline + previewShift + basicScrollShift,
-                    previousSize,
-                    adjacentLyricColor(inactiveLyricColor(0xFF68778C), -1),
-                    Typeface.NORMAL, LyricDissolveEffect.UNKNOWN_LINE);
-        }
-        if (snapshot.lyrics.interlude) {
-            float dotRadius = currentSize * 0.35f;
-            float dotWidth = interludeDotsWidth(dotRadius);
-            drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
-                    currentBaseline + previewShift + basicScrollShift - dotRadius, dotRadius,
-                    currentLyricColor(0xFFFFCA66));
-        } else {
-            drawKaraoke(canvas, snapshot, currentText(snapshot),
-                    lyricAnchorX(pad, usableWidth, lyricAlign),
-                    currentBaseline + previewShift + basicScrollShift,
-                    currentSize, usableWidth, lyricAlign,
-                    inactiveLyricColor(0xFFB1BCCB), currentLyricColor(0xFFFFCA66));
-        }
-        if (hasTranslation) {
-            drawAlignedLyric(canvas, secondaryLyric(snapshot), pad, usableWidth,
-                    translationBaseline + previewShift + basicScrollShift,
-                    translationSize, currentLyricColor(0xFFB8C5D8),
-                    Typeface.NORMAL);
-        }
-        if (showNextRow) {
-            drawAlignedLyric(canvas, snapshot.lyrics.nextLyric, pad, usableWidth,
-                    nextBaseline + previewShift + basicScrollShift,
-                    nextSize, nextLyricColor(inactiveLyricColor(0xFF68778C)), Typeface.NORMAL);
+        float lyricAnchor = lyricAnchorX(pad, usableWidth, lyricAlign);
+        int classicTextSave = canvas.save();
+        canvas.clipRect(0f, 0f, width, Math.max(1f, areaBottom));
+        for (int index = 0; index < rowCount; index++) {
+            float baseline = blockTop + classicBlock.baselinesPx[index]
+                    + previewShift + basicScrollShift;
+            int kind = classicRowKinds[index];
+            if (kind == CLASSIC_ROW_STATUS) {
+                // Panel metadata: its own colours, and never an outline.
+                drawingMetadata = true;
+                drawCentered(canvas, status, baseline, statusSize,
+                        snapshot.playing ? 0xFF6EE7F2 : 0xFF8392A8, usableWidth, Typeface.BOLD);
+                drawingMetadata = false;
+                continue;
+            }
+            if (kind == CLASSIC_ROW_TITLE) {
+                drawingMetadata = true;
+                drawCentered(canvas, snapshot.active ? snapshot.title : "打开音乐播放器并开始播放",
+                        baseline, titleSize, 0xFFF6F9FF, usableWidth, Typeface.BOLD);
+                drawingMetadata = false;
+                continue;
+            }
+            if (kind == CLASSIC_ROW_TRANSLATION) {
+                drawAlignedLyric(canvas, translation, pad, usableWidth, baseline,
+                        translationSize, currentLyricColor(0xFFB8C5D8), Typeface.NORMAL);
+                continue;
+            }
+            int offset = classicRowOffsets[index];
+            if (offset == 0) {
+                if (snapshot.lyrics.interlude) {
+                    float dotRadius = currentSize * 0.35f;
+                    float dotWidth = interludeDotsWidth(dotRadius);
+                    drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
+                            baseline - dotRadius, dotRadius, currentLyricColor(0xFFFFCA66));
+                } else {
+                    drawKaraoke(canvas, snapshot, currentText(snapshot), lyricAnchor, baseline,
+                            currentSize, usableWidth, lyricAlign,
+                            inactiveLyricColor(0xFFB1BCCB), currentLyricColor(0xFFFFCA66));
+                }
+                continue;
+            }
+            LrcTimeline.NearbyLine line = classicNearbyLine(snapshot, offset);
+            String text = line != null ? line.text : classicFallbackText(snapshot, offset);
+            if (text.isEmpty()) continue;
+            float size = 22f * densityUnit * classicTextScale
+                    * (offset < 0 ? previousLyricScale : nextLyricScale);
+            int color = classicAdjacentColor(offset);
+            if (offset < 0) {
+                drawAlignedDissolving(canvas, text, pad, usableWidth, baseline, size, color,
+                        Typeface.NORMAL, line == null || line.timeMs <= 0L
+                                ? LyricDissolveEffect.UNKNOWN_LINE : line.timeMs);
+            } else {
+                drawAlignedLyric(canvas, text, pad, usableWidth, baseline, size, color,
+                        Typeface.NORMAL);
+            }
         }
         canvas.restoreToCount(classicTextSave);
         drawProgress(canvas, pad, height - 17f * density * contentScale,
@@ -1084,7 +1309,7 @@ final class LyricsPanelView extends View {
         canvas.clipPath(clipPath);
 
         float contentScale = canvasAreaScale(560f, 300f, density);
-        float pad = Math.max(12f * density * contentScale, width * 0.035f);
+        float pad = contentPad(Math.max(12f * density * contentScale, width * 0.035f));
         boolean lyricsOnly = "lyrics".equals(refinedDisplayMode);
         boolean coverOnly = "cover".equals(refinedDisplayMode);
         float leftColumnWidth = lyricsOnly ? 0f : width * 0.45f;
@@ -1122,6 +1347,71 @@ final class LyricsPanelView extends View {
     }
 
     /** Text-only desktop style: no cover, player metadata, progress or transport controls. */
+    /**
+     * 灵动岛样式（issue #54）：一颗胶囊，左边圆形封面、右边歌名（可选）与单行当前歌词。
+     *
+     * <p>高度由 {@link IslandLayoutMath} 夹在 40–72dp 之间、角半径取高度一半（真胶囊）；矮胶囊里
+     * 只显示歌词，够高才分两行放歌名。整块面板都可以拖动（{@code OverlayStyleInteraction}），
+     * 与紧凑 / 纯净一致。
+     */
+    private void drawIsland(Canvas canvas, MusicSnapshot snapshot, float density) {
+        float width = getWidth();
+        float height = getHeight();
+        float capsuleHeight = IslandLayoutMath.capsuleHeightPx(height, density);
+        float radius = IslandLayoutMath.capsuleRadiusPx(capsuleHeight);
+        float top = (height - capsuleHeight) * 0.5f;
+        float side = IslandLayoutMath.sidePaddingPx(capsuleHeight);
+        float coverSize = IslandLayoutMath.coverSizePx(capsuleHeight);
+        float gap = IslandLayoutMath.coverGapPx(capsuleHeight);
+        float centerY = top + capsuleHeight * 0.5f;
+
+        // 胶囊底：默认半透明深色玻璃；用户设了背景色 / 不透明度时按设置来。
+        int configured = configuredBackgroundColor();
+        int capsuleColor = configured != 0 ? withAlpha(configured, Math.round(opacity * 2.55f))
+                : (snapshot.active ? 0xD91A2130 : 0xA61A2130);
+        if (capsuleColor != 0) {
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(capsuleColor);
+            workRect.set(0f, top, width, top + capsuleHeight);
+            canvas.drawRoundRect(workRect, radius, radius, paint);
+        }
+
+        float coverLeft = side;
+        float coverTop = centerY - coverSize * 0.5f;
+        coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
+        drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverSize * 0.5f,
+                mix(refinedAccentColor(), Color.DKGRAY, 0.55f));
+
+        float textLeft = coverLeft + coverSize + gap;
+        float textWidth = IslandLayoutMath.textWidthPx(width, capsuleHeight);
+        boolean showTitle = IslandLayoutMath.showsTitleRow(capsuleHeight, textWidth, density)
+                && snapshot.active && !snapshot.title.isEmpty();
+        float lyricSize = IslandLayoutMath.lyricSizePx(capsuleHeight) * textScale;
+        float titleSize = IslandLayoutMath.titleSizePx(capsuleHeight, lyricSize) * titleScale;
+        drawingMetadata = true;
+        if (showTitle) {
+            drawRefinedText(canvas, snapshot.title, textLeft, centerY - lyricSize * 0.30f,
+                    titleSize, 0xFFF5F8FF, textWidth, Paint.Align.LEFT, Typeface.NORMAL, 235);
+            drawRefinedText(canvas, snapshot.artist, textLeft, centerY + lyricSize * 0.78f,
+                    MetadataTypeScaleMath.artistSize(titleSize, 0.72f, artistScalePercent),
+                    0xFFC3CEDD, textWidth, Paint.Align.LEFT, Typeface.NORMAL, 175);
+        }
+        drawingMetadata = false;
+        float lyricBaseline = showTitle ? centerY + lyricSize * 0.42f : centerY + lyricSize * 0.34f;
+        if (snapshot.lyrics.interlude) {
+            float dotRadius = lyricSize * 0.22f;
+            drawInterludeDots(canvas, snapshot, textLeft, lyricBaseline - lyricSize * 0.85f,
+                    dotRadius, currentLyricColor(0xFFFFFFFF));
+        } else {
+            // 单行：跑马灯负责长句（与紧凑 / 纯净同一条路径，顶部条除外）。
+            drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot), textLeft,
+                    lyricBaseline, lyricSize, textWidth, density,
+                    inactiveLyricColor(0x99FFFFFF), currentLyricColor(0xFFFFFFFF),
+                    capsuleHeight);
+        }
+    }
+
     private void drawPure(Canvas canvas, MusicSnapshot snapshot, float density) {
         int background = configuredBackgroundColor();
         if (background != 0 && opacity > 0) {
@@ -1220,7 +1510,8 @@ final class LyricsPanelView extends View {
                 } else {
                     drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot),
                             lyricLeft, baseline, size, maxWidth, density,
-                            inactiveLyricColor(0x99FFFFFF), currentLyricColor(0xFFFFFFFF));
+                            inactiveLyricColor(0x99FFFFFF), currentLyricColor(0xFFFFFFFF),
+                            Math.max(1f, height - 16f * density));
                 }
             } else if (line != null) {
                 int distance = Math.min(3, Math.abs(line.offset));
@@ -1332,7 +1623,12 @@ final class LyricsPanelView extends View {
         float titleSize = clampRange(height * 0.05f,
                 45f * density, 600f * density) * titleScale;
         float metaSize = 16f * density * titleScale;
-        float groupHeight = coverSize + 18f * density + titleSize + metaSize * 3.0f;
+        // 歌手字号可单独调（issue #63）：Refined 全屏的歌名按面板高度算，所以这里只有「用户调过」
+        // 时才按百分比走，没调过仍是写死的 16dp（观感不变）。
+        float artistSize = artistScalePercent < 0 ? metaSize
+                : MetadataTypeScaleMath.artistSize(titleSize, 1f, artistScalePercent);
+        float metaUnit = Math.max(metaSize, artistSize);
+        float groupHeight = coverSize + 18f * density + titleSize + metaUnit * 3.0f;
         float top = Math.max(24f * density, height - bottom - groupHeight);
         float left = contentLeft + Math.min(50f * density,
                 Math.max(0f, infoWidth - coverSize));
@@ -1362,10 +1658,10 @@ final class LyricsPanelView extends View {
         drawRefinedText(canvas, snapshot.active ? snapshot.title : "等待音乐",
                 textLeft, y, titleSize, primaryText, textWidth,
                 Paint.Align.LEFT, Typeface.NORMAL, 255);
-        y += metaSize * 1.8f;
-        drawRefinedText(canvas, snapshot.artist, textLeft, y, metaSize,
+        y += metaUnit * 1.8f;
+        drawRefinedText(canvas, snapshot.artist, textLeft, y, artistSize,
                 secondaryText, textWidth, Paint.Align.LEFT, Typeface.NORMAL, 205);
-        y += metaSize * 1.55f;
+        y += metaUnit * 1.55f;
         if (showPlayerStatus) {
             drawRefinedText(canvas, snapshot.sourceName + sourceSuffix(snapshot), textLeft, y,
                     metaSize, secondaryText, textWidth, Paint.Align.LEFT, Typeface.NORMAL, 145);
@@ -1391,7 +1687,7 @@ final class LyricsPanelView extends View {
         canvas.clipPath(clipPath);
 
         float contentScale = canvasAreaScale(620f, 350f, density);
-        float pad = Math.max(12f * density * contentScale, width * 0.028f);
+        float pad = contentPad(Math.max(12f * density * contentScale, width * 0.028f));
         float leftWidth = width * 0.45f;
         float lyricLeft = leftWidth + Math.max(6f * density * contentScale,
                 width * 0.015f);
@@ -1413,23 +1709,28 @@ final class LyricsPanelView extends View {
         updatePalette(snapshot.albumArt);
         drawAmllBackground(canvas, snapshot.albumArt, snapshot.playing);
         boolean vertical = width < height;
+        // 无封面且选了「隐藏封面区域」：AMLL 也把封面那块收掉，文字与歌词往上顶（issue #50）。
+        boolean hideCover = coverAreaHidden();
         if (vertical) {
             float side = width <= 480f * density ? 20f * density : 3f * 16f * density;
-            float coverSize = (width <= 480f * density ? 4.5f : 6f)
+            float coverSize = hideCover ? 0f : (width <= 480f * density ? 4.5f : 6f)
                     * 16f * density * coverScale;
             coverSize = Math.min(coverSize, width * 0.24f);
             float coverTop = 60f * density;
             coverRect.set(side, coverTop, side + coverSize, coverTop + coverSize);
-            drawCoverWithAmllShadow(canvas, snapshot, density, coverRect,
-                    Math.max(4f * density, coverSize * 0.02f));
+            if (!hideCover) {
+                drawCoverWithAmllShadow(canvas, snapshot, density, coverRect,
+                        Math.max(4f * density, coverSize * 0.02f));
+            }
             float infoSize = Math.max(height * 0.02f, 16f * density) * titleScale;
             float infoLeft = coverRect.right + 16f * density;
             float infoWidth = Math.max(1f, width - infoLeft - side);
             drawAmllSingleLine(canvas, snapshot.active ? snapshot.title : "等待播放",
                     infoLeft, coverRect.centerY(), infoSize, Color.WHITE,
                     infoWidth, Typeface.BOLD, 230);
-            drawAmllSingleLine(canvas, snapshot.artist, infoLeft,
-                    coverRect.centerY() + infoSize * 1.25f, infoSize * 0.78f,
+            drawAmllSingleLine(canvas, snapshot.artist,
+                    infoLeft, coverRect.centerY() + infoSize * 1.25f,
+                    MetadataTypeScaleMath.artistSize(infoSize, 0.78f, artistScalePercent),
                     Color.WHITE, infoWidth, Typeface.NORMAL, 115);
 
             float lyricTop = coverRect.bottom + 18f * density;
@@ -1448,22 +1749,26 @@ final class LyricsPanelView extends View {
             float lyricRightPadding = (width <= 1600f * density
                     || height <= 1000f * density) ? width * 0.08f : width * 0.15f;
             float lyricWidth = Math.max(1f, width - lyricLeft - lyricRightPadding);
-            float coverSize = Math.min(height * 0.45f, width * 0.38f) * coverScale;
+            float coverSize = hideCover ? 0f
+                    : Math.min(height * 0.45f, width * 0.38f) * coverScale;
             float coverTop = Math.max(30f * density, height * 0.075f);
-            float coverLeft = (leftWidth - coverSize) * 0.5f;
+            float coverLeft = hideCover ? leftWidth * 0.08f : (leftWidth - coverSize) * 0.5f;
             coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
-            drawCoverWithAmllShadow(canvas, snapshot, density, coverRect,
-                    Math.max(5f * density, coverSize * 0.02f));
+            if (!hideCover) {
+                drawCoverWithAmllShadow(canvas, snapshot, density, coverRect,
+                        Math.max(5f * density, coverSize * 0.02f));
+            }
             float infoSize = Math.max(height * 0.02f, 16f * density) * titleScale;
-            float infoWidth = coverSize;
+            float infoWidth = hideCover ? Math.max(1f, leftWidth - coverLeft * 2f) : coverSize;
             drawAmllSingleLine(canvas, snapshot.active ? snapshot.title : "等待播放",
                     coverLeft, coverRect.bottom + infoSize * 1.55f, infoSize,
                     Color.WHITE, infoWidth, Typeface.BOLD, 230);
             drawAmllSingleLine(canvas, snapshot.artist, coverLeft,
-                    coverRect.bottom + infoSize * 2.75f, infoSize * 0.78f,
+                    coverRect.bottom + infoSize * 2.75f,
+                    MetadataTypeScaleMath.artistSize(infoSize, 0.78f, artistScalePercent),
                     Color.WHITE, infoWidth, Typeface.NORMAL, 115);
             float progressY = coverRect.bottom + infoSize * 3.35f;
-            drawProgress(canvas, coverLeft, progressY, coverRect.right,
+            drawProgress(canvas, coverLeft, progressY, coverLeft + infoWidth,
                     Math.max(2f, height * 0.004f), snapshot, 0x38FFFFFF, 0xD9FFFFFF);
 
             float lyricFont = Math.max(height * 0.05f, width * 0.025f) * textScale;
@@ -1491,27 +1796,34 @@ final class LyricsPanelView extends View {
         float height = getHeight();
         float top = Math.max(pad, height * 0.075f);
         float titleSize = 16f * density * contentScale * titleScale;
-        float coverSize = 158f * density * contentScale * coverScale;
+        // 无封面且选了「隐藏封面区域」：封面收掉，歌名 / 歌手从列顶往下排（issue #50）。
+        boolean hideCover = coverAreaHidden();
+        float coverSize = hideCover ? 0f : 158f * density * contentScale * coverScale;
         float left = (columnWidth - coverSize) * 0.5f;
         coverRect.set(left, top, left + coverSize, top + coverSize);
         // 「圆形封面」打开后 AMLL 也用正圆——碟片旋转只对圆形封面生效（issue #22）。
         float coverRadius = roundCover ? coverSize * 0.5f : 8f * density;
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(0x4D000000);
-        paint.setShadowLayer(18f * density * contentScale, 0f,
-                8f * density * contentScale, 0x8C000000);
-        canvas.drawRoundRect(coverRect, coverRadius, coverRadius, paint);
-        paint.clearShadowLayer();
-        drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverRadius, palette[0]);
+        if (!hideCover) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0x4D000000);
+            paint.setShadowLayer(18f * density * contentScale, 0f,
+                    8f * density * contentScale, 0x8C000000);
+            canvas.drawRoundRect(coverRect, coverRadius, coverRadius, paint);
+            paint.clearShadowLayer();
+            drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverRadius, palette[0]);
+        }
 
-        float textLeft = Math.max(pad, left);
-        float textWidth = Math.min(columnWidth - textLeft - pad, coverSize);
+        float textLeft = hideCover ? pad : Math.max(pad, left);
+        float textWidth = hideCover ? Math.max(1f, columnWidth - pad * 2f)
+                : Math.min(columnWidth - textLeft - pad, coverSize);
         float y = coverRect.bottom + titleSize * 1.45f;
         drawAmllSingleLine(canvas, snapshot.active ? snapshot.title : "等待播放",
                 textLeft, y, titleSize, 0xFFFFFFFF, textWidth,
                 Typeface.BOLD, 230);
         y += titleSize * 1.25f;
-        drawAmllSingleLine(canvas, snapshot.artist, textLeft, y, titleSize * 0.72f,
+        // 歌手字号可单独调（issue #63）；没调过时仍是写死的 72%。
+        drawAmllSingleLine(canvas, snapshot.artist, textLeft, y,
+                MetadataTypeScaleMath.artistSize(titleSize, 0.72f, artistScalePercent),
                 0xFFFFFFFF, textWidth, Typeface.NORMAL, 115);
     }
 
@@ -1580,37 +1892,31 @@ final class LyricsPanelView extends View {
             if (offset == 1) scale *= nextLyricScale;
             int save = canvas.save();
             canvas.scale(scale, scale, left, centerY);
-            float blur = AmllStyleMotion.lineBlur(offset, snapshot.playing, previewing);
-            BlurMaskFilter lineMask = null;
-            if (blur > 0.01f) {
-                lineMask = blurMask(blur * density);
-                paint.setMaskFilter(lineMask);
-            }
-            int lineColor = inactiveLyricColor(withAlpha(0xFFFFFFFF,
-                    Math.round(opacityValue * 255f)));
+            // AMLL 的远近模糊同样改走离屏位图：面板整体回到硬件渲染（issue #59 后续）。
+            float blurRadius = AmllStyleMotion.lineBlur(offset, snapshot.playing, previewing) * density;
+            int lineColor = withAlpha(inactiveLyricColor(0xFFFFFFFF), 255);
             if (line.interlude) {
                 drawInterludeDots(canvas, snapshot, left, top + fontSize * 0.24f,
-                        fontSize * 0.105f, lineColor);
+                        fontSize * 0.105f, withAlpha(lineColor, Math.round(opacityValue * 255f)));
             } else if (offset == 0) {
                 drawAmllWrappedKaraoke(canvas, snapshot, currentText(snapshot), left, top,
                         fontSize, width, 3, currentLyricColor(0xFFFFFFFF));
             } else if (offset < 0) {
                 // 已经唱过的每一行都走消散路径：消散完的行上移一行后不能整句复活（issue #40）。
-                drawWrappedTextDissolving(canvas, line.text, left, top, fontSize, lineColor,
-                        width, Typeface.BOLD, 3, line.timeMs);
+                drawBlurredLine(canvas, line.text, left, top, fontSize, lineColor, opacityValue,
+                        width, Typeface.BOLD, 3, blurRadius,
+                        previousLyricDissolve.affects(line.timeMs), line.timeMs);
             } else {
-                drawWrappedText(canvas, line.text, left, top, fontSize, lineColor,
-                        width, Typeface.BOLD, 3);
+                drawBlurredLine(canvas, line.text, left, top, fontSize, lineColor, opacityValue,
+                        width, Typeface.BOLD, 3, blurRadius, false, line.timeMs);
             }
             if (!line.interlude && !secondaryLyric(line).isEmpty()) {
                 float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
-                if (lineMask != null) paint.setMaskFilter(lineMask);
-                int translationAlpha = Math.round(opacityValue
-                        * (offset == 0 ? 96f : 72f));
-                drawWrappedText(canvas, secondaryLyric(line), left,
+                float translationAlpha = opacityValue * (offset == 0 ? 96f : 72f) / 255f;
+                drawBlurredLine(canvas, secondaryLyric(line), left,
                         top + originalHeight + fontSize * 0.12f, translationSize,
-                        lyricColor(withAlpha(0xFFFFFFFF, translationAlpha)), width,
-                        Typeface.NORMAL, 2);
+                        withAlpha(lyricColor(0xFFFFFFFF), 255), translationAlpha, width,
+                        Typeface.NORMAL, 2, blurRadius, false, line.timeMs);
             }
             paint.setMaskFilter(null);
             canvas.restoreToCount(save);
@@ -1654,7 +1960,8 @@ final class LyricsPanelView extends View {
         paint.setColor(configured == 0 ? mix(palette[0], Color.BLACK, 0.76f) : configured);
         canvas.drawRect(panelRect, paint);
         if (configured == 0 && art != null && !art.isRecycled()) {
-            drawBitmapCrop(canvas, blurredPreview(art), panelRect, 225);
+            drawBitmapCrop(canvas, blurredPreview(art), panelRect, 225,
+                    backgroundBrightnessFilter());
         }
 
         float phase = playing ? (SystemClock.elapsedRealtime() % 100_000L) / 100_000f : 0.18f;
@@ -1669,9 +1976,12 @@ final class LyricsPanelView extends View {
             canvas.drawRect(panelRect, paint);
         }
         paint.setShader(null);
-        int dim = Math.max(105, Math.round(clamp(backgroundDim / 100f) * 210f));
-        paint.setColor(Color.argb(dim, 0, 0, 0));
-        canvas.drawRect(panelRect, paint);
+        // 遮罩 0 就是「不压暗」（issue #58）；AMLL 原本恒 ≥105，现在只在遮罩 > 0 时才落那个下限。
+        int dim = ArtworkBackgroundMath.amllMaskAlpha(backgroundDim, styleMaskMode);
+        if (dim > 0) {
+            paint.setColor(Color.argb(dim, 0, 0, 0));
+            canvas.drawRect(panelRect, paint);
+        }
         paint.setShader(new LinearGradient(0f, 0f, 0f, getHeight(),
                 new int[]{0x33000000, 0x00000000, 0x70000000},
                 new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
@@ -1732,8 +2042,10 @@ final class LyricsPanelView extends View {
         float responsiveScale = compactTextOnly
                 ? (float) Math.sqrt(Math.max(0.01f, height / (104f * density)))
                 : (float) Math.sqrt(Math.max(0.01f, width * height / referenceArea));
-        float pad = Math.max(2f * density, 7f * density * responsiveScale);
-        boolean showCover = !compactTextOnly && AppPreferences.compactShowCover(getContext(), secondary);
+        float pad = contentPad(Math.max(2f * density, 7f * density * responsiveScale));
+        // 播放器没给封面又选了「隐藏封面区域」时，右侧那一整块留给歌词（issue #50）。
+        boolean showCover = !compactTextOnly && AppPreferences.compactShowCover(getContext(), secondary)
+                && !coverAreaHidden();
         boolean showBars = compactTextOnly ? AppPreferences.topLyricSpectrum(getContext())
                 : AppPreferences.spectrumEnabled(getContext(), secondary);
         float barsHeight = showBars ? 22f * density * responsiveScale : 0f;
@@ -1742,7 +2054,9 @@ final class LyricsPanelView extends View {
         if (showCover) {
             float coverTop = pad * 0.62f;
             float titleSize = 10.5f * density * responsiveScale * titleScale;
-            float artistSize = 8.5f * density * responsiveScale * titleScale;
+            // 歌手字号可单独调（issue #63）：没调过时仍是写死的 8.5dp（比例与改动前一致）。
+            float artistSize = MetadataTypeScaleMath.artistSize(titleSize,
+                    8.5f / 10.5f, artistScalePercent);
             float metadataHeight = titleSize + artistSize + 5f * density;
             float naturalCoverSize = 58f * density * responsiveScale * coverScale;
             float availableCoverHeight = Math.max(1f, barsTop - coverTop);
@@ -1917,9 +2231,10 @@ final class LyricsPanelView extends View {
                     baseline - lyricSize * 0.72f, dotRadius, activeColor);
             return;
         }
+        // 换行档要按可用高度决定最多几行；这里用面板高度减边距当近似（上限 3 行，且块居中在原行位置）。
         float marqueeOffset = drawCompactMarqueeKaraoke(canvas, snapshot,
                 currentText(snapshot), lyricLeft, baseline, lyricSize, lyricWidth, density,
-                baseColor, activeColor);
+                baseColor, activeColor, Math.max(1f, getHeight() - 16f * density));
         if (showTranslation) {
             drawCompactFollowingTranslation(canvas, secondaryText, lyricLeft, secondaryBaseline,
                     secondaryLineSize, lyricWidth, marqueeOffset, translationColor);
@@ -2011,6 +2326,17 @@ final class LyricsPanelView extends View {
     private float drawCompactMarqueeKaraoke(Canvas canvas, MusicSnapshot snapshot, String value,
                                            float x, float y, float requestedSize, float maxWidth,
                                            float density, int baseColor, int activeColor) {
+        return drawCompactMarqueeKaraoke(canvas, snapshot, value, x, y, requestedSize, maxWidth,
+                density, baseColor, activeColor, 0f);
+    }
+
+    /**
+     * @param availableHeight 这一行的可用高度（用于「换行」档决定最多排几行；0 = 按单行处理）
+     */
+    private float drawCompactMarqueeKaraoke(Canvas canvas, MusicSnapshot snapshot, String value,
+                                           float x, float y, float requestedSize, float maxWidth,
+                                           float density, int baseColor, int activeColor,
+                                           float availableHeight) {
         if (value == null || value.isEmpty()) {
             compactMarqueeActive = false;
             compactMarqueeText = "";
@@ -2031,6 +2357,32 @@ final class LyricsPanelView extends View {
             drawKaraoke(canvas, snapshot, text, lyricAnchorX(x, maxWidth, align), y, requestedSize,
                     maxWidth, align,
                     baseColor, activeColor);
+            return 0f;
+        }
+        // 长句显示方式（issue #47）：默认仍是跑马灯；另两档在下面就地处理，版面预算不变。
+        String mode = LongLineLayout.resolveMode(longLineMode, compactTextOnly);
+        if (LongLineLayout.MODE_SHRINK.equals(mode)) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
+            float size = LongLineLayout.shrinkSize(requestedSize, textWidth, maxWidth);
+            Paint.Align align = lyricTextAlign(Paint.Align.CENTER);
+            drawKaraoke(canvas, snapshot, text, lyricAnchorX(x, maxWidth, align), y, size,
+                    maxWidth, align, baseColor, activeColor);
+            return 0f;
+        }
+        if (LongLineLayout.MODE_WRAP.equals(mode)) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
+            float lineHeight = requestedSize * 1.22f;
+            int lines = LongLineLayout.wrapMaxLines(availableHeight, lineHeight, 3);
+            // 把整块居中在原行位置上：不动调用方的版面预算（换行会吃掉相邻行位，这是该档的代价）。
+            float blockHeight = wrappedTextHeight(text, requestedSize, maxWidth, lines);
+            float blockTop = y - requestedSize
+                    - Math.max(0f, (blockHeight - lineHeight) * 0.5f);
+            drawWrappedKaraoke(canvas, snapshot, text, x, blockTop, requestedSize, maxWidth,
+                    activeColor, lines);
             return 0f;
         }
 
@@ -2100,7 +2452,7 @@ final class LyricsPanelView extends View {
         } else if (!snapshot.lyrics.wordTimed) {
             drawLyricOutline(canvas, text, drawX, y, requestedSize, activeColor, true);
             paint.setColor(activeColor);
-            applyRefinedTextEffect(requestedSize, activeColor, 255);
+            applyLyricTextEffect(requestedSize, activeColor, 255);
             canvas.drawText(text, drawX, y, paint);
             paint.clearShadowLayer();
         } else {
@@ -2111,10 +2463,7 @@ final class LyricsPanelView extends View {
                     drawX + Math.min(textWidth, highlightedWidth), y + requestedSize * 0.35f);
             drawLyricOutline(canvas, text, drawX, y, requestedSize, activeColor, true);
             paint.setColor(activeColor);
-            if (refinedLyricGlow) {
-                paint.setShadowLayer(Math.max(3f, requestedSize * 0.24f), 0f, 0f,
-                        withAlpha(activeColor, 90));
-            }
+            applyLyricTextEffect(requestedSize, activeColor, 255);
             canvas.drawText(text, drawX, y, paint);
             paint.clearShadowLayer();
             canvas.restoreToCount(highlightSave);
@@ -2151,11 +2500,17 @@ final class LyricsPanelView extends View {
                                      float columnWidth, float pad, int primaryText,
                                      int secondaryText, int accent, float contentScale) {
         float height = getHeight();
-        float coverSize = 138f * density * contentScale * coverScale;
+        // 无封面且选了「隐藏封面区域」：封面整块收掉，歌名 / 歌手 / 来源往上顶（issue #50）。
+        boolean hideCover = coverAreaHidden();
+        float coverSize = hideCover ? 0f : 138f * density * contentScale * coverScale;
         float titleSize = 22.5f * density * contentScale * titleScale;
         float metaSize = titleSize * 0.42f;
-        float groupHeight = coverSize + 18f * density * contentScale + titleSize
-                + metaSize * 3.2f;
+        // 歌手字号可单独调（issue #63）；没调过时就是原来的 metaSize（42%）。
+        float artistSize = MetadataTypeScaleMath.artistSize(titleSize, 0.42f, artistScalePercent);
+        // 版面预算按两者较大者算，歌手调大也不会压到来源行或歌词。
+        float metaUnit = Math.max(metaSize, artistSize);
+        float groupHeight = (hideCover ? 0f : coverSize + 18f * density * contentScale)
+                + titleSize + metaUnit * 3.2f;
         float top = "middle".equals(refinedCoverVertical)
                 ? Math.max(pad, (height - groupHeight) / 2f)
                 : Math.max(pad, height - pad - 8f * density * contentScale - groupHeight);
@@ -2164,8 +2519,9 @@ final class LyricsPanelView extends View {
         coverRect.set(left, top, left + coverSize, top + coverSize);
         RectF cover = coverRect;
         float radius = refinedRectangleCover ? 16f * density * contentScale : coverSize / 2f;
+        if (hideCover) clearCoverRect(left, top);
 
-        if (refinedCoverShadow && snapshot.albumArt != null
+        if (!hideCover && refinedCoverShadow && snapshot.albumArt != null
                 && !snapshot.albumArt.isRecycled()) {
             shadowRect.set(cover.left - coverSize * 0.06f,
                     cover.top + coverSize * 0.02f,
@@ -2179,22 +2535,23 @@ final class LyricsPanelView extends View {
             drawBitmapCrop(canvas, blurredPreview(snapshot.albumArt), shadow, 145);
             canvas.restoreToCount(save);
         }
-        drawCoverRotated(canvas, snapshot.albumArt, cover, radius,
-                mix(accent, Color.DKGRAY, 0.55f));
-
+        if (!hideCover) {
+            drawCoverRotated(canvas, snapshot.albumArt, cover, radius,
+                    mix(accent, Color.DKGRAY, 0.55f));
+        }
         float textLeft = "center".equals(refinedCoverHorizontal) ? pad : left;
         float textWidth = Math.max(1f, columnWidth - textLeft - pad);
         Paint.Align align = "center".equals(refinedCoverHorizontal)
                 ? Paint.Align.CENTER : Paint.Align.LEFT;
         float anchor = align == Paint.Align.CENTER ? columnWidth / 2f : textLeft;
-        float y = cover.bottom + 18f * density * contentScale + titleSize;
+        float y = cover.bottom + (hideCover ? titleSize : 18f * density * contentScale + titleSize);
         drawingMetadata = true;
         drawRefinedText(canvas, snapshot.active ? snapshot.title : "等待音乐",
                 anchor, y, titleSize, primaryText, textWidth, align, Typeface.NORMAL, 255);
-        y += metaSize * 1.55f;
-        drawRefinedText(canvas, snapshot.artist, anchor, y, metaSize,
+        y += metaUnit * 1.55f;
+        drawRefinedText(canvas, snapshot.artist, anchor, y, artistSize,
                 secondaryText, textWidth, align, Typeface.NORMAL, 205);
-        y += metaSize * 1.38f;
+        y += metaUnit * 1.38f;
         if (showPlayerStatus) {
             drawRefinedText(canvas, snapshot.sourceName + sourceSuffix(snapshot), anchor, y,
                     metaSize * 0.88f, secondaryText, textWidth, align, Typeface.NORMAL, 145);
@@ -2279,10 +2636,11 @@ final class LyricsPanelView extends View {
                 canvas.rotate(curve.rotationDegrees, lineLeft, centerY);
             }
             canvas.scale(scale, scale, lineLeft, centerY);
-            if (refinedLyricBlur && offset != 0) {
-                paint.setMaskFilter(blurMask(
-                        Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density)));
-            }
+            // 「歌词模糊」只作用在非当前行：走离屏位图，面板本身仍是硬件渲染（issue #59 后续）。
+            boolean blurLine = refinedLyricBlur && offset != 0;
+            float blurRadius = blurLine
+                    ? Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density) : 0f;
+            int lineStyle = refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL;
             if (line.interlude) {
                 drawInterludeDots(canvas, snapshot, lineLeft, top + fontSize * 0.30f,
                         fontSize * 0.35f,
@@ -2292,23 +2650,22 @@ final class LyricsPanelView extends View {
                         fontSize, width, currentLyricColor(primaryText), 3);
             } else if (offset < 0) {
                 // 同 drawPure：消散完的行不能被当成普通行重画回来（issue #40）。
-                drawWrappedTextDissolving(canvas, line.text, lineLeft, top, fontSize,
-                        withAlpha(inactiveLyricColor(secondaryText), Math.round(opacity * 255f)),
-                        width, refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL, 3,
-                        line.timeMs);
+                drawBlurredLine(canvas, line.text, lineLeft, top, fontSize,
+                        withAlpha(inactiveLyricColor(secondaryText), 255), opacity, width,
+                        lineStyle, 3, blurRadius,
+                        previousLyricDissolve.affects(line.timeMs), line.timeMs);
             } else {
-                drawWrappedText(canvas, line.text, lineLeft, top, fontSize,
-                        withAlpha(inactiveLyricColor(secondaryText),
-                                Math.round(opacity * 255f)), width,
-                        refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL, 3);
+                drawBlurredLine(canvas, line.text, lineLeft, top, fontSize,
+                        withAlpha(inactiveLyricColor(secondaryText), 255), opacity, width,
+                        lineStyle, 3, blurRadius, false, line.timeMs);
             }
             if (!line.interlude && refinedShowTranslation && !secondaryLyric(line).isEmpty()) {
                 float originalHeight = wrappedTextHeight(line.text, fontSize, width, 3);
-                drawWrappedText(canvas, secondaryLyric(line), lineLeft,
+                drawBlurredLine(canvas, secondaryLyric(line), lineLeft,
                         top + originalHeight + fontSize * 0.18f, translationSize,
-                        withAlpha(secondaryText, Math.round(opacity
-                                * (offset == 0 ? 205f : 180f))), width,
-                        Typeface.NORMAL, 2);
+                        withAlpha(secondaryText, 255),
+                        opacity * (offset == 0 ? 205f : 180f) / 255f, width,
+                        Typeface.NORMAL, 2, blurRadius, false, line.timeMs);
             }
             paint.setMaskFilter(null);
             canvas.restoreToCount(save);
@@ -2446,6 +2803,21 @@ final class LyricsPanelView extends View {
     }
 
     /**
+     * 播放器没给封面、用户又选了「隐藏封面区域」：这一帧不画封面，版面跟着内收（issue #50）。
+     */
+    private boolean coverAreaHidden() {
+        return hideCoverWithoutArt && frameAlbumArtMissing;
+    }
+
+    /**
+     * 空封面矩形：宽高都为 0 时，后面按 {@code cover.bottom} / {@code cover.right} 推出来的行位
+     * 自然收到封面该在的位置，不需要另写一套版面（issue #50）。
+     */
+    private void clearCoverRect(float left, float top) {
+        coverRect.set(left, top, left, top);
+    }
+
+    /**
      * Draws the dust left behind by the glyphs that already went. The glyphs own the schedule
      * and the dust outlives them, so this only has to paint whatever is still in the air.
      */
@@ -2476,8 +2848,7 @@ final class LyricsPanelView extends View {
      * {@link #drawLyricText}, but tinted with that glyph's own alpha.
      */
     private void drawDissolvingGlyph(Canvas canvas, String line, String glyph, float x, float y,
-                                     float size, int resolvedColor) {
-        if (shouldOutlineLyric(line, false)) {
+                                     float size, int resolvedColor) {        if (shouldOutlineLyric(line, false)) {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(outlineStrokeWidth(size, inactiveLyricOutlineWidthPercent));
             paint.setColor(outlineStrokeColor(resolvedColor, false));
@@ -2508,7 +2879,7 @@ final class LyricsPanelView extends View {
             paint.setStyle(Paint.Style.FILL);
         }
         paint.setColor(color);
-        if (usesRefinedVisualStyle()) applyRefinedTextEffect(size, color, Color.alpha(color));
+        applyLyricTextEffect(size, color, Color.alpha(color));
         canvas.drawText(glyph, x, y, paint);
         paint.clearShadowLayer();
     }
@@ -2748,6 +3119,33 @@ final class LyricsPanelView extends View {
         return withAlpha(color, Math.round(Color.alpha(color) * opacity / 100f));
     }
 
+    /** 经典样式里 offset 那一行的内容；时间轴缺失时退回上一句 / 本句 / 下一句。 */
+    private static LrcTimeline.NearbyLine classicNearbyLine(MusicSnapshot snapshot, int offset) {
+        for (LrcTimeline.NearbyLine line : snapshot.lyrics.nearbyLines) {
+            if (line.offset == offset) return line;
+        }
+        return null;
+    }
+
+    private static String classicFallbackText(MusicSnapshot snapshot, int offset) {
+        if (offset == -1) return snapshot.lyrics.previousLyric;
+        if (offset == 1) return snapshot.lyrics.nextLyric;
+        return "";
+    }
+
+    /**
+     * 相邻歌词行的颜色：上一句 / 下一句各自的不透明度照旧，更远的行再淡一档，多行时后排不会和本句
+     * 抢注意力（issue #64）。
+     */
+    private int classicAdjacentColor(int offset) {
+        int base = inactiveLyricColor(0xFF68778C);
+        int color = offset < 0 ? adjacentLyricColor(base, offset) : nextLyricColor(base);
+        int distance = Math.abs(offset);
+        if (distance <= 1) return color;
+        return withAlpha(color,
+                Math.round(Color.alpha(color) * Math.max(0.40f, 1f - 0.22f * (distance - 1))));
+    }
+
     private int lyricColor(int fallback) {
         int selected = lyricColor;
         if (lyricsFollowTheme) {
@@ -2825,12 +3223,17 @@ final class LyricsPanelView extends View {
             compactDisplayedSpectrum[i] = compactSpectrumBars.barAt(i);
         }
         float inset = Math.max(8f * density, getWidth() * 0.04f);
-        float height = Math.max(14f * density, Math.min(42f * density, getHeight() * 0.15f));
-        float bottom = getHeight() - Math.max(3f * density,
-                AppPreferences.showPlaybackControls(getContext(), secondary)
-                        && (AppPreferences.showPreviousButton(getContext())
-                        || AppPreferences.showPlayPauseButton(getContext())
-                        || AppPreferences.showNextButton(getContext())) ? 42f * density : 5f * density);
+        // 与 drawDefault 的预留区共用同一份几何（issue #57）：改一处两处一起变。
+        float height = SpectrumLayoutMath.heightPx(
+                AppPreferences.spectrumHeightPercent(getContext(), secondary), density,
+                getHeight(), SpectrumLayoutMath.LEGACY_MIN_DP, SpectrumLayoutMath.LEGACY_MAX_DP,
+                SpectrumLayoutMath.LEGACY_PANEL_RATIO);
+        boolean controlsVisible = AppPreferences.showPlaybackControls(getContext(), secondary)
+                && (AppPreferences.showPreviousButton(getContext(), secondary)
+                || AppPreferences.showPlayPauseButton(getContext(), secondary)
+                || AppPreferences.showNextButton(getContext(), secondary));
+        float bottom = getHeight() - SpectrumLayoutMath.bottomInsetPx(density, controlsVisible,
+                AppPreferences.spectrumGapDp(getContext(), secondary));
         spectrumRect.set(inset, bottom - height, getWidth() - inset, bottom);
         SpectrumRenderer.draw(canvas, paint, spectrumRect, compactDisplayedSpectrum,
                 AppPreferences.spectrumStyle(getContext(), secondary),
@@ -2893,6 +3296,28 @@ final class LyricsPanelView extends View {
         }
     }
 
+    /**
+     * 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。默认「无」时保持各样式原本的
+     * 观感——Refined 看它自己的「当前歌词辉光」开关，其它样式保留一直以来的那点辉光。
+     */
+    private void applyLyricTextEffect(float size, int color, int alpha) {
+        if ("shadow".equals(refinedTextEffect) || "glow".equals(refinedTextEffect)) {
+            applyRefinedTextEffect(size, color, alpha);
+            return;
+        }
+        // 默认「无」：Refined / 紧凑还是看它们自己的「当前歌词辉光」，其它样式保留原本那点辉光。
+        if (usesRefinedVisualStyle()) {
+            if (refinedLyricGlow) {
+                paint.setShadowLayer(Math.max(3f, size * 0.24f), 0f, 0f,
+                        withAlpha(color, Math.min(90, alpha)));
+            }
+            return;
+        }
+        paint.setShadowLayer(Math.max(4f, size * 0.35f), 0f, 0f,
+                Color.argb(Math.min(100, alpha), Color.red(color), Color.green(color),
+                        Color.blue(color)));
+    }
+
     private void drawRefinedBackground(Canvas canvas, Bitmap art, boolean light,
                                        int accent, boolean playing) {
         int configured = configuredBackgroundColor();
@@ -2912,6 +3337,11 @@ final class LyricsPanelView extends View {
         if (configured != 0) {
             paint.setColor(configured);
             canvas.drawRect(panelRect, paint);
+        } else if ("starfield".equals(type)) {
+            // 夜幕与星云预渲染在位图里：每帧只贴一次，比「一次线性渐变 + 两次径向渐变」便宜得多，
+            // 弱车机上才跟得上帧率（issue #59）。
+            paint.setShader(null);
+            canvas.drawBitmap(starfieldBackdrop(art), 0f, 0f, paint);
         } else if ("solid".equals(type)) {
             paint.setColor(mix(accent, light ? Color.WHITE : Color.BLACK,
                     light ? 0.78f : 0.72f));
@@ -2928,7 +3358,8 @@ final class LyricsPanelView extends View {
             paint.setColor(mix(accent, light ? Color.WHITE : Color.BLACK, 0.62f));
             canvas.drawRect(panelRect, paint);
             if (art != null && !art.isRecycled()) {
-                drawBitmapCrop(canvas, blurredPreview(art), panelRect, 105);
+                drawBitmapCrop(canvas, blurredPreview(art), panelRect, 105,
+                        backgroundBrightnessFilter());
             }
             float phase = refinedStaticFluid || !playing ? 0.23f
                     : (SystemClock.elapsedRealtime() % 150_000L) / 150_000f;
@@ -2943,20 +3374,102 @@ final class LyricsPanelView extends View {
                 canvas.drawRect(panelRect, paint);
             }
         } else if (art != null && !art.isRecycled()) {
-            drawBitmapCrop(canvas, blurredPreview(art), panelRect, 255);
+            drawBitmapCrop(canvas, blurredPreview(art), panelRect, 255,
+                    backgroundBrightnessFilter());
         } else {
             paint.setShader(new LinearGradient(0f, 0f, getWidth(), getHeight(),
                     palette[0], palette[3], Shader.TileMode.CLAMP));
             canvas.drawRect(panelRect, paint);
         }
         paint.setShader(null);
-        int dim = Math.round(clamp(backgroundDim / 100f) * 255f);
-        paint.setColor(light ? Color.argb(dim, 255, 255, 255)
-                : Color.argb(dim, 0, 0, 0));
-        canvas.drawRect(panelRect, paint);
+        // 遮罩 0 就是「不压暗」（issue #58）；这一路原本就尊重 0，这里只是统一三处口径。
+        int dim = ArtworkBackgroundMath.refinedMaskAlpha(backgroundDim, styleMaskMode);
+        if (dim > 0) {
+            paint.setColor(light ? Color.argb(dim, 255, 255, 255)
+                    : Color.argb(dim, 0, 0, 0));
+            canvas.drawRect(panelRect, paint);
+        }
+        // 星点画在暗化之后：背景暗化不该把星空一起糊掉（issue #59）。
+        if ("starfield".equals(type)) drawStarfield(canvas, art);
         canvas.restoreToCount(save);
         canvas.restoreToCount(layer);
         paint.setShader(null);
+        paint.setAlpha(255);
+    }
+
+    /**
+     * 星空底色：夜幕渐变 + 两团跟随封面取色的星云，预渲染成一张位图（issue #59）。
+     *
+     * <p>只有面板尺寸或封面调色板变了才重建，之后每帧一次贴图——以前每帧都要新建三个 Shader
+     * 并做三次全屏渐变填充，弱车机上光这一项就吃掉了整帧预算。
+     */
+    private Bitmap starfieldBackdrop(Bitmap art) {
+        int width = Math.max(1, getWidth());
+        int height = Math.max(1, getHeight());
+        boolean tint = starfieldFollowCover && art != null && !art.isRecycled();
+        boolean light = refinedUsesLightColors();
+        int deep = tint ? mix(palette[0], Color.BLACK, 0.86f) : 0xFF060A14;
+        String key = width + "x" + height + ":" + Integer.toHexString(deep) + ":"
+                + Integer.toHexString(palette[1]) + ":" + Integer.toHexString(palette[2])
+                + ":" + tint + ":" + light;
+        if (starfieldBackdrop != null && key.equals(starfieldBackdropKey)
+                && !starfieldBackdrop.isRecycled()) {
+            return starfieldBackdrop;
+        }
+        starfieldBackdrop = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        starfieldBackdropKey = key;
+        Canvas offscreen = new Canvas(starfieldBackdrop);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setAlpha(255);
+        paint.setShader(new LinearGradient(0f, 0f, width, height, deep,
+                mix(deep, Color.WHITE, light ? 0.10f : 0.05f), Shader.TileMode.CLAMP));
+        offscreen.drawRect(0f, 0f, width, height, paint);
+        if (tint) {
+            for (int index = 0; index < 2; index++) {
+                int color = palette[index + 1];
+                float cx = width * (index == 0 ? 0.24f : 0.76f);
+                float cy = height * (index == 0 ? 0.22f : 0.80f);
+                float glow = Math.max(width, height) * 0.55f;
+                paint.setShader(new RadialGradient(cx, cy, glow, withAlpha(color, 58),
+                        withAlpha(color, 0), Shader.TileMode.CLAMP));
+                offscreen.drawRect(0f, 0f, width, height, paint);
+            }
+        }
+        paint.setShader(null);
+        return starfieldBackdrop;
+    }
+
+    /**
+     * 动态星空 / 星尘背景（issue #59）。
+     *
+     * <p>星点位置由 {@link StarfieldField} 从固定种子算出来，只有闪烁与漂移跟着时钟走：每帧只画
+     * {@code count} 个小圆（底色与星云来自缓存位图），不逐帧新建对象，设置页的预览和悬浮窗看到的是
+     * 同一片星空。「省电档」把时钟冻住，星点静止。
+     */
+    private void drawStarfield(Canvas canvas, Bitmap art) {
+        float width = getWidth();
+        float height = getHeight();
+        float density = getResources().getDisplayMetrics().density;
+        long elapsed = starfieldStill ? 0L : SystemClock.elapsedRealtime();
+        float driftX = StarfieldField.driftX(elapsed, starfieldSpeedPercent, starfieldStill);
+        float driftY = StarfieldField.driftY(elapsed, starfieldSpeedPercent, starfieldStill);
+        float sizeScale = starfieldSizePercent / 100f;
+        float radiusUnit = Math.max(0.8f, density * 0.85f);
+        boolean tint = starfieldFollowCover && art != null && !art.isRecycled();
+        int count = StarfieldField.starCount(starfieldDensityPercent);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setAlpha(255);
+        for (int index = 0; index < count; index++) {
+            float x = StarfieldField.positioned(StarfieldField.starX(index, STARFIELD_SEED), driftX);
+            float y = StarfieldField.positioned(StarfieldField.starY(index, STARFIELD_SEED), driftY);
+            float twinkle = StarfieldField.twinkle(index, STARFIELD_SEED, elapsed, starfieldStill);
+            float radius = StarfieldField.starRadius(index, STARFIELD_SEED) * sizeScale * radiusUnit;
+            int color = tint ? mix(palette[index % palette.length], Color.WHITE, 0.55f)
+                    : 0xFFEAF2FF;
+            paint.setColor(withAlpha(color, Math.round(240f * twinkle)));
+            canvas.drawCircle(x * width, y * height, radius, paint);
+        }
         paint.setAlpha(255);
     }
 
@@ -3064,13 +3577,18 @@ final class LyricsPanelView extends View {
         float height = getHeight();
         float contentScale = canvasAreaScale(440f, 220f, density);
         drawArtworkBackground(canvas, snapshot.albumArt, 0xFFE9DFD0, 0xFFB6A892, false);
-        float pad = Math.max(13f * density * contentScale, width * 0.035f);
-        float coverSize = 70f * density * contentScale * coverScale;
+        float pad = contentPad(Math.max(13f * density * contentScale, width * 0.035f));
+        // 极简样式：无封面时把封面那块收掉，歌名 / 歌手直接靠左（issue #50）。
+        boolean hideCover = coverAreaHidden();
+        float coverSize = hideCover ? 0f : 70f * density * contentScale * coverScale;
         coverRect.set(pad, pad, pad + coverSize, pad + coverSize);
         RectF cover = coverRect;
-        drawCoverRotated(canvas, snapshot.albumArt, cover, 9f * density * contentScale, 0xFFD2C4B2);
+        if (!hideCover) {
+            drawCoverRotated(canvas, snapshot.albumArt, cover, 9f * density * contentScale,
+                    0xFFD2C4B2);
+        }
 
-        float metaLeft = cover.right + 13f * density * contentScale;
+        float metaLeft = hideCover ? pad : cover.right + 13f * density * contentScale;
         float metaWidth = width - metaLeft - pad;
         drawingMetadata = true;
         drawLeft(canvas, snapshot.active ? snapshot.title : "等待音乐", metaLeft,
@@ -3144,6 +3662,7 @@ final class LyricsPanelView extends View {
             float maxWidth = Math.max(40f * density, width - x - pad);
             switch (item.id) {
                 case LyricsLayoutConfig.COVER:
+                    if (coverAreaHidden()) break;
                     float size = 109f * density * contentScale * coverScale;
                     coverRect.set(x, y, x + size, y + size);
                     drawCoverRotated(canvas, snapshot.albumArt, coverRect,
@@ -3232,6 +3751,53 @@ final class LyricsPanelView extends View {
         return cornerRadiusPercent < 0 ? styleRatio : cornerRadiusPercent / 100f;
     }
 
+    /**
+     * 面板边缘阴影（issue #56）：向内柔化的圆角描边，位图化后每帧只贴一次。
+     *
+     * <p>不用 {@code setShadowLayer}：硬件画布在 API 28 以下不认形状的阴影，改成软件渲染又会把整块
+     * 面板拖给 CPU（#59 刚封掉那条路）。悬浮窗只有 1px 余量，向外扩散的光晕也会被窗口裁掉，所以做成
+     * 向内的柔和边缘。
+     */
+    private void drawPanelEdgeShadow(Canvas canvas) {
+        int percent = panelShadowPercent;
+        if (fullscreen || opacity <= 0 || !PanelShadowMath.enabled(percent)) return;
+        float density = getResources().getDisplayMetrics().density;
+        float radius = panelCornerRadius(Math.min(getWidth(), getHeight())
+                * panelCornerRadiusRatio(0.075f));
+        Bitmap halo = panelShadowHalo(percent, radius, density);
+        if (halo == null) return;
+        paint.setShader(null);
+        paint.setMaskFilter(null);
+        canvas.drawBitmap(halo, 0f, 0f, paint);
+    }
+
+    private Bitmap panelShadowHalo(int percent, float cornerRadius, float density) {
+        float blur = PanelShadowMath.blurRadiusPx(percent, density);
+        int width = Math.max(1, getWidth());
+        int height = Math.max(1, getHeight());
+        String key = width + "x" + height + ":" + Math.round(cornerRadius) + ":"
+                + Math.round(blur) + ":" + percent;
+        if (panelShadowHaloBitmap != null && key.equals(panelShadowHaloKey)
+                && !panelShadowHaloBitmap.isRecycled()) {
+            return panelShadowHaloBitmap;
+        }
+        panelShadowHaloBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        panelShadowHaloKey = key;
+        Canvas offscreen = new Canvas(panelShadowHaloBitmap);
+        float inset = blur;
+        workRect.set(inset, inset, width - inset, height - inset);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(1f, blur * 2f));
+        paint.setMaskFilter(blurMask(Math.max(1f, blur * 0.9f)));
+        paint.setShader(null);
+        paint.setColor(Color.argb(PanelShadowMath.alpha(percent), 0, 0, 0));
+        float radius = Math.max(0f, cornerRadius - inset);
+        offscreen.drawRoundRect(workRect, radius, radius, paint);
+        paint.setMaskFilter(null);
+        paint.setStyle(Paint.Style.FILL);
+        return panelShadowHaloBitmap;
+    }
+
     private void drawPanelShadow(Canvas canvas, float radius, int color) {
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
@@ -3268,11 +3834,12 @@ final class LyricsPanelView extends View {
             canvas.drawRect(panelRect, paint);
             paint.setShader(null);
         }
-        int dim = Math.round(clamp(backgroundDim / 100f) * 220f);
-        if (dark) dim = Math.max(dim, 70);
-        paint.setColor(dark ? Color.argb(dim, 4, 7, 12)
-                : Color.argb(Math.min(190, dim + 65), 238, 226, 208));
-        canvas.drawRect(panelRect, paint);
+        // 遮罩 0 就是「不压暗」（issue #58）；默认 38 时的下限与改动前一致。
+        int dim = ArtworkBackgroundMath.pipMaskAlpha(backgroundDim, dark, styleMaskMode);
+        if (dim > 0) {
+            paint.setColor(ArtworkBackgroundMath.pipMaskColor(backgroundDim, dark, styleMaskMode));
+            canvas.drawRect(panelRect, paint);
+        }
         canvas.restoreToCount(save);
         canvas.restoreToCount(alphaLayer);
         paint.setShader(null);
@@ -3340,15 +3907,17 @@ final class LyricsPanelView extends View {
         float o60 = r / 8f;
         float o105 = r / 4.57143f;
         float o150 = r / 3.2f;
-        float coverSize = r / 3f * coverScale;
-        float textLeft = coverSize + o10;
+        float coverSize = coverAreaHidden() ? 0f : r / 3f * coverScale;
+        float textLeft = coverSize > 0f ? coverSize + o10 : o10;
         int text = lyricColor(0xFF25211D);
         int text56 = lyricColor(withAlpha(text, 143));
         int text42 = lyricColor(withAlpha(text, 107));
         int text31 = lyricColor(withAlpha(text, 79));
 
         coverRect.set(0f, 0f, coverSize, coverSize);
-        drawCoverRotated(canvas, snapshot.albumArt, coverRect, o12, 0xFFD2C4B2);
+        if (coverSize > 0f) {
+            drawCoverRotated(canvas, snapshot.albumArt, coverRect, o12, 0xFFD2C4B2);
+        }
         drawingMetadata = true;
         drawLeft(canvas, snapshot.active ? snapshot.title : "等待音乐", textLeft, o60,
                 o55 * titleScale, text, Math.max(1f, width - textLeft - o15), Typeface.NORMAL);
@@ -3551,6 +4120,13 @@ final class LyricsPanelView extends View {
     }
 
     @Override protected void onDetachedFromWindow() {
+        // 排给动态背景的 vsync 回调必须撤掉，否则视图已经不在窗口上还会被唤醒一次。
+        Choreographer.getInstance().removeFrameCallback(backgroundFrameCallback);
+        backgroundFramePosted = false;
+        blurredLineCache.evictAll();
+        blurScratch = null;
+        starfieldBackdrop = null;
+        starfieldBackdropKey = "";
         recycleBlurPreview();
         blurPreview = null;
         blurSource = null;
@@ -3623,6 +4199,33 @@ final class LyricsPanelView extends View {
     }
 
     private void drawBitmapCrop(Canvas canvas, Bitmap bitmap, RectF destination, int alpha) {
+        drawBitmapCrop(canvas, bitmap, destination, alpha, null);
+    }
+
+    /**
+     * 背景亮度（issue #58）：只在非 0 时返回滤镜，默认一像素都不改。滤镜对象缓存，不在 onDraw 里 new。
+     */
+    private android.graphics.ColorFilter backgroundBrightnessFilter() {
+        int percent = ArtworkBackgroundMath.normalizeBrightness(styleBrightnessPercent);
+        if (!ArtworkBackgroundMath.hasBrightness(percent)) return null;
+        if (backgroundBrightnessFilter != null && backgroundBrightnessPercent == percent) {
+            return backgroundBrightnessFilter;
+        }
+        float[] parts = ArtworkBackgroundMath.brightnessMatrixParts(percent);
+        float scale = parts[0];
+        float translate = parts[1];
+        android.graphics.ColorMatrix matrix = new android.graphics.ColorMatrix(new float[]{
+                scale, 0f, 0f, 0f, translate,
+                0f, scale, 0f, 0f, translate,
+                0f, 0f, scale, 0f, translate,
+                0f, 0f, 0f, 1f, 0f});
+        backgroundBrightnessFilter = new android.graphics.ColorMatrixColorFilter(matrix);
+        backgroundBrightnessPercent = percent;
+        return backgroundBrightnessFilter;
+    }
+
+    private void drawBitmapCrop(Canvas canvas, Bitmap bitmap, RectF destination, int alpha,
+                                android.graphics.ColorFilter filter) {
         float sourceRatio = bitmap.getWidth() / (float) bitmap.getHeight();
         float targetRatio = destination.width() / Math.max(1f, destination.height());
         if (sourceRatio > targetRatio) {
@@ -3635,9 +4238,11 @@ final class LyricsPanelView extends View {
             sourceRect.set(0, top, bitmap.getWidth(), top + cropHeight);
         }
         paint.setShader(null);
+        paint.setColorFilter(filter);
         paint.setAlpha(Math.max(0, Math.min(255, alpha)));
         canvas.drawBitmap(bitmap, sourceRect, destination, paint);
         paint.setAlpha(255);
+        paint.setColorFilter(null);
     }
 
     private void drawProgress(Canvas canvas, float left, float top, float right, float height,
@@ -3665,6 +4270,10 @@ final class LyricsPanelView extends View {
                 return snapshot.title;
             }
             return "正在匹配歌词…";
+        }
+        // 「无歌词时不要占位文案」（issue #67）：只在确定没有可用歌词时留白；匹配中的文案保留。
+        if (AppPreferences.hideNoLyricPlaceholder(getContext(), secondary) && !snapshot.lyricAvailable) {
+            return "";
         }
         if (!snapshot.lyricAvailable) return "暂无匹配歌词";
         if (snapshot.lyrics.interlude) return "♪  ·  ·  ·";
@@ -3775,10 +4384,7 @@ final class LyricsPanelView extends View {
                     x + activeWidth, baseline + size * 0.30f);
             drawLyricOutline(canvas, chunk.text, x, baseline, size, activeColor, true);
             paint.setColor(activeColor);
-            if (!"refined".equals(overlayStyle) || refinedLyricGlow) {
-                paint.setShadowLayer(Math.max(3f, size * 0.24f), 0f, 0f,
-                        withAlpha(activeColor, 90));
-            }
+            applyLyricTextEffect(size, activeColor, 255);
             canvas.drawText(chunk.text, x, baseline, paint);
             paint.clearShadowLayer();
             canvas.restoreToCount(save);
@@ -3969,9 +4575,7 @@ final class LyricsPanelView extends View {
         if (!at.wordTimed && estimated < 0f) {
             drawLyricOutline(canvas, text, anchorX, y, size, activeColor, true);
             paint.setColor(activeColor);
-            if (usesRefinedVisualStyle()) {
-                applyRefinedTextEffect(size, activeColor, 255);
-            }
+            applyLyricTextEffect(size, activeColor, 255);
             canvas.drawText(text, anchorX, y, paint);
             paint.clearShadowLayer();
             return;
@@ -3983,12 +4587,7 @@ final class LyricsPanelView extends View {
                     left + Math.min(textWidth, highlightedWidth), y + size * 0.35f);
             drawLyricOutline(canvas, text, anchorX, y, size, activeColor, true);
             paint.setColor(activeColor);
-            boolean glow = !usesRefinedVisualStyle() || refinedLyricGlow;
-            if (glow) {
-                paint.setShadowLayer(Math.max(4f, size * 0.35f), 0f, 0f,
-                        Color.argb(100, Color.red(activeColor), Color.green(activeColor),
-                                Color.blue(activeColor)));
-            }
+            applyLyricTextEffect(size, activeColor, 255);
             canvas.drawText(text, anchorX, y, paint);
             paint.clearShadowLayer();
             canvas.restoreToCount(save);
@@ -4290,6 +4889,7 @@ final class LyricsPanelView extends View {
         if ("amll".equals(overlayStyle)) return canvasAreaScale(620f, 350f, density);
         if ("pip".equals(overlayStyle)) return canvasAreaScale(440f, 220f, density);
         if ("custom".equals(overlayStyle)) return canvasAreaScale(460f, 260f, density);
+        if ("island".equals(overlayStyle)) return canvasAreaScale(420f, 72f, density);
         return canvasAreaScale(390f, 226f, density);
     }
 
@@ -4340,6 +4940,13 @@ final class LyricsPanelView extends View {
     private void clearTextCaches() {
         wrappedTextCache.evictAll();
         ellipsizedTextCache.evictAll();
+        // 模糊歌词位图与星空底色位图都跟字号 / 尺寸 / 调色板绑死，尺寸或设置一变就丢掉重画。
+        blurredLineCache.evictAll();
+        blurScratch = null;
+        starfieldBackdrop = null;
+        starfieldBackdropKey = "";
+        panelShadowHaloBitmap = null;
+        panelShadowHaloKey = "";
     }
 
     private static final class TextLayoutKey {
@@ -4405,6 +5012,12 @@ final class LyricsPanelView extends View {
 
     @SuppressWarnings("deprecation")
     private static int saveLayerAlphaCompat(Canvas canvas, RectF bounds, int alpha) {
+        // 完全不透明时不必开离屏层：星空这类每帧重绘的背景就少一次全屏合成，弱车机上差别明显。
+        if (alpha >= 255) {
+            int save = canvas.save();
+            canvas.clipRect(bounds);
+            return save;
+        }
         if (Build.VERSION.SDK_INT >= 21) return canvas.saveLayerAlpha(bounds, alpha);
         return canvas.saveLayerAlpha(bounds.left, bounds.top, bounds.right, bounds.bottom,
                 alpha, Canvas.ALL_SAVE_FLAG);
@@ -4423,5 +5036,86 @@ final class LyricsPanelView extends View {
         BlurMaskFilter created = new BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL);
         blurMaskCache.put(key, created);
         return created;
+    }
+
+    /**
+     * 画一行模糊歌词（issue #59 后续）。
+     *
+     * <p>{@code BlurMaskFilter} 只有软件画布上才可靠，但让整块面板退回 {@code LAYER_TYPE_SOFTWARE}
+     * 的代价太大——Refined / 紧凑一旦打开「歌词模糊」、AMLL 一律，整块面板都改由 CPU 绘制，帧率再高
+     * 也拉不回来。这里改成：把这一行单独画进一张离屏位图（软件 Canvas，模糊照常生效），再把位图贴回
+     * 硬件画布。面板始终是硬件渲染，CPU 只为这一行付一次钱——同一行 + 同参数还会缓存下来，之后每帧
+     * 只贴一次图。
+     *
+     * @param dissolving 逐字消散中的行：每帧内容都在变，缓存不住，改用复用的小位图逐帧重画
+     */
+    private void drawBlurredLine(Canvas canvas, String value, float left, float top, float size,
+                                 int baseColor, float frameAlpha, float maxWidth, int style,
+                                 int maxLines, float blurRadius, boolean dissolving, long lineId) {
+        if (value == null || value.isEmpty()) return;
+        int alpha = Math.round(Color.alpha(baseColor) * clamp(frameAlpha));
+        if (alpha <= 0) return;
+        if (blurRadius <= 0.5f) {
+            int color = withAlpha(baseColor, alpha);
+            if (dissolving) {
+                drawWrappedTextDissolving(canvas, value, left, top, size, color, maxWidth,
+                        style, maxLines, lineId);
+            } else {
+                drawWrappedText(canvas, value, left, top, size, color, maxWidth, style, maxLines);
+            }
+            return;
+        }
+        setTextPaintForValue(size, style, value);
+        List<WrappedChunk> chunks = wrapText(value.replace('\n', ' '), maxWidth, maxLines);
+        if (chunks.isEmpty()) return;
+        float contentWidth = 0f;
+        for (WrappedChunk chunk : chunks) {
+            contentWidth = Math.max(contentWidth, paint.measureText(chunk.text));
+        }
+        float blockHeight = chunks.size() * size * 1.22f;
+        int pad = (int) Math.ceil(blurRadius) + 2;
+        int bitmapWidth = Math.max(1, (int) Math.ceil(contentWidth) + pad * 2);
+        int bitmapHeight = Math.max(1, (int) Math.ceil(blockHeight) + pad * 2);
+        int solidColor = withAlpha(baseColor, 255);
+        String key = bitmapWidth + "x" + bitmapHeight + ":" + Float.floatToIntBits(blurRadius)
+                + ":" + solidColor + ":" + style + ":" + maxLines + ":" + value;
+        Bitmap bitmap = null;
+        if (!dissolving) {
+            Bitmap cached = blurredLineCache.get(key);
+            if (cached != null && !cached.isRecycled()) bitmap = cached;
+        }
+        if (bitmap == null) {
+            if (dissolving) {
+                if (blurScratch == null || blurScratch.isRecycled()
+                        || blurScratch.getWidth() < bitmapWidth
+                        || blurScratch.getHeight() < bitmapHeight) {
+                    blurScratch = Bitmap.createBitmap(bitmapWidth, bitmapHeight,
+                            Bitmap.Config.ARGB_8888);
+                }
+                bitmap = blurScratch;
+            } else {
+                bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight,
+                        Bitmap.Config.ARGB_8888);
+            }
+            Canvas offscreen = new Canvas(bitmap);
+            offscreen.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            android.graphics.MaskFilter previousMask = paint.getMaskFilter();
+            paint.setMaskFilter(blurMask(blurRadius));
+            offscreen.translate(pad, pad);
+            if (dissolving) {
+                drawWrappedTextDissolving(offscreen, value, 0f, 0f, size, solidColor, maxWidth,
+                        style, maxLines, lineId);
+            } else {
+                drawWrappedText(offscreen, value, 0f, 0f, size, solidColor, maxWidth, style,
+                        maxLines);
+            }
+            paint.setMaskFilter(previousMask);
+            if (!dissolving) blurredLineCache.put(key, bitmap);
+        }
+        paint.setMaskFilter(null);
+        int previousAlpha = paint.getAlpha();
+        paint.setAlpha(alpha);
+        canvas.drawBitmap(bitmap, left - pad, top - pad, paint);
+        paint.setAlpha(previousAlpha);
     }
 }

@@ -38,12 +38,19 @@ final class DisplayIdentity {
         final int heightPx;
         /** 像素密度（{@code Display.getDensityDpi()}）；未知时填 0。 */
         final int densityDpi;
+        /** 显示 id（{@code Display.getDisplayId()}）；未知时填 -1（issue #71）。 */
+        final int displayId;
 
         Screen(String name, int widthPx, int heightPx, int densityDpi) {
+            this(name, widthPx, heightPx, densityDpi, -1);
+        }
+
+        Screen(String name, int widthPx, int heightPx, int densityDpi, int displayId) {
             this.name = name == null ? "" : name.trim();
             this.widthPx = widthPx;
             this.heightPx = heightPx;
             this.densityDpi = densityDpi;
+            this.displayId = displayId;
         }
     }
 
@@ -71,6 +78,15 @@ final class DisplayIdentity {
         boolean sameSize = sameSizeAndDensity(a, b);
         if (!a.name.isEmpty() && a.name.equalsIgnoreCase(b.name)) {
             // 名字一模一样：车机给同一块屏开两个通道时最常见的写法，不必再比分辨率。
+            // 但如果两块屏的 Display ID 都已知且不同，那也可能是两块真的同名屏（哈弗 H6 会同时挂两块
+            // 「HDMI 屏幕」，id 1 / id 2），这时只给一条带保留的提示（issue #71）。
+            if (a.displayId >= 0 && b.displayId >= 0 && a.displayId != b.displayId) {
+                return sameSize
+                        ? "名称与分辨率都相同，但 Display ID 不同（" + a.displayId + " / "
+                        + b.displayId + "），可能是两块屏"
+                        : "屏幕名称相同但分辨率不同（Display " + a.displayId + " / "
+                        + b.displayId + "），可能是两块屏";
+            }
             return sameSize ? "名称与分辨率都相同" : "屏幕名称完全相同";
         }
         if (left.base.isEmpty() || !left.base.equalsIgnoreCase(right.base)) {

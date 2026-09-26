@@ -26,6 +26,11 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static final long LEGACY_REBIND_DISABLE_MS = 750L;
     private static final long COMPONENT_RECOVERY_DELAY_MS = 6_000L;
     private static final long COMPONENT_RECOVERY_COOLDOWN_MS = 15_000L;
+    /**
+     * 东风会话超过这么久没有任何变化（换歌 / 播放状态变化）就不再按住别的播放器（issue #75）：
+     * 车机上它经常常驻却并不真的在放歌，用户看到的就是「一直停在东风播放器」。
+     */
+    static final long DFTC_HOLD_MAX_MS = 60_000L;
     private static final long PROCESS_CLASS_LOADED_ELAPSED_MS = SystemClock.elapsedRealtime();
     private static final Handler REBIND_HANDLER = new Handler(Looper.getMainLooper());
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -39,6 +44,8 @@ public final class MusicNotificationListener extends NotificationListenerService
     private long lastStandardSessionElapsedMs;
     private int lastLoggedSessionCount = -1;
     private String lastLoggedSessionError = "";
+    /** 上一条「被东风会话按住」的诊断指纹（包名 + 30 秒时间桶），用于限流（issue #75）。 */
+    private String lastLoggedYieldedSession = "";
     private static volatile boolean listenerConnected;
     private static volatile long lastSuccessfulSessionReadElapsedMs;
     private static volatile int lastSessionCount;
@@ -86,11 +93,16 @@ public final class MusicNotificationListener extends NotificationListenerService
                 return;
             }
             lastStandardSessionElapsedMs = SystemClock.elapsedRealtime();
+            long now = SystemClock.elapsedRealtime();
+            boolean dftcAdvancing = dftcSessionStillAdvancing(now);
             if (shouldYieldToActiveDftcSession(activePlayerPackageName,
                     dftcReader != null && dftcReader.hasUsableSession(),
                     dftcReader != null && dftcReader.reportsPlaying(),
                     packageName,
-                    data != null && data.state == MusicPlaybackData.STATE_PLAYING)) {
+                    data != null && data.state == MusicPlaybackData.STATE_PLAYING,
+                    dftcAdvancing,
+                    AppPreferences.dftcAlwaysPreferred(MusicNotificationListener.this))) {
+                logYieldedSession(packageName, dftcAdvancing, now);
                 return;
             }
             acceptSession(packageName, applicationLabel, data);
@@ -140,6 +152,30 @@ public final class MusicNotificationListener extends NotificationListenerService
         }
     };
 
+    /** 东风会话最近一次变化（换歌 / 状态变化）距今是否还在 {@link #DFTC_HOLD_MAX_MS} 以内（issue #75）。 */
+    private boolean dftcSessionStillAdvancing(long nowElapsedMs) {
+        if (dftcReader == null) return false;
+        long evidence = dftcReader.lastEvidenceElapsedMs();
+        if (evidence <= 0L) return false;
+        return nowElapsedMs - evidence < DFTC_HOLD_MAX_MS;
+    }
+
+    private long dftcEvidenceAgeMs(long nowElapsedMs) {
+        if (dftcReader == null) return -1L;
+        long evidence = dftcReader.lastEvidenceElapsedMs();
+        return evidence <= 0L ? -1L : Math.max(0L, nowElapsedMs - evidence);
+    }
+
+    /** 被「东风会话按住」而丢掉的会话记一条（同一路每 30 秒最多一条，避免 600ms 轮询刷屏）。 */
+    private void logYieldedSession(String incomingPackage, boolean dftcAdvancing, long nowElapsedMs) {
+        String key = incomingPackage + "\u0000" + (nowElapsedMs / 30_000L);
+        if (key.equals(lastLoggedYieldedSession)) return;
+        lastLoggedYieldedSession = key;
+        DiagnosticLog.record(this, "MediaSession", "yielded incoming session package="
+                + incomingPackage + " dftcAdvancing=" + dftcAdvancing
+                + " dftcEvidenceAgeMs=" + dftcEvidenceAgeMs(nowElapsedMs));
+    }
+
     private void acceptSession(String packageName, String applicationLabel,
                                MusicPlaybackData data) {
         String nextPackage = packageName == null ? "" : packageName;
@@ -151,6 +187,13 @@ public final class MusicNotificationListener extends NotificationListenerService
         // drop does not leave the remembered player package or the active-player log pointing at a
         // channel that lost the slot.
         if (!MusicStateStore.isChannelAccepted(app.sourceId, nextPackage, data)) return;
+        // 东风会话长时间没有变化、把活跃位让出来时留一条诊断，方便区分「没收到会话」和「收到了但被
+        // 按住」（issue #75）。
+        if ("com.dftc.media".equals(activePlayerPackageName) && !"com.dftc.media".equals(nextPackage)) {
+            DiagnosticLog.record(this, "MediaSession", "dftc session released package="
+                    + nextPackage + " dftcAdvancing=" + dftcSessionStillAdvancing(
+                    SystemClock.elapsedRealtime()));
+        }
         notificationSessionActive = false;
         lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
         if (!nextPackage.equals(activePlayerPackageName)) {
@@ -630,14 +673,45 @@ public final class MusicNotificationListener extends NotificationListenerService
      * lyric timeline reloads each time. The vendor player itself always proceeds; a different
      * player takes over only once it is playing while the vendor session stopped reporting
      * playback, or once the retained vendor snapshot ages out (usable=false).
+     *
+     * <p>四个参数的重载保留原语义（假定东风会话仍在推进），既有调用点与用例无需改动。
      */
     static boolean shouldYieldToActiveDftcSession(String activePlayerPackage, boolean dftcUsable,
                                                   boolean dftcReportsPlaying,
                                                   String incomingPackage, boolean incomingPlaying) {
+        return shouldYieldToActiveDftcSession(activePlayerPackage, dftcUsable, dftcReportsPlaying,
+                incomingPackage, incomingPlaying, true);
+    }
+
+    static boolean shouldYieldToActiveDftcSession(String activePlayerPackage, boolean dftcUsable,
+                                                  boolean dftcReportsPlaying,
+                                                  String incomingPackage, boolean incomingPlaying,
+                                                  boolean dftcAdvancing) {
+        return shouldYieldToActiveDftcSession(activePlayerPackage, dftcUsable, dftcReportsPlaying,
+                incomingPackage, incomingPlaying, dftcAdvancing, false);
+    }
+
+    /**
+     * 东风会话「按住」别的播放器的判据（issue #75）。
+     *
+     * <p>原来只要东风仍在报播放就按住一切：它的会话常驻却不真的在放歌时（一直报 PLAYING、位置不动），
+     * 酷我之类的会话永远抢不到活跃位，用户看到的就是「停在东风播放器」。现在东风必须**仍在推进**
+     * （位置前进或换歌）才继续按住；它超过 {@link #DFTC_HOLD_STALE_MS} 没动静、而进来的这一路又在播放，
+     * 就让位给它。进来的一路没在播放时照旧让位，防抖语义不变。
+     *
+     * @param dftcAdvancing 东风会话最近 {@link #DFTC_HOLD_STALE_MS} 内是否推进过
+     * @param alwaysPreferDftc 用户选了「始终优先东风会话」：回到老行为，不自动让位
+     */
+    static boolean shouldYieldToActiveDftcSession(String activePlayerPackage, boolean dftcUsable,
+                                                  boolean dftcReportsPlaying,
+                                                  String incomingPackage, boolean incomingPlaying,
+                                                  boolean dftcAdvancing,
+                                                  boolean alwaysPreferDftc) {
         if (!"com.dftc.media".equals(activePlayerPackage)) return false;
         if (!dftcUsable) return false;
         if ("com.dftc.media".equals(incomingPackage)) return false;
-        return !incomingPlaying || dftcReportsPlaying;
+        if (alwaysPreferDftc) return !incomingPlaying || dftcReportsPlaying;
+        return !incomingPlaying || (dftcReportsPlaying && dftcAdvancing);
     }
 
     private static String safeMessage(Throwable error) {

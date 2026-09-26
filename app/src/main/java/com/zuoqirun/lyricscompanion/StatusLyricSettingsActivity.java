@@ -64,8 +64,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
                 AppPreferences.topLyricShowTranslation(this));
         addToggle(layout, "显示律动条", AppPreferences.KEY_TOP_LYRIC_SPECTRUM,
                 AppPreferences.topLyricSpectrum(this));
-        TextView layoutNote = text("横移范围按当前屏幕宽度计算，拖到两端时歌词区域会贴齐对应屏幕边缘。顶部条强制使用紧凑歌词的双行、逐字高亮和跟随滚动。"
-                + "「下一句字号」是顶部条自己的设置：没在这里调过之前沿用主屏的下一句字号，调过之后只影响顶部条（issue #19）。", 12,
+        TextView layoutNote = text("横移范围按屏幕宽度计算；顶部条固定为紧凑双行、逐字高亮与跟随滚动。", 12,
                 0xFF8392A8, false);
         layoutNote.setLineSpacing(0f, 1.2f);
         layoutNote.setPadding(0, dp(8), 0, 0);
@@ -91,8 +90,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         addSeek(effects, "上一句不透明度", 0, 100,
                 AppPreferences.topLyricPreviousOpacity(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_PREVIOUS_OPACITY);
-        TextView effectsNote = text("顶部歌词条的粒子消散、粒子量、逐字擦除与上一句不透明度独立于主屏："
-                + "这里的改动不会影响主屏歌词，反之亦然。首次在本页调整前沿用主屏当前设置。",
+        TextView effectsNote = text("这些选项只作用于顶部歌词条，不影响主屏；首次调整前沿用主屏设置。",
                 12, 0xFF8392A8, false);
         effectsNote.setLineSpacing(0f, 1.2f);
         effectsNote.setPadding(0, dp(8), 0, 0);
@@ -101,7 +99,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
 
         LinearLayout background = card("背景样式");
         addBackgroundChoice(background);
-        TextView backgroundNote = text("毛玻璃仅在系统实际启用跨窗口模糊时使用真实背景模糊；设备关闭或不支持时降级为浅色半透明玻璃，不再叠加黑色滤镜。紧凑单行背景保留封面柔化卡片。", 12,
+        TextView backgroundNote = text("毛玻璃需要系统支持跨窗口模糊，不支持时降级为浅色半透明。", 12,
                 0xFF8392A8, false);
         backgroundNote.setPadding(0, dp(8), 0, 0);
         background.addView(backgroundNote);

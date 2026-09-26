@@ -11,4 +11,10 @@ public class OverlayStyleInteractionTest {
         assertTrue(OverlayStyleInteraction.reservesSurfaceForWindowDrag("compact"));
         assertFalse(OverlayStyleInteraction.reservesSurfaceForWindowDrag("default"));
     }
+
+    /** issue #54：灵动岛是一只小胶囊，整块都该能拖着走。 */
+    @Test public void islandReservesSurfaceForWindowDrag() {
+        assertTrue(OverlayStyleInteraction.reservesSurfaceForWindowDrag("island"));
+        assertFalse(OverlayStyleInteraction.reservesSurfaceForWindowDrag("refined"));
+    }
 }
