@@ -65,8 +65,21 @@ final class ColorPaletteControls {
         TextInputEditText colorValue = new TextInputEditText(context);
         colorValue.setSingleLine(true);
         colorValue.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        // 这个输入框以前没设文字颜色，在深色底上几乎是黑的（issue #79），显式给个亮色。
+        colorValue.setTextColor(0xFFF1F5FA);
         colorValue.setText(String.format(java.util.Locale.ROOT, "#%02X%02X%02X",
                 rgb[0], rgb[1], rgb[2]));
+        // 「应用」按输入框内容取色，而输入框只在创建时写过一次；调色盘选完色再点「应用」就会被这个
+        // 旧值覆盖回原色（issue #79）。用一个"用户正在编辑"的标记来决定谁说了算。
+        final boolean[] textEdited = {false};
+        final boolean[] programmaticText = {false};
+        colorValue.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (!programmaticText[0]) textEdited[0] = true;
+            }
+            @Override public void afterTextChanged(android.text.Editable s) { }
+        });
         colorInput.addView(colorValue);
         inputRow.addView(colorInput, new LinearLayout.LayoutParams(0, -2, 1f));
         MaterialButton applyText = new MaterialButton(context);
@@ -126,7 +139,20 @@ final class ColorPaletteControls {
             state.setText(colorLabel(color));
             updateSwatch(context, swatch, color);
             circle.setColor(color);
+            if (!textEdited[0]) {
+                // 输入框跟着当前颜色走：这样"选色后随手点一下应用"不会把颜色覆盖回旧值（issue #79）。
+                programmaticText[0] = true;
+                colorValue.setText(String.format(java.util.Locale.ROOT, "#%02X%02X%02X",
+                        rgb[0], rgb[1], rgb[2]));
+                programmaticText[0] = false;
+                colorInput.setError(null);
+            }
             changed.run();
+        };
+        // 用调色盘 / 通道滑杆 / 亮度轴 / 纯黑纯白选色时，输入框以控件为准（清掉"用户正在编辑"标记）。
+        final Runnable pickerApply = () -> {
+            textEdited[0] = false;
+            apply.run();
         };
         applyText.setOnClickListener(v -> {
             int parsed = parseColor(colorValue.getText() == null ? "" : colorValue.getText().toString());
@@ -138,12 +164,13 @@ final class ColorPaletteControls {
             rgb[0] = Color.red(parsed);
             rgb[1] = Color.green(parsed);
             rgb[2] = Color.blue(parsed);
+            textEdited[0] = false;
             apply.run();
         });
         Channel[] channels = new Channel[]{
-                addChannel(context, controls, "红", rgb, 0, apply),
-                addChannel(context, controls, "绿", rgb, 1, apply),
-                addChannel(context, controls, "蓝", rgb, 2, apply)};
+                addChannel(context, controls, "红", rgb, 0, pickerApply),
+                addChannel(context, controls, "绿", rgb, 1, pickerApply),
+                addChannel(context, controls, "蓝", rgb, 2, pickerApply)};
         circle.setListener(color -> {
             rgb[0] = Color.red(color);
             rgb[1] = Color.green(color);
@@ -152,7 +179,7 @@ final class ColorPaletteControls {
                 channels[index].value.setText(Integer.toString(rgb[index]));
                 channels[index].seek.setProgress(rgb[index]);
             }
-            apply.run();
+            pickerApply.run();
         });
         brightnessSeek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
@@ -164,15 +191,15 @@ final class ColorPaletteControls {
             @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
             @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
         });
-        pureBlack.setOnClickListener(v -> setRgb(rgb, 0x000000, circle, apply, brightnessSeek,
+        pureBlack.setOnClickListener(v -> setRgb(rgb, 0x000000, circle, pickerApply, brightnessSeek,
                 brightnessValue));
-        pureWhite.setOnClickListener(v -> setRgb(rgb, 0xFFFFFF, circle, apply, brightnessSeek,
+        pureWhite.setOnClickListener(v -> setRgb(rgb, 0xFFFFFF, circle, pickerApply, brightnessSeek,
                 brightnessValue));
         parent.addView(controls);
         manual.setOnCheckedChangeListener((button, enabled) -> {
             controls.setVisibility(enabled ? View.VISIBLE : View.GONE);
             automatic.setVisibility(enabled ? View.GONE : View.VISIBLE);
-            if (enabled) apply.run();
+            if (enabled) pickerApply.run();
             else {
                 store.set(0);
                 changed.run();

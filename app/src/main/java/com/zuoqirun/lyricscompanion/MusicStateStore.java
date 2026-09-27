@@ -182,6 +182,19 @@ final class MusicStateStore {
                 if (!TextUtils.isEmpty(artist)) newArtist = artist;
                 if (!TextUtils.isEmpty(mediaId)) newMediaId = mediaId;
                 if (durationMs > 0L) newDuration = durationMs;
+            } else if (!hasCompositeIdentity && TrackIdentityRules.shouldIgnoreArtistOnlyChange(
+                    sameSource, title, newTitle, artist, newArtist,
+                    durationMs, newDuration, mediaId, newMediaId)) {
+                // 反对称的那种（issue #77）：TITLE / 时长 / 媒体 ID 都没变，只有 ARTIST 在变 ——
+                // 播放器把当前歌词行（或某种状态）写进了歌手栏。按换歌处理会让每一句歌词都重新
+                // 匹配一次，于是歌词在「已匹配」与「暂无匹配歌词」之间来回跳。这里保留原歌手，
+                // 曲目身份和已匹配的歌词都不动。
+                Log.i(TAG, "Ignoring artist-only metadata change: " + newArtist);
+                DiagnosticLog.record(context, "Playback",
+                        "ignored artist-only change artist=" + newArtist);
+                newArtist = artist;
+                if (!TextUtils.isEmpty(mediaId)) newMediaId = mediaId;
+                if (durationMs > 0L) newDuration = durationMs;
             }
             if (sameSource && TextUtils.isEmpty(newTitle) && !TextUtils.isEmpty(title)) {
                 // Several automotive players publish a playback-state-only update after the
@@ -203,11 +216,13 @@ final class MusicStateStore {
             boolean newActive = isDisplayableSession(newTitle, stateValue);
             String newTrackKey = lyricTrackKey(normalizedSource, newTitle, newArtist,
                     newDuration, newMediaId, selectedCatalog, playerCatalogFallback);
-            boolean changed = !TextUtils.equals(trackKey, newTrackKey)
+            boolean identityChanged = !TextUtils.equals(trackKey, newTrackKey);
+            boolean changed = identityChanged
                     || !TextUtils.equals(sourcePackage, normalizedSourcePackage);
             long estimatedPosition = currentPositionLocked();
-            boolean reportedPositionChanged = !changed
-                    && hasMeaningfulPositionChange(lastReportedPositionMs, newPosition);
+            boolean rawPositionChanged = hasMeaningfulPositionChange(lastReportedPositionMs,
+                    newPosition);
+            boolean reportedPositionChanged = !changed && rawPositionChanged;
             boolean sampledProgress = reportedPositionChanged
                     && newPosition > lastReportedPositionMs;
             boolean newPlaying = isPositionAdvancing(newTitle, statePresent, stateValue,
@@ -223,12 +238,25 @@ final class MusicStateStore {
                     // instead of restarting secondary-display lyrics from the first line.
                     && (stateValue != MusicPlaybackData.STATE_STOPPED
                     && stateValue != MusicPlaybackData.STATE_ERROR);
-            if (!changed && (transientZeroPosition || newPlaying && reportedPositionTime <= 0L
-                    && !reportedPositionChanged)) {
-                // Metadata-only automotive sessions commonly keep returning the same raw
-                // position. Preserve our monotonic estimate instead of resetting it every poll
-                // or when a transient navigation session reports position zero.
-                positionToStore = Math.max(newPosition, estimatedPosition);
+            // 切歌这一轮播放器常把上一首的位置带过来（issue #76）：位置在切歌前后一模一样、或
+            // 直接越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里用「曲目身份变了」
+            // 而不是「来源包名变了」——同一首歌在两个发布通道之间切换时位置是连续有效的。
+            boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(identityChanged,
+                    !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
+                    newDuration > 0L ? newDuration : -1L);
+            if (staleOnTrackChange) {
+                positionToStore = 0L;
+                positionTimeToStore = now;
+                DiagnosticLog.record(context, "Playback", "stale position on track change reported="
+                        + newPosition + " durationMs=" + newDuration);
+            } else if (PlaybackPositionRules.keepMonotonicEstimate(changed, newPlaying,
+                    rawPositionChanged, reportedPositionTime > 0L, transientZeroPosition,
+                    estimatedPosition, newPosition)) {
+                // Metadata-only automotive sessions commonly keep returning the same raw position,
+                // sometimes with a fresh timestamp. Preserve our monotonic estimate instead of
+                // resetting it every poll, when a transient navigation session reports position
+                // zero, or when the player keeps repeating a stuck value (issue #76).
+                positionToStore = Math.max(0L, estimatedPosition);
                 positionTimeToStore = now;
             }
             boolean playbackModeChanged = playing != newPlaying;

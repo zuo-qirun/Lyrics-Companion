@@ -1,0 +1,69 @@
+package com.zuoqirun.lyricscompanion;
+
+import java.util.Locale;
+
+/**
+ * 曲目身份的纯判定：判断"这次元数据变化该不该当成换了一首歌"。
+ *
+ * <p>{@link MusicStateStore} 里已经有三条针对"播放器把歌词/状态写进元数据字段"的保护：实时歌词
+ * （TITLE 变）、复合歌手（TITLE 变 + ARTIST 是「歌名 - 歌手」）、以及汽水的复合身份。本类补上
+ * **反对称的那种**（issue #77）：TITLE、时长、媒体 ID 都没变，只有 ARTIST 在不断变化 —— 播放器把
+ * 歌词行或状态写进了歌手栏。这种情况按换歌处理会让每一句歌词都触发一次重新匹配。
+ *
+ * <p>只描述判定，不碰 Android 类型，便于单测覆盖。这里的文本归一化与
+ * {@code MusicStateStore.identityText()} 保持一致（小写 + 去掉标点与空白）。
+ */
+final class TrackIdentityRules {
+    /** 时长差异容差：车机上报的时长常有一两秒的抖动。 */
+    static final long DURATION_TOLERANCE_MS = 2_000L;
+
+    private TrackIdentityRules() { }
+
+    /**
+     * TITLE 稳定、只有 ARTIST 在变时，是否应当忽略这次变化（保留原曲目身份与已匹配的歌词）。
+     *
+     * @param sameSource       这一轮是否还是同一个播放器来源
+     * @param storedTitle      已保存的曲目标题
+     * @param incomingTitle    本轮上报的标题
+     * @param storedArtist     已保存的歌手
+     * @param incomingArtist   本轮上报的歌手
+     * @param storedDurationMs 已保存的时长，未知时 {@code <= 0}
+     * @param incomingDurationMs 本轮上报的时长，未知时 {@code <= 0}
+     * @param storedMediaId    已保存的媒体 ID
+     * @param incomingMediaId  本轮上报的媒体 ID
+     */
+    static boolean shouldIgnoreArtistOnlyChange(boolean sameSource,
+                                                String storedTitle, String incomingTitle,
+                                                String storedArtist, String incomingArtist,
+                                                long storedDurationMs, long incomingDurationMs,
+                                                String storedMediaId, String incomingMediaId) {
+        if (!sameSource) return false;
+        if (safe(storedTitle).trim().isEmpty() || safe(incomingTitle).trim().isEmpty()) return false;
+        // 标题必须完全没变：标题变了就是真的换歌（那是 TITLE 侧规则的事）。
+        if (!sameIdentityText(storedTitle, incomingTitle)) return false;
+        if (safe(storedArtist).trim().isEmpty() || safe(incomingArtist).trim().isEmpty()) return false;
+        if (sameIdentityText(storedArtist, incomingArtist)) return false;
+        // 时长明显不同 = 换歌证据。
+        if (storedDurationMs > 0L && incomingDurationMs > 0L
+                && Math.abs(storedDurationMs - incomingDurationMs) > DURATION_TOLERANCE_MS) {
+            return false;
+        }
+        // 两个媒体 ID 都已知且不同 = 明确的换歌证据；只要有一边未知就不算证据。
+        String leftId = safe(storedMediaId).trim();
+        String rightId = safe(incomingMediaId).trim();
+        return leftId.isEmpty() || rightId.isEmpty() || leftId.equals(rightId);
+    }
+
+    private static boolean sameIdentityText(String left, String right) {
+        String normalizedLeft = identityText(left);
+        return !normalizedLeft.isEmpty() && normalizedLeft.equals(identityText(right));
+    }
+
+    private static String identityText(String value) {
+        return safe(value).toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\s]+", "");
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+}
