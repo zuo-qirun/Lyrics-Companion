@@ -12,7 +12,7 @@ package com.zuoqirun.lyricscompanion;
 final class PlaybackPositionRules {
     /** 位置值相同与否的容差（毫秒）：车机上报常有 ±几十毫秒的抖动。 */
     static final long SAME_POSITION_TOLERANCE_MS = 100L;
-    /** 位置没变化但时间戳新鲜时，伴侣自己的估计至少领先这么多才夺回锚点。 */
+    /** 上报的位置值连续这么久没有变过，就认为播放器卡在同一个值上（review #80）。 */
     static final long STALE_REPORT_LEAD_MS = 1_500L;
     /** 新曲目开头附近的位置不算残留：这一段本来就不需要"修正"。 */
     static final long TRACK_START_TOLERANCE_MS = 3_000L;
@@ -22,10 +22,13 @@ final class PlaybackPositionRules {
     /**
      * 切歌这一轮上报的位置是否明显是上一首的遗留值（应当忽略它、让新曲目从 0 开始）。
      *
-     * <p>注意调用方传的是「曲目身份变了」（标题 / 歌手 / 媒体 ID），而不是"来源包名变了" ——
-     * 同一首歌在两个发布通道之间切换（蓝牙 AVRCP ↔ MediaSession）时位置是连续有效的，不能重置。
+     * <p>注意调用方传进来的必须只是「歌名是不是真的换了」
+     * （{@link TrackIdentityRules#isDifferentTrackTitle}），不能是 {@code MusicStateStore.lyricTrackKey()}
+     * 那种带来源通道 / 词库设置的曲目身份 —— 同一首歌在蓝牙 AVRCP 与 MediaSession 之间交接、或播放中
+     * 改词库时它同样会变，而这两种情况下位置是连续有效的，拿来判残留会把歌词打回开头
+     * （review #80 / Codex P2）。
      *
-     * @param identityChanged      这一轮的曲目身份是否真的变了
+     * @param identityChanged      这一轮是不是真的换成了另一首歌（只认歌名）
      * @param hadPreviousTrack     之前已经有一首曲目的身份（首次收到元数据时不算切歌）
      * @param previousReportedMs   切歌前最后一次上报的位置
      * @param incomingMs           本轮上报的位置
@@ -45,23 +48,42 @@ final class PlaybackPositionRules {
     }
 
     /**
+     * 播放器上报的原始位置是否已经不值得采信：位置值在超过 {@link #STALE_REPORT_LEAD_MS} 的时间里
+     * 一直没有变，或者上一轮已经把它判成了切歌残留。
+     *
+     * <p>必须按「位置值距上次变化过了多久」判断，不能拿「我们自己的估计领先它多少」判断：这一轮一旦
+     * 采信了上报值，调用方就会把锚点的值和时刻一起刷成这次上报，下一轮的领先量又从零开始长 —— 车机
+     * 一两秒报一次（或更快）时永远长不到阈值，歌词就冻在那句上（review #80 / Codex P2）。
+     *
+     * @param positionChanged     本轮上报的位置值相对上一次是否真的变了
+     * @param previouslyUntrusted 上一轮的上报是否已被判为切歌残留：残留值要等它真的变了再采信，
+     *                            否则新曲目的锚点（0）下一轮就被旧值写回去
+     * @param unchangedForMs      位置值距上次变化已经过去了多久
+     */
+    static boolean isStaleReport(boolean positionChanged, boolean previouslyUntrusted,
+                                 long unchangedForMs) {
+        if (positionChanged) return false;
+        return previouslyUntrusted || unchangedForMs > STALE_REPORT_LEAD_MS;
+    }
+
+    /**
      * 是否应当保留伴侣自己的单调估计，而不是把锚点写回这次上报的位置。
      *
      * <p>覆盖三种情况（前两种是原有行为，第三种是 issue #76 新增）：
      * <ol>
      *     <li>瞬时零位置：导航提示等场景把位置短暂报成 0，别让歌词跳回开头；</li>
      *     <li>播放器没给位置时间戳：保持自己的估计；</li>
-     *     <li>给了新鲜时间戳、但位置值一直没动，而我们的估计已经和它差出一截：这一路上报是
-     *         卡住的旧值，继续用自己的时钟（差值取绝对值 —— 旧值可能比我们的估计大，也可能小）。</li>
+     *     <li>给了新鲜时间戳、但这份上报已经被 {@link #isStaleReport} 判为卡住的旧值：继续用自己的
+     *         时钟（旧值可能比我们的估计大，也可能小）。</li>
      * </ol>
      */
     static boolean keepMonotonicEstimate(boolean changed, boolean playing,
                                          boolean positionChanged, boolean timestampPresent,
-                                         boolean transientZero, long estimatedMs, long incomingMs) {
+                                         boolean transientZero, boolean staleReport) {
         if (changed) return false;
         if (transientZero) return true;
         if (!playing || positionChanged) return false;
         if (!timestampPresent) return true;
-        return Math.abs(estimatedMs - incomingMs) > STALE_REPORT_LEAD_MS;
+        return staleReport;
     }
 }

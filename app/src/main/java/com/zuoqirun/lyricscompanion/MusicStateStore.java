@@ -37,6 +37,10 @@ final class MusicStateStore {
     private static long durationMs = -1L;
     private static long basePositionMs;
     private static long lastReportedPositionMs = -1L;
+    /** 上报的位置值上次真的变了的时刻（elapsedRealtime）：用来发现播放器卡在同一个值上。 */
+    private static long reportedPositionChangedElapsedMs = -1L;
+    /** 上一轮的上报已被判为切歌残留：它真的变化之前不再采信（review #80 / Codex P2）。 */
+    private static boolean reportedPositionUntrusted;
     private static long positionUpdatedAtElapsedMs;
     private static float playbackSpeed;
     private static long trackGeneration;
@@ -222,6 +226,15 @@ final class MusicStateStore {
             long estimatedPosition = currentPositionLocked();
             boolean rawPositionChanged = hasMeaningfulPositionChange(lastReportedPositionMs,
                     newPosition);
+            if (rawPositionChanged || reportedPositionChangedElapsedMs < 0L) {
+                reportedPositionChangedElapsedMs = now;
+            }
+            // 判据是「位置值多久没变」，不是「我们的估计领先它多少」：采信上报值的那几轮会把锚点的值
+            // 和时刻一起刷成这次上报，领先量每轮都从零开始长 —— 车机一两秒报一次（或更快）时永远长不到
+            // 阈值，歌词照样冻住（review #80 / Codex P2）。
+            boolean staleReportedPosition = PlaybackPositionRules.isStaleReport(
+                    rawPositionChanged, reportedPositionUntrusted,
+                    now - reportedPositionChangedElapsedMs);
             boolean reportedPositionChanged = !changed && rawPositionChanged;
             boolean sampledProgress = reportedPositionChanged
                     && newPosition > lastReportedPositionMs;
@@ -238,10 +251,13 @@ final class MusicStateStore {
                     // instead of restarting secondary-display lyrics from the first line.
                     && (stateValue != MusicPlaybackData.STATE_STOPPED
                     && stateValue != MusicPlaybackData.STATE_ERROR);
-            // 切歌这一轮播放器常把上一首的位置带过来（issue #76）：位置在切歌前后一模一样、或
-            // 直接越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里用「曲目身份变了」
-            // 而不是「来源包名变了」——同一首歌在两个发布通道之间切换时位置是连续有效的。
-            boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(identityChanged,
+            // 切歌这一轮播放器常把上一首的位置带过来（issue #76）：位置在切歌前后一模一样、或直接
+            // 越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里只认「歌名真的换了」——
+            // 曲目身份（lyricTrackKey）里还带着来源通道与词库设置，蓝牙 AVRCP 与 MediaSession 交接同
+            // 一首歌、或播放中改词库时它同样会变，而这两种情况下位置是连续有效的，拿来判残留会把歌词
+            // 打回开头（review #80 / Codex P2）。
+            boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(
+                    TrackIdentityRules.isDifferentTrackTitle(title, newTitle),
                     !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
                     newDuration > 0L ? newDuration : -1L);
             if (staleOnTrackChange) {
@@ -251,7 +267,7 @@ final class MusicStateStore {
                         + newPosition + " durationMs=" + newDuration);
             } else if (PlaybackPositionRules.keepMonotonicEstimate(changed, newPlaying,
                     rawPositionChanged, reportedPositionTime > 0L, transientZeroPosition,
-                    estimatedPosition, newPosition)) {
+                    staleReportedPosition)) {
                 // Metadata-only automotive sessions commonly keep returning the same raw position,
                 // sometimes with a fresh timestamp. Preserve our monotonic estimate instead of
                 // resetting it every poll, when a transient navigation session reports position
@@ -259,6 +275,9 @@ final class MusicStateStore {
                 positionToStore = Math.max(0L, estimatedPosition);
                 positionTimeToStore = now;
             }
+            // 被判为残留的这份上报要等它真的变了再采信，否则新曲目的锚点（0）下一轮又被旧值写回去。
+            reportedPositionUntrusted = staleOnTrackChange
+                    || (reportedPositionUntrusted && !rawPositionChanged);
             boolean playbackModeChanged = playing != newPlaying;
             trackChangedForLog = changed;
             playbackChangedForLog = playbackModeChanged;
@@ -402,6 +421,8 @@ final class MusicStateStore {
             durationMs = -1L;
             basePositionMs = 0L;
             lastReportedPositionMs = -1L;
+            reportedPositionChangedElapsedMs = -1L;
+            reportedPositionUntrusted = false;
             positionUpdatedAtElapsedMs = SystemClock.elapsedRealtime();
             playbackSpeed = 0f;
             trackKey = "";

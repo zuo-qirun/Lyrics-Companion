@@ -12,6 +12,12 @@ import java.util.Locale;
  *
  * <p>只描述判定，不碰 Android 类型，便于单测覆盖。这里的文本归一化与
  * {@code MusicStateStore.identityText()} 保持一致（小写 + 去掉标点与空白）。
+ *
+ * <p><b>已知取舍（review #80 / Codex P2）</b>：{@link #shouldIgnoreArtistOnlyChange} 只认「歌名没变、
+ * 时长和媒体 ID 都不构成反证」，所以它同时会吞掉正常的歌手补全 —— 先报「未知歌手」再报真歌手，或新歌的
+ * TITLE 先到而 ARTIST 还是上一首的，修正值在整首歌里都不会被采纳，也不会用修正后的元数据重新匹配歌词。
+ * 要收窄的话需要额外证据（进来的歌手像歌词 / 状态行，或同一首歌里歌手已经变过多次）；目前按「宁可不重匹配」
+ * 处理。
  */
 final class TrackIdentityRules {
     /** 时长差异容差：车机上报的时长常有一两秒的抖动。 */
@@ -52,6 +58,18 @@ final class TrackIdentityRules {
         String leftId = safe(storedMediaId).trim();
         String rightId = safe(incomingMediaId).trim();
         return leftId.isEmpty() || rightId.isEmpty() || leftId.equals(rightId);
+    }
+
+    /**
+     * 歌名是不是真的换成了另一首（播放位置锚点用：见 {@link PlaybackPositionRules#staleOnTrackChange}）。
+     *
+     * <p>只比歌名。来源通道、词库设置、歌手都不参与 —— 蓝牙 AVRCP 与 MediaSession 交接同一首歌、播放中改
+     * 词库、或播放器把歌词行写进歌手栏时，这些字段会变而播放位置是连续有效的，拿它们判残留会把歌词打回
+     * 开头（review #80 / Codex P2）。任一侧歌名为空时返回 false：没有证据就不当成换歌。
+     */
+    static boolean isDifferentTrackTitle(String storedTitle, String incomingTitle) {
+        if (safe(storedTitle).trim().isEmpty() || safe(incomingTitle).trim().isEmpty()) return false;
+        return !sameIdentityText(storedTitle, incomingTitle);
     }
 
     private static boolean sameIdentityText(String left, String right) {

@@ -19,6 +19,20 @@ public class TrackIdentityRulesTest {
                 storedDuration, incomingDuration, storedId, incomingId);
     }
 
+    @Test public void aDifferentChannelOfTheSameSongIsNotADifferentTrackTitle() {
+        // 播放位置锚点用这个判定（review #80 / Codex P2）：入参里根本没有来源通道 / 词库设置，
+        // 所以蓝牙 AVRCP 与 MediaSession 交接同一首歌、或播放中改词库时，都不会被当成换了歌、
+        // 把位置清零。
+        assertFalse(TrackIdentityRules.isDifferentTrackTitle("地下铁", "地下铁"));
+        // 标点与空白差异不算"换了歌名"。
+        assertFalse(TrackIdentityRules.isDifferentTrackTitle("地下铁", "地 下 铁 -"));
+        assertTrue(TrackIdentityRules.isDifferentTrackTitle("地下铁", "红蜻蜓"));
+        // 任一侧还没有歌名时不当作换歌（没有证据）。
+        assertFalse(TrackIdentityRules.isDifferentTrackTitle("", "红蜻蜓"));
+        assertFalse(TrackIdentityRules.isDifferentTrackTitle("地下铁", ""));
+        assertFalse(TrackIdentityRules.isDifferentTrackTitle(null, null));
+    }
+
     @Test public void changingArtistWithStableTitleIsIgnored() {
         assertTrue(ignore("地下铁", "地下铁", "萧亚轩", "下一站的出口 你等着我",
                 240_000L, 240_000L, "12345", "12345"));
