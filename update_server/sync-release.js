@@ -20,6 +20,12 @@ const publicDir = path.join(__dirname, "public");
 const apkDir = path.join(publicDir, "apk");
 const historyDir = path.join(apkDir, "history");
 const latestApk = path.join(apkDir, "lyrics_companion.apk");
+// 测试版（beta）通道：单独一份清单与 APK，正式版清单不受影响。
+const betaManifestPath = path.join(publicDir, "update-beta.json");
+const betaApk = path.join(apkDir, "lyrics_companion_beta.apk");
+const betaChangelogPath = path.join(publicDir, "CHANGELOG-beta.md");
+// GitHub 的 `/releases/latest` 会跳过 prerelease，所以测试版要在最近一批 release 里自己找。
+const betaScanLimit = Math.max(1, Math.min(100, Number(process.env.BETA_RELEASE_SCAN) || 100));
 
 function log(message) { console.log(`[release-sync] ${message}`); }
 
@@ -162,6 +168,85 @@ async function listReleases(limit) {
   return githubJson(`/releases?per_page=${Math.min(limit, 100)}`);
 }
 
+/**
+ * 从 release 列表里挑出最新的测试版：`/releases` 按创建时间倒序，所以第一个 prerelease 就是最新的。
+ * GitHub 的 `/releases/latest` 天然跳过 prerelease，正式版通道因此不会被测试版顶掉。
+ *
+ * @param {Array<object>} releases GitHub `/releases` 返回的列表（可能为空）。
+ * @returns {object|null} 最新的非草稿 prerelease，没有则返回 null。
+ */
+function pickBetaRelease(releases) {
+  return (releases || []).find((release) =>
+    Boolean(release) && release.prerelease === true && release.draft !== true) || null;
+}
+
+/** 测试版通道还没有可用构建时的清单：版本号为 0，客户端据此显示"暂无测试版"。 */
+function unavailableBetaManifest() {
+  return {
+    schemaVersion: 1,
+    channel: "beta",
+    betaAvailable: false,
+    packageName: "com.zuoqirun.lyricscompanion",
+    versionCode: 0,
+    versionName: "",
+    force: false,
+    changelog: [],
+  };
+}
+
+/**
+ * 同步测试版通道：挑最新 prerelease，下载它的 APK 与更新日志，写 `public/update-beta.json`。
+ * 没有 prerelease 时写一份 `betaAvailable: false` 的占位清单，让客户端能明确区分
+ * "测试版通道暂时没有包"和"接口挂了"。
+ *
+ * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 同步到的测试版。
+ */
+async function syncBeta() {
+  const release = pickBetaRelease(await listReleases(betaScanLimit));
+  if (!release) {
+    atomicWrite(betaManifestPath, JSON.stringify({
+      ...unavailableBetaManifest(), syncedAt: new Date().toISOString(),
+    }, null, 2) + "\n");
+    log("no prerelease found; the beta channel stays unavailable");
+    return null;
+  }
+  const apkAsset = findAsset(release, (item) => assetPattern.test(item.name), "beta APK");
+  assetPattern.lastIndex = 0;
+  const manifest = await releaseManifest(release, apkAsset);
+  const changelog = (release.assets || []).find((item) => item.name === changelogAsset);
+  let sameRelease = false;
+  if (!force && fs.existsSync(betaManifestPath)) {
+    try {
+      sameRelease = JSON.parse(fs.readFileSync(betaManifestPath, "utf8")).releaseTag
+        === release.tag_name;
+    } catch (error) { sameRelease = false; }
+  }
+  await download(apkAsset, betaApk, sameRelease);
+  if (changelog) {
+    // The beta changelog is a separate file: public/CHANGELOG.md stays the stable archive.
+    atomicWrite(betaChangelogPath, await request(changelog.browser_download_url));
+  }
+  const output = {
+    ...manifest,
+    schemaVersion: 1,
+    channel: "beta",
+    betaAvailable: true,
+    packageName: "com.zuoqirun.lyricscompanion",
+    apkPath: "apk/lyrics_companion_beta.apk",
+    changelogPath: "CHANGELOG-beta.md",
+    githubApkUrl: apkAsset.browser_download_url,
+    githubChangelogUrl: changelog ? changelog.browser_download_url : "",
+    sha256: sha256(betaApk),
+    size: fs.statSync(betaApk).size,
+    releaseTag: release.tag_name,
+    releaseUrl: release.html_url,
+    syncedAt: new Date().toISOString(),
+  };
+  atomicWrite(betaManifestPath, JSON.stringify(output, null, 2) + "\n");
+  log(`synced beta ${output.versionName} (${output.versionCode}) tag=${release.tag_name}`);
+  return {release, apkAsset, manifest: output};
+}
+
 async function syncLatest(release) {
   const apkAsset = findAsset(release, (item) => assetPattern.test(item.name), "APK");
   assetPattern.lastIndex = 0;
@@ -180,8 +265,11 @@ async function syncLatest(release) {
     await request(changelog.browser_download_url));
   const output = {
     ...manifest,
+    schemaVersion: 1,
+    channel: "stable",
     packageName: "com.zuoqirun.lyricscompanion",
     apkPath: "apk/lyrics_companion.apk",
+    changelogPath: "CHANGELOG.md",
     githubApkUrl: apkAsset.browser_download_url,
     githubChangelogUrl: changelog ? changelog.browser_download_url : "",
     sha256: sha256(latestApk),
@@ -194,7 +282,7 @@ async function syncLatest(release) {
   return {release, apkAsset, manifest: output};
 }
 
-async function syncHistory(latest) {
+async function syncHistory(latest, beta = null) {
   const releases = await listReleases(historyLimit);
   const versions = [];
   fs.mkdirSync(historyDir, {recursive: true});
@@ -204,12 +292,16 @@ async function syncHistory(latest) {
     });
     if (!apkAsset) continue;
     const manifest = release.id === latest.release.id
-      ? latest.manifest : await releaseManifest(release, apkAsset);
+      ? latest.manifest
+      : beta && release.id === beta.release.id
+        ? beta.manifest
+        : await releaseManifest(release, apkAsset);
     const fileName = `${safeSegment(release.tag_name)}-${safeSegment(apkAsset.name, "app.apk")}`;
     const destination = path.join(historyDir, fileName);
     await download(apkAsset, destination);
     versions.push({
       packageName: "com.zuoqirun.lyricscompanion",
+      channel: release.prerelease ? "beta" : "stable",
       versionCode: manifest.versionCode,
       versionName: manifest.versionName,
       force: Boolean(manifest.force),
@@ -238,8 +330,10 @@ async function syncHistory(latest) {
 async function main() {
   fs.mkdirSync(apkDir, {recursive: true});
   const latest = await syncLatest(await latestRelease());
-  await syncHistory(latest);
-  log(`synced ${latest.manifest.versionName} (${latest.manifest.versionCode})`);
+  const beta = await syncBeta();
+  await syncHistory(latest, beta);
+  log(`synced ${latest.manifest.versionName} (${latest.manifest.versionCode})`
+    + (beta ? ` and beta ${beta.manifest.versionName} (${beta.manifest.versionCode})` : ""));
 }
 
 if (require.main === module) {
@@ -251,4 +345,5 @@ if (require.main === module) {
 
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
+  pickBetaRelease,
 };

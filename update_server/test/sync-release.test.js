@@ -4,6 +4,7 @@ const {test} = require("node:test");
 const assert = require("node:assert");
 const {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
+  pickBetaRelease,
 } = require("../sync-release.js");
 
 function fetchError(code, message) {
@@ -98,4 +99,22 @@ test("retry count honours SYNC_MAX_RETRIES", () => {
     delete process.env.SYNC_MAX_RETRIES;
   }
   assert.equal(retryCount(), 3);
+});
+
+test("picks the newest prerelease as the beta build", () => {
+  const releases = [
+    {tag_name: "apk-300-aaaaaaa", prerelease: false, draft: false},
+    {tag_name: "apk-299-bbbbbbb", prerelease: true, draft: false},
+    {tag_name: "apk-298-ccccccc", prerelease: true, draft: false},
+  ];
+  assert.equal(pickBetaRelease(releases).tag_name, "apk-299-bbbbbbb");
+});
+
+test("skips drafts and stable-only releases when looking for beta", () => {
+  assert.equal(pickBetaRelease([{tag_name: "apk-300", prerelease: true, draft: true}]), null);
+  assert.equal(pickBetaRelease([{tag_name: "apk-300", prerelease: false, draft: false}]), null);
+  assert.equal(pickBetaRelease([{tag_name: "apk-300", draft: false}]), null);
+  assert.equal(pickBetaRelease([]), null);
+  assert.equal(pickBetaRelease(null), null);
+  assert.equal(pickBetaRelease(undefined), null);
 });

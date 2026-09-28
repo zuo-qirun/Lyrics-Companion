@@ -2,6 +2,17 @@
 
 > ⚠️ **未测试**：`20260926-*` 这四个版本（bug 批次 + features-1/2/3）只在本地跑通了单元测试 + Android Lint + 签名 Release 构建，并覆盖安装到一台手机上做启动冒烟；**尚未在车机上完成真机验证**。凡是涉及车型 ROM（东风/华阳/哈弗）、同名双屏、车机左侧悬浮栏、副屏与额外屏、U 盘 / SAF 目录、弱车机帧率与耗电的结论，都还需要实测确认。
 
+## 20260928-beta-channel
+
+> ⚠️ 未测试（待真机验证）。本次完成本地单元测试（407 用例 / 0 失败）+ 签名 Release 构建（`lintVitalRelease` 通过；`lintDebug` 因本机离线缓存缺 androidTest 依赖没跑起来，交给 CI）。通道切换、测试版弹窗与「不再提醒」的交互需要装到车机上确认。最低支持 Android 4.4。
+
+- 新增测试版（beta）更新渠道：「高级 → 应用更新」多了「加入测试版更新通道」开关（默认关闭，行为与改动前一致）。开启后客户端改读 `/update-beta.json`，只看 GitHub prerelease；关闭时仍读 `/update.json`。正式版通道不会被测试版顶掉——GitHub 的 `/releases/latest` 天然跳过 prerelease。首次开启先弹一次风险说明，点「取消」会把开关拨回关闭。
+- 「不再提醒此版本」：更新弹窗（测试版与正式版都适用）里可勾选，之后**该渠道的这个版本号**不再自动弹窗，更高的版本照常提示；手动点「检查更新」永远显示弹窗（被跳过的版本也看得到），`force: true` 的强制更新不受影响；两条通道各自记账。
+- 从测试版切回正式版的说明：测试版版本号通常高于正式版，切回后本机版本会高于正式版最新版，卡片会写明「正式版通道最新版是 X，本机版本更高；等正式版发布更高版本号即可更新」，而不是一句"已是最新"。
+- 服务端：`sync-release.js` 额外同步最新 prerelease，生成 `public/update-beta.json`、`public/apk/lyrics_companion_beta.apk` 与 `public/CHANGELOG-beta.md`（正式版的 `update.json` / `CHANGELOG.md` 不受影响）；没有 prerelease 时写 `betaAvailable: false` 的占位清单，客户端显示"该通道暂无可更新版本"而不是误报版本。`server.js` 新增 `/update-beta.json` 与 `/update-github-beta.json`，`/health` 增加 `beta` 状态块，`/versions.json` 每个版本带 `channel` 字段（App 的更新日志会给测试版标「（测试版）」）。
+- 发布测试版：仓库 → Actions → Build and Release APK → Run workflow → `channel` 选 `beta`（可选分支，方便发未合并的代码），Release 以 **prerelease** 发布、标题带「（测试版）」、更新日志顶部插入测试版免责声明；push 到 `main` 仍只出正式版。
+- 验证与限制：本机 `testDebugUnitTest` 407 用例 0 失败（新增 `UpdateChannelRulesTest` 5 条，覆盖通道回落、清单地址、跳过判定、本地版本超前），`assembleRelease` 用官方 p12 签名通过（versionName 20260928-1164830，签名证书 SHA-256 7c00d28a…0358 与 keystore 内指纹一致），dex 内已确认含新代码；服务端 `npm test` 24 用例 0 失败（新增 beta 清单挑选与 `/update-beta.json` 端点用例）。**未上车机**。
+
 ## 20260928-bug-76-77-79
 
 > ⚠️ 未测试（待真机验证）。本次完成本地单元测试 + Android Lint（402 用例 / 0 失败，lint 0 error / 42 warnings），并按真实接线重放了位置时钟的几种上报节奏；**车机侧行为仍需实机确认**。最低支持 Android 4.4。
