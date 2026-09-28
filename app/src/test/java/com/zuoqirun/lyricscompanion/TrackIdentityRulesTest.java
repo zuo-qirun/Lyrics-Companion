@@ -15,7 +15,7 @@ public class TrackIdentityRulesTest {
                            String incomingArtist, long storedDuration, long incomingDuration,
                            String storedId, String incomingId) {
         return TrackIdentityRules.shouldIgnoreArtistOnlyChange(
-                true, title, incomingTitle, storedArtist, incomingArtist,
+                true, true, title, incomingTitle, storedArtist, incomingArtist,
                 storedDuration, incomingDuration, storedId, incomingId);
     }
 
@@ -90,7 +90,19 @@ public class TrackIdentityRulesTest {
         assertFalse(ignore("地下铁", "", "萧亚轩", "新歌手", 240_000L, 240_000L, "", ""));
         // 来源换了就是另一路发布者，不能沿用身份。
         assertFalse(TrackIdentityRules.shouldIgnoreArtistOnlyChange(
-                false, "地下铁", "地下铁", "萧亚轩", "新歌手",
+                false, true, "地下铁", "地下铁", "萧亚轩", "新歌手",
                 240_000L, 240_000L, "12345", "12345"));
+    }
+
+    @Test public void anotherPackageSharingTheSourceIdIsAnotherPublisher() {
+        // 同一个 source id 但换了应用（VLC -> Poweramp，两个都注册成 media）：不能沿用上一个应用
+        // 报的歌手 —— 新包的歌词要用新应用给的歌手去匹配（review 第四轮 P2）。
+        assertFalse(TrackIdentityRules.shouldIgnoreArtistOnlyChange(
+                true, false, "地下铁", "地下铁", "萧亚轩", "小虎队",
+                240_000L, 240_000L, "", ""));
+        // 同一个发布者时才抑制。
+        assertTrue(TrackIdentityRules.shouldIgnoreArtistOnlyChange(
+                true, true, "地下铁", "地下铁", "萧亚轩", "小虎队",
+                240_000L, 240_000L, "", ""));
     }
 }

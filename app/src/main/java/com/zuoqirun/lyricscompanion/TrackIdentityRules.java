@@ -28,7 +28,10 @@ final class TrackIdentityRules {
     /**
      * TITLE 稳定、只有 ARTIST 在变时，是否应当忽略这次变化（保留原曲目身份与已匹配的歌词）。
      *
-     * @param sameSource       这一轮是否还是同一个播放器来源
+     * @param sameSource       这一轮是否还是同一个播放器来源（source id）
+     * @param samePublisher    这一轮是否还是同一个发布者（包名）。只比 source id 不够：VLC / Poweramp /
+     *                         AIMP… 都注册成 {@code media}，换了应用却仍算"同一个来源"，于是会把上一个
+     *                         应用报的歌手留下来、拿它去匹配新包的歌词（review 第四轮 P2）
      * @param storedTitle      已保存的曲目标题
      * @param incomingTitle    本轮上报的标题
      * @param storedArtist     已保存的歌手
@@ -38,12 +41,12 @@ final class TrackIdentityRules {
      * @param storedMediaId    已保存的媒体 ID
      * @param incomingMediaId  本轮上报的媒体 ID
      */
-    static boolean shouldIgnoreArtistOnlyChange(boolean sameSource,
+    static boolean shouldIgnoreArtistOnlyChange(boolean sameSource, boolean samePublisher,
                                                 String storedTitle, String incomingTitle,
                                                 String storedArtist, String incomingArtist,
                                                 long storedDurationMs, long incomingDurationMs,
                                                 String storedMediaId, String incomingMediaId) {
-        if (!sameSource) return false;
+        if (!sameSource || !samePublisher) return false;
         if (safe(storedTitle).trim().isEmpty() || safe(incomingTitle).trim().isEmpty()) return false;
         // 标题必须完全没变：标题变了就是真的换歌（那是 TITLE 侧规则的事）。
         if (!sameIdentityText(storedTitle, incomingTitle)) return false;

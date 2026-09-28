@@ -127,6 +127,9 @@ final class MusicStateStore {
         String playbackStateForLog = "";
         synchronized (LOCK) {
             boolean sameSource = TextUtils.equals(source, normalizedSource);
+            // 同一个 source id 不等于同一个发布者：VLC / Poweramp / AIMP… 都注册成 media
+            // （review 第四轮 P2）。
+            boolean samePublisher = TextUtils.equals(sourcePackage, normalizedSourcePackage);
             long now = SystemClock.elapsedRealtime();
             // A Bluetooth AVRCP broadcast and a MediaSession publisher (CarPlay and friends) can
             // both describe the same playback. Letting each write through swaps the track key on
@@ -187,12 +190,13 @@ final class MusicStateStore {
                 if (!TextUtils.isEmpty(mediaId)) newMediaId = mediaId;
                 if (durationMs > 0L) newDuration = durationMs;
             } else if (!hasCompositeIdentity && TrackIdentityRules.shouldIgnoreArtistOnlyChange(
-                    sameSource, title, newTitle, artist, newArtist,
+                    sameSource, samePublisher, title, newTitle, artist, newArtist,
                     durationMs, newDuration, mediaId, newMediaId)) {
                 // 反对称的那种（issue #77）：TITLE / 时长 / 媒体 ID 都没变，只有 ARTIST 在变 ——
                 // 播放器把当前歌词行（或某种状态）写进了歌手栏。按换歌处理会让每一句歌词都重新
                 // 匹配一次，于是歌词在「已匹配」与「暂无匹配歌词」之间来回跳。这里保留原歌手，
-                // 曲目身份和已匹配的歌词都不动。
+                // 曲目身份和已匹配的歌词都不动。换了应用（同一个 source id、不同包名）时不算 ——
+                // 那要用新应用报的歌手去匹配。
                 Log.i(TAG, "Ignoring artist-only metadata change: " + newArtist);
                 DiagnosticLog.record(context, "Playback",
                         "ignored artist-only change artist=" + newArtist);
@@ -221,8 +225,7 @@ final class MusicStateStore {
             String newTrackKey = lyricTrackKey(normalizedSource, newTitle, newArtist,
                     newDuration, newMediaId, selectedCatalog, playerCatalogFallback);
             boolean identityChanged = !TextUtils.equals(trackKey, newTrackKey);
-            boolean changed = identityChanged
-                    || !TextUtils.equals(sourcePackage, normalizedSourcePackage);
+            boolean changed = identityChanged || !samePublisher;
             long estimatedPosition = currentPositionLocked();
             boolean rawPositionChanged = hasMeaningfulPositionChange(lastReportedPositionMs,
                     newPosition);
