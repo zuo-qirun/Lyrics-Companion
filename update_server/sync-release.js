@@ -103,12 +103,38 @@ async function fetchWithRetry(url, options = {}, fetchImpl = fetch) {
   throw lastError;
 }
 
-async function request(url, json = false) {
+let authDisabled = false;
+
+/**
+ * token 被 GitHub 拒了才允许匿名重试；配额类 403（未过期但已用尽）不该退化成匿名再打一遍。
+ *
+ * <p>这段逻辑原先只存在于线上部署的 `sync-release.js` 里（线上与仓库分叉），现在回灌进仓库，
+ * 免得覆盖部署时把它弄丢。
+ */
+function authFailure(status, detail) {
+  if (status === 401) return true;
+  if (status !== 403) return false;
+  return /bad credentials|requires authentication|invalid token|token.{0,20}(expired|revoked)/i.test(detail || "");
+}
+
+function firstLine(text) {
+  return String(text || "").split(/\r?\n/).find((line) => line.trim()) || "";
+}
+
+async function request(url, json = false, allowAnonymousRetry = true) {
   const headers = {"user-agent": "lyrics-companion-release-sync", "accept": "application/vnd.github+json"};
-  if (githubToken) headers.authorization = `Bearer ${githubToken}`;
+  const useAuth = Boolean(githubToken) && !authDisabled;
+  if (useAuth) headers.authorization = `Bearer ${githubToken}`;
   const response = await fetchWithRetry(url, {headers, redirect: "follow"});
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
-  return json ? response.json() : Buffer.from(await response.arrayBuffer());
+  if (response.ok) return json ? response.json() : Buffer.from(await response.arrayBuffer());
+  const detail = await response.text().catch(() => "");
+  if (useAuth && allowAnonymousRetry && authFailure(response.status, detail)) {
+    const reason = firstLine(detail) || `HTTP ${response.status}`;
+    log(`GITHUB_TOKEN rejected (HTTP ${response.status}: ${reason}); continuing anonymously`);
+    authDisabled = true;
+    return request(url, json, false);
+  }
+  throw new Error(`HTTP ${response.status}: ${url}${detail ? ` - ${firstLine(detail)}` : ""}`);
 }
 
 async function githubJson(route) {
@@ -431,4 +457,5 @@ if (require.main === module) {
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
   pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk, firstUsableBeta, syncBeta,
+  authFailure,
 };
