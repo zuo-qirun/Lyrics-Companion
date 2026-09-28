@@ -173,11 +173,60 @@ async function listReleases(limit) {
  * GitHub 的 `/releases/latest` 天然跳过 prerelease，正式版通道因此不会被测试版顶掉。
  *
  * @param {Array<object>} releases GitHub `/releases` 返回的列表（可能为空）。
- * @returns {object|null} 最新的非草稿 prerelease，没有则返回 null。
+ * @param {(release: object) => boolean} isUsable 过滤条件：不满足的 prerelease 直接跳过，
+ *   例如手工发布、没挂匹配 APK 的测试版（Codex review P2）。
+ * @returns {object|null} 最新的、可用的非草稿 prerelease，没有则返回 null。
  */
-function pickBetaRelease(releases) {
+function pickBetaRelease(releases, isUsable = () => true) {
   return (releases || []).find((release) =>
-    Boolean(release) && release.prerelease === true && release.draft !== true) || null;
+    Boolean(release) && release.prerelease === true && release.draft !== true
+      && isUsable(release)) || null;
+}
+
+/** 该 release 是否挂了符合 `ASSET_PATTERN` 的 APK；手工发的空测试版会被这里挡掉。 */
+function hasBetaApk(release) {
+  return (release && release.assets || []).some((item) => {
+    const matched = assetPattern.test(item.name);
+    assetPattern.lastIndex = 0;
+    return matched;
+  });
+}
+
+/** 取该 release 里匹配的 APK 资源（调用前应确认 {@link hasBetaApk} 为真）。 */
+function betaApkAsset(release) {
+  const asset = (release && release.assets || []).find((item) => {
+    const matched = assetPattern.test(item.name);
+    assetPattern.lastIndex = 0;
+    return matched;
+  });
+  if (!asset) throw new Error(`Release asset not found: beta APK (${release && release.tag_name})`);
+  return asset;
+}
+
+/**
+ * 最新的**可用**测试版候选：跳过没挂 APK 的，以及清单解析失败的 prerelease。
+ *
+ * <p>以前第一个 prerelease 一旦不可用（手工发布、没挂 APK、release-update.json 坏掉），
+ * `findAsset()` 会直接抛错，整轮同步中止——测试版端点继续停在旧内容，连 `versions.json`
+ * 和正式版兜底都写不出去（Codex review P2）。现在逐个候选往下试，全不可用就当"没有测试版"。
+ *
+ * @param {Array<object>} releases GitHub `/releases` 列表。
+ * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 候选或 null。
+ */
+async function firstUsableBeta(releases) {
+  let remaining = (releases || []).slice();
+  while (remaining.length > 0) {
+    const release = pickBetaRelease(remaining, hasBetaApk);
+    if (!release) return null;
+    try {
+      const apkAsset = betaApkAsset(release);
+      return {release, apkAsset, manifest: await releaseManifest(release, apkAsset)};
+    } catch (error) {
+      log(`skipping unusable prerelease ${release.tag_name}: ${error.message}`);
+      remaining = remaining.filter((item) => item !== release);
+    }
+  }
+  return null;
 }
 
 /** 测试版通道还没有可用构建时的清单：版本号为 0，客户端据此显示"暂无测试版"。 */
@@ -223,11 +272,8 @@ function betaChannelUsesPrerelease(stableManifest, betaManifest) {
  * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 同步到的清单。
  */
 async function syncBeta(stable = null) {
-  const release = pickBetaRelease(await listReleases(betaScanLimit));
-  const apkAsset = release
-    ? findAsset(release, (item) => assetPattern.test(item.name), "beta APK") : null;
-  if (apkAsset) assetPattern.lastIndex = 0;
-  const candidate = release ? await releaseManifest(release, apkAsset) : null;
+  const beta = await firstUsableBeta(await listReleases(betaScanLimit));
+  const candidate = beta ? beta.manifest : null;
   if (!betaChannelUsesPrerelease(stable && stable.manifest, candidate)) {
     if (!stable) {
       atomicWrite(betaManifestPath, JSON.stringify({
@@ -380,5 +426,5 @@ if (require.main === module) {
 
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
-  pickBetaRelease, betaChannelUsesPrerelease,
+  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk,
 };

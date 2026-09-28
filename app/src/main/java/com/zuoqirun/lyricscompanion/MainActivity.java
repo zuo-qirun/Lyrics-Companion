@@ -2881,10 +2881,10 @@ public final class MainActivity extends AppCompatActivity {
                                 + "通道暂无可用版本\n" + localVersionText());
                         return;
                     }
-                    int skipped = AppPreferences.skippedUpdateVersionCode(this, info.channel);
+                    int skipped = AppPreferences.skippedUpdateVersionCode(this, requestedChannel);
                     if (UpdateChannelRules.skipPrompt(manual, info.force,
                             info.remoteVersionCode, skipped)) {
-                        String name = AppPreferences.skippedUpdateVersionName(this, info.channel);
+                        String name = AppPreferences.skippedUpdateVersionName(this, requestedChannel);
                         updateStatus.setText("已不再提醒 v"
                                 + (name.isEmpty() ? String.valueOf(info.remoteVersionCode) : name)
                                 + " 的更新\n" + localVersionText());
@@ -2893,7 +2893,7 @@ public final class MainActivity extends AppCompatActivity {
                     if (info.hasUpdate()) {
                         updateStatus.setText("发现" + (info.isBeta() ? "测试版" : "新版本")
                                 + " " + info.remoteVersionName);
-                        showUpdateDialog(info);
+                        showUpdateDialog(info, requestedChannel);
                     } else if (UpdateChannelRules.localIsAhead(
                             info.localVersionCode, info.remoteVersionCode)) {
                         updateStatus.setText(UpdateChannelRules.displayName(info.channel)
@@ -2951,7 +2951,16 @@ public final class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void showUpdateDialog(AppUpdater.UpdateInfo info) {
+    /**
+     * 显示更新弹窗。
+     *
+     * @param info 清单内容（{@code info.channel} 是**这个包自己的**通道：测试版端点在新正式版
+     *   更高时会照抄正式版清单，此时它是 stable，用来决定标题文案）。
+     * @param requestedChannel 用户当前选的通道，用来记账「不再提醒」——跳过记录按用户选的通道
+     *   分开存，否则在测试版通道里对某个稳定版点过"不再提醒"会连带影响切回正式版后的提示
+     *   （Codex review P2）。
+     */
+    private void showUpdateDialog(AppUpdater.UpdateInfo info, String requestedChannel) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(18), dp(4), dp(18), dp(4));
@@ -3019,7 +3028,7 @@ public final class MainActivity extends AppCompatActivity {
         dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, 0xFFF2F6FB));
         dialog.setOnDismissListener(ignored -> {
             if (info.force || !skipThisVersion.isChecked()) return;
-            AppPreferences.skipUpdateVersion(this, info.channel,
+            AppPreferences.skipUpdateVersion(this, requestedChannel,
                     info.remoteVersionCode, info.remoteVersionName);
             if (updateStatus != null) {
                 updateStatus.setText("已不再提醒 v" + info.remoteVersionName

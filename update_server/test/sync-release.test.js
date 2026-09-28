@@ -4,7 +4,7 @@ const {test} = require("node:test");
 const assert = require("node:assert");
 const {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
-  pickBetaRelease, betaChannelUsesPrerelease,
+  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk,
 } = require("../sync-release.js");
 
 function fetchError(code, message) {
@@ -131,4 +131,24 @@ test("the beta channel serves a newer stable release instead of the older prerel
   assert.equal(betaChannelUsesPrerelease({versionCode: 300}, null), false);
   assert.equal(betaChannelUsesPrerelease({versionCode: 300}, {versionCode: 0}), false);
   assert.equal(betaChannelUsesPrerelease(null, null), false);
+});
+
+test("skips prereleases without a matching APK", () => {
+  assert.equal(hasBetaApk({assets: [{name: "lyrics-companion-abc1234.apk"}]}), true);
+  assert.equal(hasBetaApk({assets: [
+    {name: "release-update.json"}, {name: "CHANGELOG.md"}]}), false);
+  assert.equal(hasBetaApk({assets: []}), false);
+  assert.equal(hasBetaApk({}), false);
+  assert.equal(hasBetaApk(null), false);
+
+  // 最新那个测试版是手工发的、没挂 APK：要退到下一个可用的，而不是让整轮同步抛错。
+  const releases = [
+    {tag_name: "apk-301-manual", prerelease: true, draft: false, assets: [
+      {name: "release-update.json"}]},
+    {tag_name: "apk-300-bbbbbbb", prerelease: true, draft: false, assets: [
+      {name: "lyrics-companion-bbbbbbb.apk"}, {name: "release-update.json"}]},
+  ];
+  assert.equal(pickBetaRelease(releases, hasBetaApk).tag_name, "apk-300-bbbbbbb");
+  // 全不可用就当作"没有测试版"，交给正式版兜底。
+  assert.equal(pickBetaRelease([releases[0]], hasBetaApk), null);
 });
