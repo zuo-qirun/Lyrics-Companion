@@ -106,13 +106,36 @@ public class PlaybackPositionRulesTest {
         // 播放器不给位置时间戳（老行为）：保留估计。
         assertTrue(PlaybackPositionRules.keepMonotonicEstimate(
                 false, true, false, false, false, false));
-        // 位置真的变了、或已经不在播放：不保留。
+        // 位置真的变了、或已经不在播放（这一份上报还不陈旧）：不保留。
         assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
                 false, true, true, true, false, true));
         assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
-                false, false, false, true, false, true));
+                false, false, false, true, false, false));
         // 换了曲目时锚点必须重建。
         assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
                 true, true, false, true, false, true));
+    }
+
+    @Test public void aStaleReportDoesNotUndoOurClockOnPause() {
+        // 播放器卡着旧值、用户按下暂停：估计要冻在原地，不能因为 playing == false 就重新采信旧值 ——
+        // 否则暂停会让歌词往回跳、恢复播放也从那个旧值接着走（review 第三轮 P2）。
+        assertTrue(PlaybackPositionRules.keepMonotonicEstimate(
+                false, false, false, true, false, true));
+        // 暂停中用户 seek（位置值真的动了）：照旧以这次上报为准。
+        assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
+                false, false, true, true, false, true));
+    }
+
+    @Test public void aTrackSelectedPausedAtItsEndIsNotResidue() {
+        // 新选中的曲目停在"已完成"状态（位置正好等于时长）是合法状态，暂停的会话照样会显示，
+        // 判成残留就会把歌词打回开头（review 第三轮 P2）。
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(
+                true, true, 4_000L, 260_000L, 260_000L));
+        // 明显越界（位置在时长之后）仍然是残留。
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(
+                true, true, 4_000L, 261_000L, 260_000L));
+        // 位置等于时长、而且和上一报一模一样：这才是残留（上一首刚播完就被带了过来）。
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(
+                true, true, 260_000L, 260_000L, 260_000L));
     }
 }
