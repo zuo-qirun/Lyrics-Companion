@@ -66,26 +66,46 @@ final class TrackIdentityRules {
     /**
      * 是不是真的换成了另一首歌（播放位置锚点用：见 {@link PlaybackPositionRules#staleOnTrackChange}）。
      *
-     * <p>只看曲目自己的元数据（歌名 / 歌手 / 媒体 ID）。**来源通道与词库设置不参与** —— 蓝牙 AVRCP 与
+     * <p>只看曲目自己的元数据（歌名 / 歌手 / 目录 ID）。**来源通道与词库设置不参与** —— 蓝牙 AVRCP 与
      * MediaSession 交接同一首歌、或播放中改词库时它们会变，而播放位置是连续有效的，拿它们判残留会把歌词
      * 打回开头（review #80 / Codex P2）。但只看歌名又会漏掉同名换歌（翻唱 / 现场版 / 同名曲目）——那样
      * 带过来的旧位置不会被修正，正是 issue #76 要修的症状（review 第二轮）。
      *
-     * <p>歌名不同 = 另一首；歌名相同则要求「两边都知道、且确实不同」的证据（媒体 ID、其次是歌手），只有
-     * 一边知道不算证据 —— 与 {@link #shouldIgnoreArtistOnlyChange} 的取证口径一致。歌手这一路是安全的：
-     * 调用点传进来的是已经过 #68 / #77 判定修正后的元数据，播放器把歌词行写进歌手栏时 {@code newArtist}
-     * 已经被换回已存歌手。时长不参与：车机上它经常迟到或抖动，而且它本来就不在 {@code lyricTrackKey()} 里。
+     * <p>歌名不同 = 另一首；歌名相同则要求「两边都知道、且确实不同」的证据（目录 ID、其次是歌手），只有
+     * 一边知道不算证据 —— 与 {@link #shouldIgnoreArtistOnlyChange} 的取证口径一致。ID 必须是
+     * {@link #catalogTrackId} 解析出来的**稳定目录 ID**：原始的不透明 mediaId 会抖动，拿它当证据会把同一
+     * 首歌判成换歌、位置被清 0（review 第五轮 P2）。歌手这一路是安全的：调用点传进来的是已经过 #68 / #77
+     * 判定修正后的元数据，播放器把歌词行写进歌手栏时 {@code newArtist} 已经被换回已存歌手。时长不参与：
+     * 车机上它经常迟到或抖动，而且它本来就不在 {@code lyricTrackKey()} 里。
      */
     static boolean isDifferentTrackMetadata(String storedTitle, String incomingTitle,
                                             String storedArtist, String incomingArtist,
-                                            String storedMediaId, String incomingMediaId) {
+                                            String storedCatalogId, String incomingCatalogId) {
         if (safe(storedTitle).trim().isEmpty() || safe(incomingTitle).trim().isEmpty()) return false;
         if (!sameIdentityText(storedTitle, incomingTitle)) return true;
-        String leftId = safe(storedMediaId).trim();
-        String rightId = safe(incomingMediaId).trim();
+        String leftId = safe(storedCatalogId).trim();
+        String rightId = safe(incomingCatalogId).trim();
         if (!leftId.isEmpty() && !rightId.isEmpty() && !leftId.equals(rightId)) return true;
         return !safe(storedArtist).trim().isEmpty() && !safe(incomingArtist).trim().isEmpty()
                 && !sameIdentityText(storedArtist, incomingArtist);
+    }
+
+    /**
+     * 稳定可比的目录 ID：只有酷我 / 汽水 / 网易云能从 mediaId 里解出曲目 id，其它来源一律返回空串。
+     *
+     * <p>{@code MusicStateStore.lyricTrackKey()} 只把这个 ID 写进曲目身份、**不写原始 mediaId**，因为车机
+     * 上报的不透明 mediaId 经常迟到或抖动（见那边的注释）。判"是不是换了歌"时同理：抖动的 ID 不构成证据，
+     * 否则同一首歌会被判成换歌、播放位置被清 0（review 第五轮 P2）。曲目身份与播放位置锚点共用这一个实现，
+     * 不会各写一套。
+     */
+    static String catalogTrackId(String source, String mediaId) {
+        if ("netease".equals(source)) {
+            long songId = NetEaseLyricClient.parseSongId(mediaId);
+            return songId > 0L ? Long.toString(songId) : "";
+        }
+        if ("soda".equals(source)) return SodaLyricClient.trackId(mediaId);
+        if ("kuwo".equals(source)) return KuwoLyricParser.trackId(mediaId);
+        return "";
     }
 
     private static boolean sameIdentityText(String left, String right) {

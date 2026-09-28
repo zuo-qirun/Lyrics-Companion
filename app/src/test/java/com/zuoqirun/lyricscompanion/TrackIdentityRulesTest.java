@@ -1,5 +1,6 @@
 package com.zuoqirun.lyricscompanion;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -31,7 +32,7 @@ public class TrackIdentityRulesTest {
         // 标点与空白差异不算"换了歌"。
         assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
                 "地下铁", "地 下 铁 -", "萧亚轩", "萧 亚 轩", "", ""));
-        // 只有一边知道歌手 / 媒体 ID 时不算证据：交接时蓝牙那一路通常就没有媒体 ID。
+        // 只有一边知道歌手 / 目录 ID 时不算证据：交接时蓝牙那一路通常就没有目录 ID。
         assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
                 "地下铁", "地下铁", "", "萧亚轩", "", "12345"));
         assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
@@ -49,12 +50,33 @@ public class TrackIdentityRulesTest {
         // —— 那还是 issue #76 的症状（review 第二轮 P2）。
         assertTrue(TrackIdentityRules.isDifferentTrackMetadata(
                 "地下铁", "地下铁", "萧亚轩", "小虎队", "", ""));
-        // 两边媒体 ID 都知道且不同，同样是明确的换歌证据。
+        // 两边稳定目录 ID 都知道且不同，同样是明确的换歌证据。
         assertTrue(TrackIdentityRules.isDifferentTrackMetadata(
                 "地下铁", "地下铁", "萧亚轩", "萧亚轩", "12345", "67890"));
         // 歌名不同当然也是另一首。
         assertTrue(TrackIdentityRules.isDifferentTrackMetadata(
                 "地下铁", "红蜻蜓", "萧亚轩", "小虎队", "", ""));
+    }
+
+    @Test public void onlyCatalogSourcesYieldAStableTrackId() {
+        // 只有酷我 / 汽水 / 网易云能从 mediaId 解出稳定的曲目 id；其它来源（车机的不透明 ID）一律为空，
+        // 于是它们的抖动不会变成"换了歌"的证据、把同一首歌的位置清 0（review 第五轮 P2）。
+        // Lyrics 侧的曲目身份（lyricTrackKey）用的也是这一个实现。
+        assertEquals("12345", TrackIdentityRules.catalogTrackId("kuwo", "MUSIC_12345"));
+        assertEquals("12345", TrackIdentityRules.catalogTrackId("kuwo", " 12345 "));
+        assertEquals("", TrackIdentityRules.catalogTrackId("kuwo", "ab12"));
+        assertEquals("123456", TrackIdentityRules.catalogTrackId("netease", "123456"));
+        assertEquals("123456", TrackIdentityRules.catalogTrackId("soda", "123456"));
+        assertEquals("", TrackIdentityRules.catalogTrackId("soda", "not-a-track-id"));
+        assertEquals("", TrackIdentityRules.catalogTrackId("media", "12345"));
+        assertEquals("", TrackIdentityRules.catalogTrackId("bluetooth", "12345"));
+        assertEquals("", TrackIdentityRules.catalogTrackId("qqmusic", "12345"));
+        assertEquals("", TrackIdentityRules.catalogTrackId(null, "12345"));
+        // 不透明 ID 抖动时两边都解不出目录 ID —— 即使原始值不同，也不判成换歌。
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "萧亚轩", "萧亚轩",
+                TrackIdentityRules.catalogTrackId("media", "session-1"),
+                TrackIdentityRules.catalogTrackId("media", "session-2")));
     }
 
     @Test public void changingArtistWithStableTitleIsIgnored() {

@@ -256,12 +256,15 @@ final class MusicStateStore {
                     && stateValue != MusicPlaybackData.STATE_ERROR);
             // 切歌这一轮播放器常把上一首的位置带过来（issue #76）：位置在切歌前后一模一样、或直接
             // 越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里只认「曲目自己的元数据
-            // 真的换了」（歌名 / 歌手 / 媒体 ID）——曲目身份（lyricTrackKey）里还带着来源通道与词库设置，
-            // 蓝牙 AVRCP 与 MediaSession 交接同一首歌、或播放中改词库时它同样会变，而这两种情况下位置是
-            // 连续有效的，拿来判残留会把歌词打回开头（review #80 / Codex P2）。
+            // 真的换了」（歌名 / 歌手 / 稳定目录 ID）——曲目身份（lyricTrackKey）里还带着来源通道与词库
+            // 设置，蓝牙 AVRCP 与 MediaSession 交接同一首歌、或播放中改词库时它同样会变，而这两种情况下
+            // 位置是连续有效的，拿来判残留会把歌词打回开头（review #80 / Codex P2）。ID 只用解析出来的
+            // 目录 ID：原始的不透明 mediaId 会抖动，当证据会把同一首歌判成换歌（review 第五轮 P2）。
+            String storedCatalogId = TrackIdentityRules.catalogTrackId(source, mediaId);
+            String incomingCatalogId = TrackIdentityRules.catalogTrackId(normalizedSource, newMediaId);
             boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(
-                    TrackIdentityRules.isDifferentTrackMetadata(title, newTitle,
-                            artist, newArtist, mediaId, newMediaId),
+                    TrackIdentityRules.isDifferentTrackMetadata(title, newTitle, artist, newArtist,
+                            storedCatalogId, incomingCatalogId),
                     !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
                     newDuration > 0L ? newDuration : -1L);
             if (staleOnTrackChange) {
@@ -854,15 +857,7 @@ final class MusicStateStore {
     static String lyricTrackKey(String source, String title, String artist, long durationMs,
                                 String mediaId, String selectedCatalog,
                                 boolean playerCatalogFallback) {
-        String directMediaId = "";
-        if ("netease".equals(source)) {
-            long songId = NetEaseLyricClient.parseSongId(mediaId);
-            if (songId > 0L) directMediaId = Long.toString(songId);
-        } else if ("soda".equals(source)) {
-            directMediaId = SodaLyricClient.trackId(mediaId);
-        } else if ("kuwo".equals(source)) {
-            directMediaId = KuwoLyricParser.trackId(mediaId);
-        }
+        String directMediaId = TrackIdentityRules.catalogTrackId(source, mediaId);
         // Duration and opaque media IDs often arrive late or oscillate on car players. Soda/Kuwo's
         // numeric track ID is the catalog ID used by their lyric endpoints, so it is stable enough
         // to distinguish consecutive songs even when title/artist metadata arrives in stages.
