@@ -252,12 +252,13 @@ final class MusicStateStore {
                     && (stateValue != MusicPlaybackData.STATE_STOPPED
                     && stateValue != MusicPlaybackData.STATE_ERROR);
             // 切歌这一轮播放器常把上一首的位置带过来（issue #76）：位置在切歌前后一模一样、或直接
-            // 越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里只认「歌名真的换了」——
-            // 曲目身份（lyricTrackKey）里还带着来源通道与词库设置，蓝牙 AVRCP 与 MediaSession 交接同
-            // 一首歌、或播放中改词库时它同样会变，而这两种情况下位置是连续有效的，拿来判残留会把歌词
-            // 打回开头（review #80 / Codex P2）。
+            // 越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里只认「曲目自己的元数据
+            // 真的换了」（歌名 / 歌手 / 媒体 ID）——曲目身份（lyricTrackKey）里还带着来源通道与词库设置，
+            // 蓝牙 AVRCP 与 MediaSession 交接同一首歌、或播放中改词库时它同样会变，而这两种情况下位置是
+            // 连续有效的，拿来判残留会把歌词打回开头（review #80 / Codex P2）。
             boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(
-                    TrackIdentityRules.isDifferentTrackTitle(title, newTitle),
+                    TrackIdentityRules.isDifferentTrackMetadata(title, newTitle,
+                            artist, newArtist, mediaId, newMediaId),
                     !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
                     newDuration > 0L ? newDuration : -1L);
             if (staleOnTrackChange) {

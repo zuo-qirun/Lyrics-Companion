@@ -61,15 +61,28 @@ final class TrackIdentityRules {
     }
 
     /**
-     * 歌名是不是真的换成了另一首（播放位置锚点用：见 {@link PlaybackPositionRules#staleOnTrackChange}）。
+     * 是不是真的换成了另一首歌（播放位置锚点用：见 {@link PlaybackPositionRules#staleOnTrackChange}）。
      *
-     * <p>只比歌名。来源通道、词库设置、歌手都不参与 —— 蓝牙 AVRCP 与 MediaSession 交接同一首歌、播放中改
-     * 词库、或播放器把歌词行写进歌手栏时，这些字段会变而播放位置是连续有效的，拿它们判残留会把歌词打回
-     * 开头（review #80 / Codex P2）。任一侧歌名为空时返回 false：没有证据就不当成换歌。
+     * <p>只看曲目自己的元数据（歌名 / 歌手 / 媒体 ID）。**来源通道与词库设置不参与** —— 蓝牙 AVRCP 与
+     * MediaSession 交接同一首歌、或播放中改词库时它们会变，而播放位置是连续有效的，拿它们判残留会把歌词
+     * 打回开头（review #80 / Codex P2）。但只看歌名又会漏掉同名换歌（翻唱 / 现场版 / 同名曲目）——那样
+     * 带过来的旧位置不会被修正，正是 issue #76 要修的症状（review 第二轮）。
+     *
+     * <p>歌名不同 = 另一首；歌名相同则要求「两边都知道、且确实不同」的证据（媒体 ID、其次是歌手），只有
+     * 一边知道不算证据 —— 与 {@link #shouldIgnoreArtistOnlyChange} 的取证口径一致。歌手这一路是安全的：
+     * 调用点传进来的是已经过 #68 / #77 判定修正后的元数据，播放器把歌词行写进歌手栏时 {@code newArtist}
+     * 已经被换回已存歌手。时长不参与：车机上它经常迟到或抖动，而且它本来就不在 {@code lyricTrackKey()} 里。
      */
-    static boolean isDifferentTrackTitle(String storedTitle, String incomingTitle) {
+    static boolean isDifferentTrackMetadata(String storedTitle, String incomingTitle,
+                                            String storedArtist, String incomingArtist,
+                                            String storedMediaId, String incomingMediaId) {
         if (safe(storedTitle).trim().isEmpty() || safe(incomingTitle).trim().isEmpty()) return false;
-        return !sameIdentityText(storedTitle, incomingTitle);
+        if (!sameIdentityText(storedTitle, incomingTitle)) return true;
+        String leftId = safe(storedMediaId).trim();
+        String rightId = safe(incomingMediaId).trim();
+        if (!leftId.isEmpty() && !rightId.isEmpty() && !leftId.equals(rightId)) return true;
+        return !safe(storedArtist).trim().isEmpty() && !safe(incomingArtist).trim().isEmpty()
+                && !sameIdentityText(storedArtist, incomingArtist);
     }
 
     private static boolean sameIdentityText(String left, String right) {

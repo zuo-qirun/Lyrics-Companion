@@ -22,13 +22,13 @@ final class PlaybackPositionRules {
     /**
      * 切歌这一轮上报的位置是否明显是上一首的遗留值（应当忽略它、让新曲目从 0 开始）。
      *
-     * <p>注意调用方传进来的必须只是「歌名是不是真的换了」
-     * （{@link TrackIdentityRules#isDifferentTrackTitle}），不能是 {@code MusicStateStore.lyricTrackKey()}
-     * 那种带来源通道 / 词库设置的曲目身份 —— 同一首歌在蓝牙 AVRCP 与 MediaSession 之间交接、或播放中
-     * 改词库时它同样会变，而这两种情况下位置是连续有效的，拿来判残留会把歌词打回开头
-     * （review #80 / Codex P2）。
+     * <p>注意调用方传进来的必须只是「曲目自己的元数据是不是真的换了」
+     * （{@link TrackIdentityRules#isDifferentTrackMetadata}：歌名 / 歌手 / 媒体 ID），不能是
+     * {@code MusicStateStore.lyricTrackKey()} 那种带来源通道 / 词库设置的曲目身份 —— 同一首歌在蓝牙
+     * AVRCP 与 MediaSession 之间交接、或播放中改词库时它同样会变，而这两种情况下位置是连续有效的，
+     * 拿来判残留会把歌词打回开头（review #80 / Codex P2）。
      *
-     * @param identityChanged      这一轮是不是真的换成了另一首歌（只认歌名）
+     * @param identityChanged      这一轮是不是真的换成了另一首歌（只认曲目自己的元数据）
      * @param hadPreviousTrack     之前已经有一首曲目的身份（首次收到元数据时不算切歌）
      * @param previousReportedMs   切歌前最后一次上报的位置
      * @param incomingMs           本轮上报的位置

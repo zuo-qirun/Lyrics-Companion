@@ -36,16 +36,25 @@ public class PlaybackPositionRulesTest {
     }
 
     @Test public void switchingPublishingChannelOfTheSameSongIsNotATrackChange() {
-        // 同一首歌在蓝牙 AVRCP 与 MediaSession 之间交接：歌名没变。调用方必须传「歌名是不是真的
-        // 换了」（TrackIdentityRules.isDifferentTrackTitle），而不是含来源通道 / 词库设置的
+        // 同一首歌在蓝牙 AVRCP 与 MediaSession 之间交接：歌名、歌手都一样（蓝牙那一路通常没有媒体
+        // ID）。调用方必须传「曲目自己的元数据是不是真的换了」
+        // （TrackIdentityRules.isDifferentTrackMetadata），而不是含来源通道 / 词库设置的
         // lyricTrackKey —— 否则 12 万毫秒处这个连续有效的位置会被判成残留、歌词被打回开头
         // （review #80 / Codex P2）。
         assertFalse(PlaybackPositionRules.staleOnTrackChange(
-                TrackIdentityRules.isDifferentTrackTitle("地下铁", "地下铁"),
+                TrackIdentityRules.isDifferentTrackMetadata(
+                        "地下铁", "地下铁", "萧亚轩", "萧亚轩", "", "12345"),
                 true, 120_000L, 120_000L, 260_000L));
         // 歌名真的换了，才照旧判残留。
         assertTrue(PlaybackPositionRules.staleOnTrackChange(
-                TrackIdentityRules.isDifferentTrackTitle("地下铁", "红蜻蜓"),
+                TrackIdentityRules.isDifferentTrackMetadata(
+                        "地下铁", "红蜻蜓", "萧亚轩", "小虎队", "", ""),
+                true, 120_000L, 120_000L, 260_000L));
+        // 同名但是另一首（歌手不同）：带过来的旧位置照样要判残留，否则歌词算到末尾
+        // （review 第二轮 P2）。
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(
+                TrackIdentityRules.isDifferentTrackMetadata(
+                        "地下铁", "地下铁", "萧亚轩", "小虎队", "", ""),
                 true, 120_000L, 120_000L, 260_000L));
     }
 

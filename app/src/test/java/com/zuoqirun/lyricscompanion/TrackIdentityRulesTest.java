@@ -19,18 +19,42 @@ public class TrackIdentityRulesTest {
                 storedDuration, incomingDuration, storedId, incomingId);
     }
 
-    @Test public void aDifferentChannelOfTheSameSongIsNotADifferentTrackTitle() {
+    @Test public void aDifferentChannelOrCatalogIsNotAnotherTrack() {
         // 播放位置锚点用这个判定（review #80 / Codex P2）：入参里根本没有来源通道 / 词库设置，
         // 所以蓝牙 AVRCP 与 MediaSession 交接同一首歌、或播放中改词库时，都不会被当成换了歌、
-        // 把位置清零。
-        assertFalse(TrackIdentityRules.isDifferentTrackTitle("地下铁", "地下铁"));
-        // 标点与空白差异不算"换了歌名"。
-        assertFalse(TrackIdentityRules.isDifferentTrackTitle("地下铁", "地 下 铁 -"));
-        assertTrue(TrackIdentityRules.isDifferentTrackTitle("地下铁", "红蜻蜓"));
+        // 把位置清零。播放器把歌词行写进歌手栏那种（#77）也不在这里判 —— 调用点传进来的是已经过
+        // #68 / #77 判定修正后的元数据，那条路径上歌手已经被换回已存歌手。
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "萧亚轩", "萧亚轩", "", ""));
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "萧亚轩", "萧亚轩", "12345", "12345"));
+        // 标点与空白差异不算"换了歌"。
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地 下 铁 -", "萧亚轩", "萧 亚 轩", "", ""));
+        // 只有一边知道歌手 / 媒体 ID 时不算证据：交接时蓝牙那一路通常就没有媒体 ID。
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "", "萧亚轩", "", "12345"));
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "萧亚轩", "萧亚轩", "", "12345"));
         // 任一侧还没有歌名时不当作换歌（没有证据）。
-        assertFalse(TrackIdentityRules.isDifferentTrackTitle("", "红蜻蜓"));
-        assertFalse(TrackIdentityRules.isDifferentTrackTitle("地下铁", ""));
-        assertFalse(TrackIdentityRules.isDifferentTrackTitle(null, null));
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "", "红蜻蜓", "萧亚轩", "小虎队", "", ""));
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "", "萧亚轩", "小虎队", "", ""));
+        assertFalse(TrackIdentityRules.isDifferentTrackMetadata(null, null, null, null, null, null));
+    }
+
+    @Test public void aSameTitleSwitchToAnotherSongIsStillATrackSwitch() {
+        // 同名但确实是另一首（翻唱 / 现场版 / 同名曲目）：只看歌名会漏掉，带过来的旧位置就不会被修正
+        // —— 那还是 issue #76 的症状（review 第二轮 P2）。
+        assertTrue(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "萧亚轩", "小虎队", "", ""));
+        // 两边媒体 ID 都知道且不同，同样是明确的换歌证据。
+        assertTrue(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "地下铁", "萧亚轩", "萧亚轩", "12345", "67890"));
+        // 歌名不同当然也是另一首。
+        assertTrue(TrackIdentityRules.isDifferentTrackMetadata(
+                "地下铁", "红蜻蜓", "萧亚轩", "小虎队", "", ""));
     }
 
     @Test public void changingArtistWithStableTitleIsIgnored() {
