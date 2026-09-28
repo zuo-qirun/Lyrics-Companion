@@ -16,7 +16,9 @@ const manifestAsset = process.env.MANIFEST_ASSET || "release-update.json";
 const changelogAsset = process.env.CHANGELOG_ASSET || "CHANGELOG.md";
 const historyLimit = parseHistoryLimit(process.env.HISTORY_RELEASE_LIMIT, 20);
 const force = process.argv.includes("--force") || process.env.FORCE_SYNC === "1";
-const publicDir = path.join(__dirname, "public");
+// 与 server.js 一样允许 PUBLIC_DIR 覆盖：同步结果写到哪里，服务端就从哪里读。
+const publicDir = process.env.PUBLIC_DIR
+  ? path.resolve(process.env.PUBLIC_DIR) : path.resolve(__dirname, "public");
 const apkDir = path.join(publicDir, "apk");
 const historyDir = path.join(apkDir, "history");
 const latestApk = path.join(apkDir, "lyrics_companion.apk");
@@ -293,6 +295,8 @@ async function syncBeta(stable = null) {
     log(`beta channel serves the newer stable ${fallback.versionName} (${fallback.versionCode})`);
     return {release: stable.release, apkAsset: stable.apkAsset, manifest: fallback};
   }
+  // betaChannelUsesPrerelease() 只有在 candidate.versionCode > 0 时才为真，所以 beta 一定非空。
+  const {release, apkAsset} = beta;
   const changelog = (release.assets || []).find((item) => item.name === changelogAsset);
   let sameRelease = false;
   if (!force && fs.existsSync(betaManifestPath)) {
@@ -426,5 +430,5 @@ if (require.main === module) {
 
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
-  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk,
+  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk, firstUsableBeta, syncBeta,
 };
