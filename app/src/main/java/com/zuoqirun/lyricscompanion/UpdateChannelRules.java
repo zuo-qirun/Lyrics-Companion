@@ -56,4 +56,19 @@ final class UpdateChannelRules {
     static boolean localIsAhead(int localVersionCode, int remoteVersionCode) {
         return remoteVersionCode > 0 && localVersionCode > remoteVersionCode;
     }
+
+    /**
+     * 清单里是否真的带了一个可用版本。
+     *
+     * <p>服务端在没有测试版时会给出 `betaAvailable: false`、`versionCode: 0` 的占位清单；
+     * 这种响应里 {@code hasUpdate()} 与 {@link #localIsAhead} 都是 false，如果直接当"已是最新"
+     * 处理，用户开了测试版通道却只看到"已是最新版本"，看不出是通道里没有包（Codex review P2）。
+     *
+     * @param available 清单的 `available` 字段（缺省视为 true）。
+     * @param betaAvailable 清单的 `betaAvailable` 字段（缺省视为 true）。
+     * @param versionCode 清单里的版本号。
+     */
+    static boolean hasUsableVersion(boolean available, boolean betaAvailable, int versionCode) {
+        return available && betaAvailable && versionCode > 0;
+    }
 }

@@ -57,4 +57,13 @@ public class UpdateChannelRulesTest {
         // 通道还没有可用版本（beta 占位清单 versionCode = 0）时不算"本地超前"。
         assertFalse(UpdateChannelRules.localIsAhead(200, 0));
     }
+
+    @Test public void anEmptyPlaceholderManifestIsNotReportedAsUpToDate() {
+        // 没有测试版时服务端给 versionCode 0 / betaAvailable false 的占位清单。
+        assertFalse(UpdateChannelRules.hasUsableVersion(true, false, 0));
+        assertFalse(UpdateChannelRules.hasUsableVersion(false, true, 0));
+        assertFalse(UpdateChannelRules.hasUsableVersion(true, true, 0));
+        // 正常清单（字段缺省按可用处理）。
+        assertTrue(UpdateChannelRules.hasUsableVersion(true, true, 200));
+    }
 }

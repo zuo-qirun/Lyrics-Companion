@@ -2875,6 +2875,12 @@ public final class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     updateBusy = false;
                     if (isFinishing() || isDestroyed()) return;
+                    if (!info.available) {
+                        // 占位清单（versionCode 0）：说清是"通道里没有包"，而不是"已是最新"。
+                        updateStatus.setText(UpdateChannelRules.displayName(info.channel)
+                                + "通道暂无可用版本\n" + localVersionText());
+                        return;
+                    }
                     int skipped = AppPreferences.skippedUpdateVersionCode(this, info.channel);
                     if (UpdateChannelRules.skipPrompt(manual, info.force,
                             info.remoteVersionCode, skipped)) {

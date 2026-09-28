@@ -79,7 +79,10 @@ final class AppUpdater {
                 remoteVersionCode, manifest.optString("versionName", ""),
                 apkUrl, manifest.optString("sha256", ""), manifest.optLong("size", -1L),
                 manifest.optBoolean("force", false), changelog,
-                UpdateChannelRules.normalize(manifest.optString("channel", "")));
+                UpdateChannelRules.normalize(manifest.optString("channel", "")),
+                UpdateChannelRules.hasUsableVersion(
+                        manifest.optBoolean("available", true),
+                        manifest.optBoolean("betaAvailable", true), remoteVersionCode));
     }
 
     static void downloadAndInstall(Context context, UpdateInfo info, Listener listener) {
@@ -383,10 +386,12 @@ final class AppUpdater {
         final String changelog;
         /** 清单自称的通道：stable 或 beta（老清单没有该字段时按正式版处理）。 */
         final String channel;
+        /** 清单是否带可用版本；false 表示该通道当前没有包（占位清单）。 */
+        final boolean available;
 
         UpdateInfo(int localVersionCode, String localVersionName, int remoteVersionCode,
                    String remoteVersionName, String apkUrl, String sha256, long size,
-                   boolean force, String changelog, String channel) {
+                   boolean force, String changelog, String channel, boolean available) {
             this.localVersionCode = localVersionCode;
             this.localVersionName = localVersionName;
             this.remoteVersionCode = remoteVersionCode;
@@ -397,6 +402,7 @@ final class AppUpdater {
             this.force = force;
             this.changelog = changelog;
             this.channel = UpdateChannelRules.normalize(channel);
+            this.available = available;
         }
 
         boolean hasUpdate() { return remoteVersionCode > localVersionCode; }

@@ -126,8 +126,8 @@ App 的「高级 → 应用更新」里有一个 **加入测试版更新通道**
 测试版清单由同步脚本单独生成，互不干扰：
 
 - 正式版取 GitHub 的 `/releases/latest`，它天然跳过 prerelease，所以**测试版永远不会顶掉正式版**；
-- 测试版取 `/releases` 里最新的 prerelease（`prerelease: true` 且非 draft），生成 `public/update-beta.json`、`public/apk/lyrics_companion_beta.apk` 与 `public/CHANGELOG-beta.md`；正式版的 `update.json` / `CHANGELOG.md` 不会被覆盖；
-- 没有任何 prerelease 时写一份 `betaAvailable: false`、`versionCode: 0` 的占位清单，App 显示"测试版通道暂时没有可用版本"，而不是报错或误报成正式版。
+- 测试版端点服务的是**正式版与测试版里版本号更高者**：测试版更高时取 `/releases` 里最新的 prerelease（`prerelease: true` 且非 draft），生成 `public/update-beta.json`、`public/apk/lyrics_companion_beta.apk` 与 `public/CHANGELOG-beta.md`；正式版更高（或还没有任何 prerelease，但已有正式版）时把正式版清单直接挂到 beta 端点上（`betaSource: "stable"`，`channel` 仍是 `stable`）。这样测试版用户不会因为"正式版在测试版之后发布"而永远收不到那次更新，正式版的 `update.json` / `CHANGELOG.md` 也始终不被覆盖；
+- 两者都没有（全新部署、还没同步过任何 Release）时写一份 `betaAvailable: false`、`versionCode: 0` 的占位清单，App 会明确显示"该通道暂无可用版本"，而不是"已是最新版本"。
 
 `/versions.json` 里每个版本都带 `channel` 字段（`stable` / `beta`），App 的更新日志会据此标注「（测试版）」。`/health` 里的 `beta` 块给出测试版通道的当前状态（`available` / `versionCode` / `releaseTag`）。
 
@@ -143,4 +143,5 @@ App 的「高级 → 应用更新」里有一个 **加入测试版更新通道**
 - 自动检查（启动后）只提示**还没被跳过**的版本；
 - 更新弹窗里勾选 **不再提醒此版本** 后，该渠道的这个 `versionCode` 不再自动弹窗，后续更高的版本照常提示；
 - 手动点「检查更新」永远会显示弹窗（被跳过的版本也一样），避免用户点了按钮却什么都看不到；
+- 该通道还没有包时（占位清单）显示"「正式版 / 测试版」通道暂无可用版本"，不会说成"已是最新"；
 - 渠道切换后两边各自记住自己的跳过记录；`force: true` 的清单不受"不再提醒"影响。

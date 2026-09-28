@@ -4,7 +4,7 @@ const {test} = require("node:test");
 const assert = require("node:assert");
 const {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
-  pickBetaRelease,
+  pickBetaRelease, betaChannelUsesPrerelease,
 } = require("../sync-release.js");
 
 function fetchError(code, message) {
@@ -117,4 +117,18 @@ test("skips drafts and stable-only releases when looking for beta", () => {
   assert.equal(pickBetaRelease([]), null);
   assert.equal(pickBetaRelease(null), null);
   assert.equal(pickBetaRelease(undefined), null);
+});
+
+test("the beta channel serves a newer stable release instead of the older prerelease", () => {
+  // 正式版 300 在测试版 299 之后发布：测试版端点必须给 300，否则测试版用户永远收不到它。
+  assert.equal(betaChannelUsesPrerelease({versionCode: 300}, {versionCode: 299}), false);
+  // 测试版更高：用测试版。
+  assert.equal(betaChannelUsesPrerelease({versionCode: 300}, {versionCode: 301}), true);
+  // 版本号相同（几乎不可能，versionCode 是时间戳）：不动正式版。
+  assert.equal(betaChannelUsesPrerelease({versionCode: 300}, {versionCode: 300}), false);
+  // 没有正式版清单时只有测试版可用。
+  assert.equal(betaChannelUsesPrerelease(null, {versionCode: 301}), true);
+  assert.equal(betaChannelUsesPrerelease({versionCode: 300}, null), false);
+  assert.equal(betaChannelUsesPrerelease({versionCode: 300}, {versionCode: 0}), false);
+  assert.equal(betaChannelUsesPrerelease(null, null), false);
 });

@@ -195,24 +195,58 @@ function unavailableBetaManifest() {
 }
 
 /**
- * 同步测试版通道：挑最新 prerelease，下载它的 APK 与更新日志，写 `public/update-beta.json`。
- * 没有 prerelease 时写一份 `betaAvailable: false` 的占位清单，让客户端能明确区分
- * "测试版通道暂时没有包"和"接口挂了"。
+ * 测试版通道该服务哪一份清单：只有**测试版版本号更高**时才用 prerelease。
  *
- * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 同步到的测试版。
+ * <p>否则会出现「测试版用户看不到比当前更高的正式版」：正式版在测试版之后发布时，
+ * `/update-beta.json` 仍指着旧的 prerelease，测试版用户拿到的 remoteVersionCode 永远
+ * 不大于本地版本，也就永远等不到那次正式更新（Codex review P1）。正式版与测试版取高者。
+ *
+ * @param {object|null} stableManifest 当前正式版清单（`update.json` 的内容）。
+ * @param {object|null} betaManifest 候选测试版清单。
+ * @returns {boolean} 是否用测试版清单；版本号相同或正式版更高时返回 false。
  */
-async function syncBeta() {
+function betaChannelUsesPrerelease(stableManifest, betaManifest) {
+  const betaCode = Number(betaManifest && betaManifest.versionCode) || 0;
+  if (betaCode <= 0) return false;
+  const stableCode = Number(stableManifest && stableManifest.versionCode) || 0;
+  return betaCode > stableCode;
+}
+
+/**
+ * 同步测试版通道：写 `public/update-beta.json`，内容是「正式版与测试版里版本号更高者」。
+ *
+ * <p>测试版更高时下载它的 APK 与更新日志，生成测试版专属清单；正式版更高（或还没有
+ * prerelease）时直接把正式版清单照抄过来，让测试版用户也能收到正式更新。两者都没有时写
+ * `betaAvailable: false` 的占位清单，客户端据此显示"该通道暂无可更新版本"。
+ *
+ * @param {{release: object, apkAsset: object, manifest: object}|null} stable 已同步的正式版。
+ * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 同步到的清单。
+ */
+async function syncBeta(stable = null) {
   const release = pickBetaRelease(await listReleases(betaScanLimit));
-  if (!release) {
-    atomicWrite(betaManifestPath, JSON.stringify({
-      ...unavailableBetaManifest(), syncedAt: new Date().toISOString(),
-    }, null, 2) + "\n");
-    log("no prerelease found; the beta channel stays unavailable");
-    return null;
+  const apkAsset = release
+    ? findAsset(release, (item) => assetPattern.test(item.name), "beta APK") : null;
+  if (apkAsset) assetPattern.lastIndex = 0;
+  const candidate = release ? await releaseManifest(release, apkAsset) : null;
+  if (!betaChannelUsesPrerelease(stable && stable.manifest, candidate)) {
+    if (!stable) {
+      atomicWrite(betaManifestPath, JSON.stringify({
+        ...unavailableBetaManifest(), syncedAt: new Date().toISOString(),
+      }, null, 2) + "\n");
+      log("no prerelease and no stable release; the beta channel stays unavailable");
+      return null;
+    }
+    // 正式版更高：测试版通道直接指向正式版（同一份 APK 与清单，只是挂在 beta 端点上）。
+    const fallback = {
+      ...stable.manifest,
+      betaAvailable: true,
+      betaSource: "stable",
+      syncedAt: new Date().toISOString(),
+    };
+    atomicWrite(betaManifestPath, JSON.stringify(fallback, null, 2) + "\n");
+    log(`beta channel serves the newer stable ${fallback.versionName} (${fallback.versionCode})`);
+    return {release: stable.release, apkAsset: stable.apkAsset, manifest: fallback};
   }
-  const apkAsset = findAsset(release, (item) => assetPattern.test(item.name), "beta APK");
-  assetPattern.lastIndex = 0;
-  const manifest = await releaseManifest(release, apkAsset);
   const changelog = (release.assets || []).find((item) => item.name === changelogAsset);
   let sameRelease = false;
   if (!force && fs.existsSync(betaManifestPath)) {
@@ -227,10 +261,11 @@ async function syncBeta() {
     atomicWrite(betaChangelogPath, await request(changelog.browser_download_url));
   }
   const output = {
-    ...manifest,
+    ...candidate,
     schemaVersion: 1,
     channel: "beta",
     betaAvailable: true,
+    betaSource: "beta",
     packageName: "com.zuoqirun.lyricscompanion",
     apkPath: "apk/lyrics_companion_beta.apk",
     changelogPath: "CHANGELOG-beta.md",
@@ -330,7 +365,7 @@ async function syncHistory(latest, beta = null) {
 async function main() {
   fs.mkdirSync(apkDir, {recursive: true});
   const latest = await syncLatest(await latestRelease());
-  const beta = await syncBeta();
+  const beta = await syncBeta(latest);
   await syncHistory(latest, beta);
   log(`synced ${latest.manifest.versionName} (${latest.manifest.versionCode})`
     + (beta ? ` and beta ${beta.manifest.versionName} (${beta.manifest.versionCode})` : ""));
@@ -345,5 +380,5 @@ if (require.main === module) {
 
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
-  pickBetaRelease,
+  pickBetaRelease, betaChannelUsesPrerelease,
 };
