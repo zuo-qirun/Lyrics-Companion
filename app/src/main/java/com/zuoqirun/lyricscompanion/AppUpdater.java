@@ -78,7 +78,11 @@ final class AppUpdater {
         return new UpdateInfo(localVersionCode, localVersionName(context),
                 remoteVersionCode, manifest.optString("versionName", ""),
                 apkUrl, manifest.optString("sha256", ""), manifest.optLong("size", -1L),
-                manifest.optBoolean("force", false), changelog);
+                manifest.optBoolean("force", false), changelog,
+                UpdateChannelRules.normalize(manifest.optString("channel", "")),
+                UpdateChannelRules.hasUsableVersion(
+                        manifest.optBoolean("available", true),
+                        manifest.optBoolean("betaAvailable", true), remoteVersionCode));
     }
 
     static void downloadAndInstall(Context context, UpdateInfo info, Listener listener) {
@@ -328,7 +332,12 @@ final class AppUpdater {
             int versionCode = version.optInt("versionCode", -1);
             if (versionCode <= localVersionCode || versionCode > remoteVersionCode) continue;
             String versionName = version.optString("versionName", "").trim();
-            value.append("## ").append(versionName.isEmpty() ? "版本" : versionName)
+            String label = versionName.isEmpty() ? "版本" : versionName;
+            // 测试版的版本号通常比正式版高，混在同一份历史里必须标出来。
+            if (UpdateChannelRules.isBeta(version.optString("channel", ""))) {
+                label = label + "（测试版）";
+            }
+            value.append("## ").append(label)
                     .append(" (").append(versionCode).append(")\n\n");
             appendChangelogEntries(value, version.opt("changelog"));
             value.append('\n');
@@ -375,10 +384,14 @@ final class AppUpdater {
         final long size;
         final boolean force;
         final String changelog;
+        /** 清单自称的通道：stable 或 beta（老清单没有该字段时按正式版处理）。 */
+        final String channel;
+        /** 清单是否带可用版本；false 表示该通道当前没有包（占位清单）。 */
+        final boolean available;
 
         UpdateInfo(int localVersionCode, String localVersionName, int remoteVersionCode,
                    String remoteVersionName, String apkUrl, String sha256, long size,
-                   boolean force, String changelog) {
+                   boolean force, String changelog, String channel, boolean available) {
             this.localVersionCode = localVersionCode;
             this.localVersionName = localVersionName;
             this.remoteVersionCode = remoteVersionCode;
@@ -388,9 +401,13 @@ final class AppUpdater {
             this.size = size;
             this.force = force;
             this.changelog = changelog;
+            this.channel = UpdateChannelRules.normalize(channel);
+            this.available = available;
         }
 
         boolean hasUpdate() { return remoteVersionCode > localVersionCode; }
+
+        boolean isBeta() { return UpdateChannelRules.isBeta(channel); }
 
         String detailText() {
             StringBuilder value = new StringBuilder();
@@ -398,6 +415,7 @@ final class AppUpdater {
                     .append(localVersionCode).append(")\n")
                     .append("最新版本：").append(remoteVersionName).append(" (")
                     .append(remoteVersionCode).append(")");
+            if (isBeta()) value.append("\n更新通道：测试版");
             if (size > 0L) value.append("\nAPK 大小：").append(size / 1024L).append(" KB");
             if (force) value.append("\n强制更新：是");
             if (!TextUtils.isEmpty(changelog)) value.append("\n\n更新日志：\n").append(changelog);

@@ -16,10 +16,18 @@ const manifestAsset = process.env.MANIFEST_ASSET || "release-update.json";
 const changelogAsset = process.env.CHANGELOG_ASSET || "CHANGELOG.md";
 const historyLimit = parseHistoryLimit(process.env.HISTORY_RELEASE_LIMIT, 20);
 const force = process.argv.includes("--force") || process.env.FORCE_SYNC === "1";
-const publicDir = path.join(__dirname, "public");
+// 与 server.js 一样允许 PUBLIC_DIR 覆盖：同步结果写到哪里，服务端就从哪里读。
+const publicDir = process.env.PUBLIC_DIR
+  ? path.resolve(process.env.PUBLIC_DIR) : path.resolve(__dirname, "public");
 const apkDir = path.join(publicDir, "apk");
 const historyDir = path.join(apkDir, "history");
 const latestApk = path.join(apkDir, "lyrics_companion.apk");
+// 测试版（beta）通道：单独一份清单与 APK，正式版清单不受影响。
+const betaManifestPath = path.join(publicDir, "update-beta.json");
+const betaApk = path.join(apkDir, "lyrics_companion_beta.apk");
+const betaChangelogPath = path.join(publicDir, "CHANGELOG-beta.md");
+// GitHub 的 `/releases/latest` 会跳过 prerelease，所以测试版要在最近一批 release 里自己找。
+const betaScanLimit = Math.max(1, Math.min(100, Number(process.env.BETA_RELEASE_SCAN) || 100));
 
 function log(message) { console.log(`[release-sync] ${message}`); }
 
@@ -162,6 +170,168 @@ async function listReleases(limit) {
   return githubJson(`/releases?per_page=${Math.min(limit, 100)}`);
 }
 
+/**
+ * 从 release 列表里挑出最新的测试版：`/releases` 按创建时间倒序，所以第一个 prerelease 就是最新的。
+ * GitHub 的 `/releases/latest` 天然跳过 prerelease，正式版通道因此不会被测试版顶掉。
+ *
+ * @param {Array<object>} releases GitHub `/releases` 返回的列表（可能为空）。
+ * @param {(release: object) => boolean} isUsable 过滤条件：不满足的 prerelease 直接跳过，
+ *   例如手工发布、没挂匹配 APK 的测试版（Codex review P2）。
+ * @returns {object|null} 最新的、可用的非草稿 prerelease，没有则返回 null。
+ */
+function pickBetaRelease(releases, isUsable = () => true) {
+  return (releases || []).find((release) =>
+    Boolean(release) && release.prerelease === true && release.draft !== true
+      && isUsable(release)) || null;
+}
+
+/** 该 release 是否挂了符合 `ASSET_PATTERN` 的 APK；手工发的空测试版会被这里挡掉。 */
+function hasBetaApk(release) {
+  return (release && release.assets || []).some((item) => {
+    const matched = assetPattern.test(item.name);
+    assetPattern.lastIndex = 0;
+    return matched;
+  });
+}
+
+/** 取该 release 里匹配的 APK 资源（调用前应确认 {@link hasBetaApk} 为真）。 */
+function betaApkAsset(release) {
+  const asset = (release && release.assets || []).find((item) => {
+    const matched = assetPattern.test(item.name);
+    assetPattern.lastIndex = 0;
+    return matched;
+  });
+  if (!asset) throw new Error(`Release asset not found: beta APK (${release && release.tag_name})`);
+  return asset;
+}
+
+/**
+ * 最新的**可用**测试版候选：跳过没挂 APK 的，以及清单解析失败的 prerelease。
+ *
+ * <p>以前第一个 prerelease 一旦不可用（手工发布、没挂 APK、release-update.json 坏掉），
+ * `findAsset()` 会直接抛错，整轮同步中止——测试版端点继续停在旧内容，连 `versions.json`
+ * 和正式版兜底都写不出去（Codex review P2）。现在逐个候选往下试，全不可用就当"没有测试版"。
+ *
+ * @param {Array<object>} releases GitHub `/releases` 列表。
+ * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 候选或 null。
+ */
+async function firstUsableBeta(releases) {
+  let remaining = (releases || []).slice();
+  while (remaining.length > 0) {
+    const release = pickBetaRelease(remaining, hasBetaApk);
+    if (!release) return null;
+    try {
+      const apkAsset = betaApkAsset(release);
+      return {release, apkAsset, manifest: await releaseManifest(release, apkAsset)};
+    } catch (error) {
+      log(`skipping unusable prerelease ${release.tag_name}: ${error.message}`);
+      remaining = remaining.filter((item) => item !== release);
+    }
+  }
+  return null;
+}
+
+/** 测试版通道还没有可用构建时的清单：版本号为 0，客户端据此显示"暂无测试版"。 */
+function unavailableBetaManifest() {
+  return {
+    schemaVersion: 1,
+    channel: "beta",
+    betaAvailable: false,
+    packageName: "com.zuoqirun.lyricscompanion",
+    versionCode: 0,
+    versionName: "",
+    force: false,
+    changelog: [],
+  };
+}
+
+/**
+ * 测试版通道该服务哪一份清单：只有**测试版版本号更高**时才用 prerelease。
+ *
+ * <p>否则会出现「测试版用户看不到比当前更高的正式版」：正式版在测试版之后发布时，
+ * `/update-beta.json` 仍指着旧的 prerelease，测试版用户拿到的 remoteVersionCode 永远
+ * 不大于本地版本，也就永远等不到那次正式更新（Codex review P1）。正式版与测试版取高者。
+ *
+ * @param {object|null} stableManifest 当前正式版清单（`update.json` 的内容）。
+ * @param {object|null} betaManifest 候选测试版清单。
+ * @returns {boolean} 是否用测试版清单；版本号相同或正式版更高时返回 false。
+ */
+function betaChannelUsesPrerelease(stableManifest, betaManifest) {
+  const betaCode = Number(betaManifest && betaManifest.versionCode) || 0;
+  if (betaCode <= 0) return false;
+  const stableCode = Number(stableManifest && stableManifest.versionCode) || 0;
+  return betaCode > stableCode;
+}
+
+/**
+ * 同步测试版通道：写 `public/update-beta.json`，内容是「正式版与测试版里版本号更高者」。
+ *
+ * <p>测试版更高时下载它的 APK 与更新日志，生成测试版专属清单；正式版更高（或还没有
+ * prerelease）时直接把正式版清单照抄过来，让测试版用户也能收到正式更新。两者都没有时写
+ * `betaAvailable: false` 的占位清单，客户端据此显示"该通道暂无可更新版本"。
+ *
+ * @param {{release: object, apkAsset: object, manifest: object}|null} stable 已同步的正式版。
+ * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 同步到的清单。
+ */
+async function syncBeta(stable = null) {
+  const beta = await firstUsableBeta(await listReleases(betaScanLimit));
+  const candidate = beta ? beta.manifest : null;
+  if (!betaChannelUsesPrerelease(stable && stable.manifest, candidate)) {
+    if (!stable) {
+      atomicWrite(betaManifestPath, JSON.stringify({
+        ...unavailableBetaManifest(), syncedAt: new Date().toISOString(),
+      }, null, 2) + "\n");
+      log("no prerelease and no stable release; the beta channel stays unavailable");
+      return null;
+    }
+    // 正式版更高：测试版通道直接指向正式版（同一份 APK 与清单，只是挂在 beta 端点上）。
+    const fallback = {
+      ...stable.manifest,
+      betaAvailable: true,
+      betaSource: "stable",
+      syncedAt: new Date().toISOString(),
+    };
+    atomicWrite(betaManifestPath, JSON.stringify(fallback, null, 2) + "\n");
+    log(`beta channel serves the newer stable ${fallback.versionName} (${fallback.versionCode})`);
+    return {release: stable.release, apkAsset: stable.apkAsset, manifest: fallback};
+  }
+  // betaChannelUsesPrerelease() 只有在 candidate.versionCode > 0 时才为真，所以 beta 一定非空。
+  const {release, apkAsset} = beta;
+  const changelog = (release.assets || []).find((item) => item.name === changelogAsset);
+  let sameRelease = false;
+  if (!force && fs.existsSync(betaManifestPath)) {
+    try {
+      sameRelease = JSON.parse(fs.readFileSync(betaManifestPath, "utf8")).releaseTag
+        === release.tag_name;
+    } catch (error) { sameRelease = false; }
+  }
+  await download(apkAsset, betaApk, sameRelease);
+  if (changelog) {
+    // The beta changelog is a separate file: public/CHANGELOG.md stays the stable archive.
+    atomicWrite(betaChangelogPath, await request(changelog.browser_download_url));
+  }
+  const output = {
+    ...candidate,
+    schemaVersion: 1,
+    channel: "beta",
+    betaAvailable: true,
+    betaSource: "beta",
+    packageName: "com.zuoqirun.lyricscompanion",
+    apkPath: "apk/lyrics_companion_beta.apk",
+    changelogPath: "CHANGELOG-beta.md",
+    githubApkUrl: apkAsset.browser_download_url,
+    githubChangelogUrl: changelog ? changelog.browser_download_url : "",
+    sha256: sha256(betaApk),
+    size: fs.statSync(betaApk).size,
+    releaseTag: release.tag_name,
+    releaseUrl: release.html_url,
+    syncedAt: new Date().toISOString(),
+  };
+  atomicWrite(betaManifestPath, JSON.stringify(output, null, 2) + "\n");
+  log(`synced beta ${output.versionName} (${output.versionCode}) tag=${release.tag_name}`);
+  return {release, apkAsset, manifest: output};
+}
+
 async function syncLatest(release) {
   const apkAsset = findAsset(release, (item) => assetPattern.test(item.name), "APK");
   assetPattern.lastIndex = 0;
@@ -180,8 +350,11 @@ async function syncLatest(release) {
     await request(changelog.browser_download_url));
   const output = {
     ...manifest,
+    schemaVersion: 1,
+    channel: "stable",
     packageName: "com.zuoqirun.lyricscompanion",
     apkPath: "apk/lyrics_companion.apk",
+    changelogPath: "CHANGELOG.md",
     githubApkUrl: apkAsset.browser_download_url,
     githubChangelogUrl: changelog ? changelog.browser_download_url : "",
     sha256: sha256(latestApk),
@@ -194,7 +367,7 @@ async function syncLatest(release) {
   return {release, apkAsset, manifest: output};
 }
 
-async function syncHistory(latest) {
+async function syncHistory(latest, beta = null) {
   const releases = await listReleases(historyLimit);
   const versions = [];
   fs.mkdirSync(historyDir, {recursive: true});
@@ -204,12 +377,16 @@ async function syncHistory(latest) {
     });
     if (!apkAsset) continue;
     const manifest = release.id === latest.release.id
-      ? latest.manifest : await releaseManifest(release, apkAsset);
+      ? latest.manifest
+      : beta && release.id === beta.release.id
+        ? beta.manifest
+        : await releaseManifest(release, apkAsset);
     const fileName = `${safeSegment(release.tag_name)}-${safeSegment(apkAsset.name, "app.apk")}`;
     const destination = path.join(historyDir, fileName);
     await download(apkAsset, destination);
     versions.push({
       packageName: "com.zuoqirun.lyricscompanion",
+      channel: release.prerelease ? "beta" : "stable",
       versionCode: manifest.versionCode,
       versionName: manifest.versionName,
       force: Boolean(manifest.force),
@@ -238,8 +415,10 @@ async function syncHistory(latest) {
 async function main() {
   fs.mkdirSync(apkDir, {recursive: true});
   const latest = await syncLatest(await latestRelease());
-  await syncHistory(latest);
-  log(`synced ${latest.manifest.versionName} (${latest.manifest.versionCode})`);
+  const beta = await syncBeta(latest);
+  await syncHistory(latest, beta);
+  log(`synced ${latest.manifest.versionName} (${latest.manifest.versionCode})`
+    + (beta ? ` and beta ${beta.manifest.versionName} (${beta.manifest.versionCode})` : ""));
 }
 
 if (require.main === module) {
@@ -251,4 +430,5 @@ if (require.main === module) {
 
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
+  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk, firstUsableBeta, syncBeta,
 };

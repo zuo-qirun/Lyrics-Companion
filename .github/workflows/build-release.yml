@@ -15,6 +15,14 @@ on:
       - "update_server/**"
       - ".github/workflows/build-release.yml"
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "发布通道：stable = 正式版（默认），beta = 测试版（发布为 GitHub prerelease）"
+        type: choice
+        options:
+          - stable
+          - beta
+        default: stable
 
 permissions:
   contents: write
@@ -67,6 +75,17 @@ jobs:
           echo "SHORT_SHA=${short_sha}" >> "$GITHUB_ENV"
           echo "version_code=${version_code}" >> "$GITHUB_OUTPUT"
           echo "version_name=${version_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release channel
+        id: channel
+        shell: bash
+        run: |
+          # push 到 main 永远是正式版；只有手动 dispatch 显式选 beta 才走测试版通道。
+          channel="${{ github.event.inputs.channel }}"
+          if [[ "$channel" != "beta" ]]; then channel="stable"; fi
+          echo "RELEASE_CHANNEL=${channel}" >> "$GITHUB_ENV"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "release channel: ${channel}"
 
       - name: Configure release signing
         id: signing
@@ -159,11 +178,18 @@ jobs:
           if not items:
               items = ["优化应用体验"]
               entries.append(("- ", "优化应用体验"))
+          channel = os.environ.get("RELEASE_CHANNEL", "stable")
+          if channel == "beta":
+              # 测试版免责声明同时进入 Release 页面和 App 内更新弹窗（两者都读这份 changelog）。
+              disclaimer = "这是测试版（beta），可能不稳定，只建议愿意尝鲜的用户升级；遇到问题请用应用内反馈。"
+              entries.insert(0, ("> ", disclaimer))
+              items.insert(0, disclaimer)
           changelog = "# Lyrics Companion 更新日志\n\n## " + os.environ["APP_VERSION_NAME"] + "\n\n" \
               + "\n".join(prefix + text for prefix, text in entries) + "\n"
           (release_dir / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
           manifest = {
               "schemaVersion": 1,
+              "channel": channel,
               "packageName": "com.zuoqirun.lyricscompanion",
               "versionCode": int(os.environ["APP_VERSION_CODE"]),
               "versionName": os.environ["APP_VERSION_NAME"],
@@ -198,8 +224,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="apk-${APP_VERSION_CODE}-${SHORT_SHA}"
+          if [[ "${RELEASE_CHANNEL}" == "beta" ]]; then
+            # prerelease 会被 GitHub 的 /releases/latest 跳过，正式版通道因此不受测试版影响。
+            flags=(--prerelease)
+            title="Lyrics Companion ${APP_VERSION_NAME}（测试版）"
+          else
+            flags=(--latest)
+            title="Lyrics Companion ${APP_VERSION_NAME}"
+          fi
           gh release create "$tag" release/*.apk release/release-update.json release/CHANGELOG.md \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Lyrics Companion ${APP_VERSION_NAME}" \
+            --title "$title" \
+            "${flags[@]}" \
             --notes-file release/CHANGELOG.md

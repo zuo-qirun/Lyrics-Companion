@@ -33,11 +33,12 @@ npm start
 ```bash
 curl http://127.0.0.1:8790/health
 curl http://127.0.0.1:8790/update.json
+curl http://127.0.0.1:8790/update-beta.json
 curl http://127.0.0.1:8790/versions.json
 curl http://127.0.0.1:8790/faq.json
 ```
 
-网页入口：`/` 为最新版，`/versions` 为历史版本。`/faq.json` 提供 App 内 FAQ，客户端会在成功刷新后缓存最近一次有效内容。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。
+网页入口：`/` 为最新版，`/versions` 为历史版本。`/faq.json` 提供 App 内 FAQ，客户端会在成功刷新后缓存最近一次有效内容。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。`/update-beta.json` 与 `/update-github-beta.json` 是测试版通道的同名端点（见下）。
 
 ## systemd
 
@@ -114,3 +115,34 @@ App 会把本应用未捕获的 Java 异常堆栈先保存到私有目录，绝�
 - APK 内部包名必须与当前应用一致。
 
 校验通过后，App 只启动一个安装流程：检测到 Shizuku 与 InstallerX 时优先使用 InstallerX，否则使用 Android `PackageInstaller`；仅在安装会话明确失败后，才依次回退到 InstallerX 和系统默认 APK 安装器，避免车机安装器互相冲突。
+
+## 测试版（beta）通道
+
+App 的「高级 → 应用更新」里有一个 **加入测试版更新通道** 开关，默认关闭（正式版）：
+
+- 关闭时请求 `/update.json`，只看到正式版；
+- 打开时请求 `/update-beta.json`，可以看到测试版，也可以看到比当前更高的正式版。
+
+测试版清单由同步脚本单独生成，互不干扰：
+
+- 正式版取 GitHub 的 `/releases/latest`，它天然跳过 prerelease，所以**测试版永远不会顶掉正式版**；
+- 测试版端点服务的是**正式版与测试版里版本号更高者**：测试版更高时取 `/releases` 里最新的 prerelease（`prerelease: true` 且非 draft），生成 `public/update-beta.json`、`public/apk/lyrics_companion_beta.apk` 与 `public/CHANGELOG-beta.md`；正式版更高（或还没有任何 prerelease，但已有正式版）时把正式版清单直接挂到 beta 端点上（`betaSource: "stable"`，`channel` 仍是 `stable`）。这样测试版用户不会因为"正式版在测试版之后发布"而永远收不到那次更新，正式版的 `update.json` / `CHANGELOG.md` 也始终不被覆盖；
+- 两者都没有（全新部署、还没同步过任何 Release）时写一份 `betaAvailable: false`、`versionCode: 0` 的占位清单，App 会明确显示"该通道暂无可用版本"，而不是"已是最新版本"；
+- 手工发的、没挂匹配 APK 的 prerelease（或清单损坏的）会被**跳过**：同步脚本继续往下找可用的测试版，全都不行就按"没有测试版"处理、走正式版兜底，而不是让整轮同步失败——否则测试版端点会一直停在旧内容，连 `versions.json` 都更新不了。
+
+`/versions.json` 里每个版本都带 `channel` 字段（`stable` / `beta`），App 的更新日志会据此标注「（测试版）」。`/health` 里的 `beta` 块给出测试版通道的当前状态（`available` / `versionCode` / `releaseTag`）。
+
+### 发布一个测试版
+
+1. 仓库 → Actions → **Build and Release APK** → Run workflow；
+2. `channel` 选 **beta**（可选分支：想发未合并的代码就选对应分支，push 到 `main` 永远是正式版）；
+3. 工作流照常跑测试与 Lint，签名后把 Release 发成 **prerelease**，标题带「（测试版）」，并在更新日志顶部插入测试版免责声明；
+4. 服务器最多 5 分钟内（`SYNC_INTERVAL_MS`）自动同步出新的 `/update-beta.json`；也可以 `npm run sync:force` 立即同步。
+
+### App 里的更新提示行为
+
+- 自动检查（启动后）只提示**还没被跳过**的版本；
+- 更新弹窗里勾选 **不再提醒此版本** 后，该渠道的这个 `versionCode` 不再自动弹窗，后续更高的版本照常提示；
+- 手动点「检查更新」永远会显示弹窗（被跳过的版本也一样），避免用户点了按钮却什么都看不到；
+- 该通道还没有包时（占位清单）显示"「正式版 / 测试版」通道暂无可用版本"，不会说成"已是最新"；
+- 渠道切换后两边各自记住自己的跳过记录（记录按**用户当前选的通道**记账，测试版端点返回一份更高的正式版时也不例外）；`force: true` 的清单不受"不再提醒"影响。

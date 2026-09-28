@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("crypto");
 const fs = require("fs");
 const net = require("net");
 const os = require("os");
@@ -119,5 +120,93 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
       await new Promise((resolve) => child.once("exit", resolve));
     }
     fs.rmSync(stateDir, {recursive: true, force: true});
+  }
+});
+
+/** Spawn the update server against a throwaway public directory. */
+async function withPublicDir(publicDir, run) {
+  const port = await availablePort();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "lyrics-beta-state-"));
+  const serverDir = path.resolve(__dirname, "..");
+  const child = spawn(process.execPath, ["server.js"], {
+    cwd: serverDir,
+    env: {...process.env, HOST: "127.0.0.1", PORT: String(port), AUTO_SYNC: "0",
+      STATE_DIR: stateDir, PUBLIC_DIR: publicDir},
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await waitUntilListening(child);
+    await run(`http://127.0.0.1:${port}`);
+  } finally {
+    if (child.exitCode === null) {
+      child.kill();
+      await new Promise((resolve) => child.once("exit", resolve));
+    }
+    fs.rmSync(stateDir, {recursive: true, force: true});
+  }
+}
+
+test("serves the beta channel from its own manifest and keeps stable untouched", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lyrics-beta-public-"));
+  const publicDir = path.join(root, "public");
+  fs.mkdirSync(path.join(publicDir, "apk"), {recursive: true});
+  const apkBytes = "beta-apk-bytes";
+  fs.writeFileSync(path.join(publicDir, "apk", "lyrics_companion_beta.apk"), apkBytes);
+  fs.writeFileSync(path.join(publicDir, "CHANGELOG-beta.md"), "# 测试版更新日志\n\n- 尝鲜构建\n");
+  fs.writeFileSync(path.join(publicDir, "update-beta.json"), JSON.stringify({
+    schemaVersion: 1, channel: "beta", betaAvailable: true,
+    packageName: "com.zuoqirun.lyricscompanion", versionCode: 200, versionName: "20260101-beta",
+    apkPath: "apk/lyrics_companion_beta.apk", changelogPath: "CHANGELOG-beta.md",
+    force: false, changelog: ["尝鲜构建"], releaseTag: "apk-200-abcdef0",
+    syncedAt: "2026-01-01T00:00:00.000Z",
+  }, null, 2) + "\n");
+  try {
+    await withPublicDir(publicDir, async (base) => {
+      const beta = await (await fetch(`${base}/update-beta.json`)).json();
+      assert.equal(beta.channel, "beta");
+      assert.equal(beta.betaAvailable, true);
+      assert.equal(beta.versionCode, 200);
+      assert.equal(beta.apkPath, undefined);
+      assert.ok(beta.apkUrl.includes("lyrics_companion_beta.apk"));
+      assert.match(beta.apkUrl, /\?v=[a-f0-9]{64}$/);
+      assert.equal(beta.sha256,
+        crypto.createHash("sha256").update(apkBytes).digest("hex"));
+      assert.equal(beta.size, Buffer.byteLength(apkBytes));
+      assert.match(beta.changelogUrl, /\/CHANGELOG-beta\.md$/);
+      assert.equal(beta.changelogText, "# 测试版更新日志\n\n- 尝鲜构建");
+
+      // A published beta must not leak into the stable channel, which still answers from the
+      // checked-in template while no stable release has been synced.
+      const stable = await (await fetch(`${base}/update.json`)).json();
+      assert.equal(stable.channel, "stable");
+      assert.equal(stable.versionCode, 1);
+
+      const health = await (await fetch(`${base}/health`)).json();
+      assert.equal(health.beta.available, true);
+      assert.equal(health.beta.versionCode, 200);
+      assert.equal(health.beta.releaseTag, "apk-200-abcdef0");
+    });
+  } finally {
+    fs.rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test("answers an empty beta channel without falling back to the stable template", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lyrics-beta-empty-"));
+  const publicDir = path.join(root, "public");
+  fs.mkdirSync(publicDir, {recursive: true});
+  try {
+    await withPublicDir(publicDir, async (base) => {
+      const beta = await (await fetch(`${base}/update-beta.json`)).json();
+      assert.equal(beta.channel, "beta");
+      assert.equal(beta.betaAvailable, false);
+      assert.equal(beta.versionCode, 0);
+      assert.equal(beta.apkUrl, undefined, "beta must not point at the stable APK");
+
+      const health = await (await fetch(`${base}/health`)).json();
+      assert.equal(health.beta.available, false);
+    });
+  } finally {
+    fs.rmSync(root, {recursive: true, force: true});
   }
 });

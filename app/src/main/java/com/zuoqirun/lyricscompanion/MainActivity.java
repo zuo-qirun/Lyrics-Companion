@@ -32,6 +32,8 @@ import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
@@ -75,6 +77,9 @@ public final class MainActivity extends AppCompatActivity {
     };
     private static final String UPDATE_MANIFEST_URL =
             "https://lyrics-companion.zuoqirun.top/update.json";
+    /** 测试版通道的清单：只包含 GitHub prerelease，正式版通道看不到它。 */
+    private static final String UPDATE_MANIFEST_URL_BETA =
+            "https://lyrics-companion.zuoqirun.top/update-beta.json";
     private static final String UPDATE_HISTORY_URL =
             "https://lyrics-companion.zuoqirun.top/versions";
     private static final String SOURCE_REPOSITORY_URL =
@@ -700,6 +705,12 @@ public final class MainActivity extends AppCompatActivity {
         historyParams.leftMargin = dp(10);
         updateButtons.addView(versionHistory, historyParams);
         updateCard.addView(updateButtons);
+        MaterialSwitch betaChannel = toggle("加入测试版更新通道",
+                "测试版是最新构建，可能不稳定；随时可以切回正式版");
+        betaChannel.setChecked(UpdateChannelRules.isBeta(AppPreferences.updateChannel(this)));
+        betaChannel.setOnCheckedChangeListener((button, checked) ->
+                changeUpdateChannel(checked, button));
+        updateCard.addView(betaChannel);
 
         LinearLayout openSourceCard = card();
         openSourceCard.addView(sectionLabel("开源与致谢"));
@@ -2853,17 +2864,42 @@ public final class MainActivity extends AppCompatActivity {
 
     private void checkForUpdates(boolean manual) {
         if (updateBusy || updateStatus == null) return;
+        String requestedChannel = AppPreferences.updateChannel(this);
+        String manifestUrl = UpdateChannelRules.manifestUrl(requestedChannel,
+                UPDATE_MANIFEST_URL, UPDATE_MANIFEST_URL_BETA);
         updateBusy = true;
         if (manual) updateStatus.setText("正在检查更新…");
         UPDATE_EXECUTOR.execute(() -> {
             try {
-                AppUpdater.UpdateInfo info = AppUpdater.check(this, UPDATE_MANIFEST_URL);
+                AppUpdater.UpdateInfo info = AppUpdater.check(this, manifestUrl);
                 runOnUiThread(() -> {
                     updateBusy = false;
                     if (isFinishing() || isDestroyed()) return;
+                    if (!info.available) {
+                        // 占位清单（versionCode 0）：说清是"通道里没有包"，而不是"已是最新"。
+                        updateStatus.setText(UpdateChannelRules.displayName(info.channel)
+                                + "通道暂无可用版本\n" + localVersionText());
+                        return;
+                    }
+                    int skipped = AppPreferences.skippedUpdateVersionCode(this, requestedChannel);
+                    if (UpdateChannelRules.skipPrompt(manual, info.force,
+                            info.remoteVersionCode, skipped)) {
+                        String name = AppPreferences.skippedUpdateVersionName(this, requestedChannel);
+                        updateStatus.setText("已不再提醒 v"
+                                + (name.isEmpty() ? String.valueOf(info.remoteVersionCode) : name)
+                                + " 的更新\n" + localVersionText());
+                        return;
+                    }
                     if (info.hasUpdate()) {
-                        updateStatus.setText("发现新版本 " + info.remoteVersionName);
-                        showUpdateDialog(info);
+                        updateStatus.setText("发现" + (info.isBeta() ? "测试版" : "新版本")
+                                + " " + info.remoteVersionName);
+                        showUpdateDialog(info, requestedChannel);
+                    } else if (UpdateChannelRules.localIsAhead(
+                            info.localVersionCode, info.remoteVersionCode)) {
+                        updateStatus.setText(UpdateChannelRules.displayName(info.channel)
+                                + "通道最新版是 " + info.remoteVersionName
+                                + "，本机版本更高；等正式版发布更高版本号即可更新\n"
+                                + localVersionText());
                     } else if (manual) {
                         updateStatus.setText("已是最新版本\n" + localVersionText());
                     }
@@ -2880,7 +2916,51 @@ public final class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void showUpdateDialog(AppUpdater.UpdateInfo info) {
+    /**
+     * 切换更新通道（正式版 / 测试版）。
+     *
+     * <p>首次开启测试版先讲清风险：确认后才写入偏好，"取消"会把开关拨回去。
+     */
+    private void changeUpdateChannel(boolean beta, CompoundButton view) {
+        if (!beta) {
+            AppPreferences.setUpdateChannel(this, UpdateChannelRules.CHANNEL_STABLE);
+            if (updateStatus != null) updateStatus.setText(localVersionText());
+            return;
+        }
+        if (AppPreferences.betaChannelDisclosed(this)) {
+            AppPreferences.setUpdateChannel(this, UpdateChannelRules.CHANNEL_BETA);
+            if (updateStatus != null) updateStatus.setText(localVersionText());
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("加入测试版更新通道？")
+                .setMessage("测试版是最新构建，可能出现崩溃、卡顿或功能异常，"
+                        + "只建议愿意尝鲜的设备开启。\n\n"
+                        + "开启后可随时切回正式版。测试版的版本号通常高于正式版，"
+                        + "切回正式版后要等正式版发布更高的版本号才能更新。")
+                .setNegativeButton("取消", (dialog, which) -> {
+                    AppPreferences.setUpdateChannel(this, UpdateChannelRules.CHANNEL_STABLE);
+                    if (view != null) view.setChecked(false);
+                })
+                .setPositiveButton("开启", (dialog, which) -> {
+                    AppPreferences.setBetaChannelDisclosed(this, true);
+                    AppPreferences.setUpdateChannel(this, UpdateChannelRules.CHANNEL_BETA);
+                    if (updateStatus != null) updateStatus.setText(localVersionText());
+                    checkForUpdates(true);
+                })
+                .show();
+    }
+
+    /**
+     * 显示更新弹窗。
+     *
+     * @param info 清单内容（{@code info.channel} 是**这个包自己的**通道：测试版端点在新正式版
+     *   更高时会照抄正式版清单，此时它是 stable，用来决定标题文案）。
+     * @param requestedChannel 用户当前选的通道，用来记账「不再提醒」——跳过记录按用户选的通道
+     *   分开存，否则在测试版通道里对某个稳定版点过"不再提醒"会连带影响切回正式版后的提示
+     *   （Codex review P2）。
+     */
+    private void showUpdateDialog(AppUpdater.UpdateInfo info, String requestedChannel) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(18), dp(4), dp(18), dp(4));
@@ -2898,7 +2978,11 @@ public final class MainActivity extends AppCompatActivity {
         versionLine.setPadding(0, dp(3), 0, 0);
         summary.addView(versionLine);
         StringBuilder metadata = new StringBuilder();
-        if (info.size > 0L) metadata.append("安装包 ").append(formatApkSize(info.size));
+        if (info.isBeta()) metadata.append("测试版");
+        if (info.size > 0L) {
+            if (metadata.length() > 0) metadata.append("  ·  ");
+            metadata.append("安装包 ").append(formatApkSize(info.size));
+        }
         if (info.force) {
             if (metadata.length() > 0) metadata.append("  ·  ");
             metadata.append("需要更新");
@@ -2928,13 +3012,29 @@ public final class MainActivity extends AppCompatActivity {
         int maxHeight = Math.round(getResources().getDisplayMetrics().heightPixels * 0.58f);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, maxHeight);
         content.addView(scroll, scrollParams);
+        final CheckBox skipThisVersion = new CheckBox(this);
+        if (!info.force) {
+            skipThisVersion.setText("不再提醒此版本（v" + info.remoteVersionName + "）");
+            skipThisVersion.setTextColor(0xFFAFC0D6);
+            skipThisVersion.setPadding(dp(14), dp(6), dp(14), 0);
+            content.addView(skipThisVersion);
+        }
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("发现新版本")
+                .setTitle(info.isBeta() ? "发现测试版更新" : "发现新版本")
                 .setView(content)
                 .setNegativeButton("稍后", null)
                 .setPositiveButton("下载并安装", (ignoredDialog, which) -> installUpdate(info))
                 .create();
         dialog.setOnShowListener(ignored -> setDialogTitleColor(dialog, 0xFFF2F6FB));
+        dialog.setOnDismissListener(ignored -> {
+            if (info.force || !skipThisVersion.isChecked()) return;
+            AppPreferences.skipUpdateVersion(this, requestedChannel,
+                    info.remoteVersionCode, info.remoteVersionName);
+            if (updateStatus != null) {
+                updateStatus.setText("已不再提醒 v" + info.remoteVersionName
+                        + "；点「检查更新」仍可查看\n" + localVersionText());
+            }
+        });
         dialog.show();
     }
 
@@ -2967,7 +3067,8 @@ public final class MainActivity extends AppCompatActivity {
                     .getPackageInfo(getPackageName(), 0);
             long code = Build.VERSION.SDK_INT >= 28
                     ? info.getLongVersionCode() : info.versionCode;
-            return "当前版本 " + info.versionName + " (" + code + ")";
+            return "当前版本 " + info.versionName + " (" + code + ") · "
+                    + UpdateChannelRules.displayName(AppPreferences.updateChannel(this)) + "通道";
         } catch (Throwable ignored) {
             return "当前版本未知";
         }

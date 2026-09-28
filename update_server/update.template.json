@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "channel": "stable",
   "packageName": "com.zuoqirun.lyricscompanion",
   "versionCode": 1,
   "versionName": "0.1.0",

@@ -14,9 +14,11 @@ loadEnv(path.join(__dirname, ".env"));
 
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 8790);
-const publicDir = path.resolve(__dirname, "public");
+const publicDir = process.env.PUBLIC_DIR
+  ? path.resolve(process.env.PUBLIC_DIR) : path.resolve(__dirname, "public");
 const templatePath = path.join(__dirname, "update.template.json");
 const manifestPath = path.join(publicDir, "update.json");
+const betaManifestPath = path.join(publicDir, "update-beta.json");
 const versionsPath = path.join(publicDir, "versions.json");
 const syncScript = path.join(__dirname, "sync-release.js");
 const stateDir = process.env.STATE_DIR
@@ -134,10 +136,40 @@ function localApkUrl(req, relativePath, fingerprint) {
   return url.toString();
 }
 
-function readManifest(req, github) {
-  const source = fs.existsSync(manifestPath) ? manifestPath : templatePath;
-  const manifest = JSON.parse(fs.readFileSync(source, "utf8"));
-  const apkPath = path.resolve(publicDir, manifest.apkPath || "apk/lyrics_companion.apk");
+/** 通道还没有可用清单时的占位：版本号 0，客户端据此显示"该通道暂无可更新版本"。 */
+function unavailableManifest(channel) {
+  return {
+    schemaVersion: 1,
+    channel,
+    betaAvailable: false,
+    packageName: "com.zuoqirun.lyricscompanion",
+    versionCode: 0,
+    versionName: "",
+    force: false,
+    changelog: [],
+  };
+}
+
+/**
+ * 读取某条通道的更新清单并补齐可下载字段。
+ *
+ * @param {object} req 用于推导公开地址的请求。
+ * @param {boolean} github 是否让客户端直连 GitHub 资源。
+ * @param {string} file 该通道的清单文件（正式版 `update.json`，测试版 `update-beta.json`）。
+ * @param {string} channel `stable` 或 `beta`；清单文件缺失时用它决定占位还是回落模板。
+ */
+function readManifest(req, github, file = manifestPath, channel = "stable") {
+  // The stable channel falls back to the checked-in template so a fresh deployment still
+  // answers; the beta channel must not answer with the stable template's version.
+  const source = fs.existsSync(file) ? file : (channel === "beta" ? "" : templatePath);
+  const manifest = source ? JSON.parse(fs.readFileSync(source, "utf8"))
+    : unavailableManifest(channel);
+  manifest.channel = manifest.channel || channel;
+  if (channel === "beta") {
+    // 两条路径（同步脚本写的清单 / 文件缺失时的占位）给出同一个可用性字段。
+    manifest.betaAvailable = manifest.betaAvailable !== false && Number(manifest.versionCode) > 0;
+  }
+  const apkPath = manifest.apkPath ? path.resolve(publicDir, manifest.apkPath) : "";
   if (github && manifest.githubApkUrl) {
     manifest.apkUrl = manifest.githubApkUrl;
     manifest.downloadChannel = "github";
@@ -149,18 +181,33 @@ function readManifest(req, github) {
     manifest.sha256 = digest;
     manifest.size = fs.statSync(apkPath).size;
   }
-  const changelog = path.join(publicDir, "CHANGELOG.md");
+  const changelog = path.join(publicDir, manifest.changelogPath || "CHANGELOG.md");
   if (github && manifest.githubChangelogUrl) {
     manifest.changelogUrl = manifest.githubChangelogUrl;
   } else if (fs.existsSync(changelog)) {
-    manifest.changelogUrl = new URL("/CHANGELOG.md", `${baseUrl(req)}/`).toString();
+    manifest.changelogUrl = new URL(`/${path.basename(changelog)}`, `${baseUrl(req)}/`).toString();
     manifest.changelogText = fs.readFileSync(changelog, "utf8").trim();
   }
   manifest.historyUrl = new URL("/versions.json", `${baseUrl(req)}/`).toString();
   delete manifest.apkPath;
+  delete manifest.changelogPath;
   delete manifest.githubApkUrl;
   delete manifest.githubChangelogUrl;
   return manifest;
+}
+
+/** 测试版通道的当前状态，用于 `/health` 自检。 */
+function betaStatus() {
+  if (!fs.existsSync(betaManifestPath)) return {available: false};
+  try {
+    const manifest = JSON.parse(fs.readFileSync(betaManifestPath, "utf8"));
+    const available = manifest.betaAvailable !== false && Number(manifest.versionCode) > 0;
+    return {available, versionCode: Number(manifest.versionCode) || 0,
+      versionName: manifest.versionName || "", releaseTag: manifest.releaseTag || "",
+      syncedAt: manifest.syncedAt || ""};
+  } catch (error) {
+    return {available: false, error: error.message};
+  }
 }
 
 function readVersions(req, github) {
@@ -215,7 +262,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (req.method === "GET" && url.pathname === "/health") {
       sendJson(res, 200, {ok: true, service: "lyrics-companion-update-server",
-        autoSyncEnabled: autoSync, syncIntervalMs, syncing, lastSync,
+        autoSyncEnabled: autoSync, syncIntervalMs, syncing, lastSync, beta: betaStatus(),
         online: onlineTracker.count()}); return;
     }
     if (req.method === "GET" && url.pathname === "/api/online") {
@@ -319,7 +366,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
     if (url.pathname === "/update.json") { sendJson(res, 200, readManifest(req, false)); return; }
+    if (url.pathname === "/update-beta.json") {
+      sendJson(res, 200, readManifest(req, false, betaManifestPath, "beta")); return;
+    }
     if (url.pathname === "/update-github.json") { sendJson(res, 200, readManifest(req, true)); return; }
+    if (url.pathname === "/update-github-beta.json") {
+      sendJson(res, 200, readManifest(req, true, betaManifestPath, "beta")); return;
+    }
     if (url.pathname === "/versions.json") { sendJson(res, 200, readVersions(req, false)); return; }
     if (url.pathname === "/versions-github.json") { sendJson(res, 200, readVersions(req, true)); return; }
     const route = url.pathname === "/" ? "/index.html"

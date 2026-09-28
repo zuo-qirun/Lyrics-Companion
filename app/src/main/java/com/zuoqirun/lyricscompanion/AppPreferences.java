@@ -251,6 +251,13 @@ final class AppPreferences {
     static final String KEY_FEEDBACK_READ_REPLY_IDS = "feedback_read_reply_ids";
     static final String KEY_FAQ_CACHE = "faq_cache";
     static final String KEY_DIAGNOSTIC_UPLOAD_ENABLED = "diagnostic_upload_enabled";
+    /** 更新通道：stable（正式版，默认）或 beta（测试版）。 */
+    static final String KEY_UPDATE_CHANNEL = "update_channel";
+    /** 每个通道各自记住"不再提醒此版本"的版本号与版本名。 */
+    static final String KEY_SKIPPED_UPDATE_VERSION_CODE = "skipped_update_version_code";
+    static final String KEY_SKIPPED_UPDATE_VERSION_NAME = "skipped_update_version_name";
+    /** 首次开启测试版通道时已经看过一次风险提示。 */
+    static final String KEY_BETA_CHANNEL_DISCLOSED = "beta_channel_disclosed";
     static final String KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED =
             "community_announcement_dismissed";
     static final String KEY_SAFETY_NOTICE_SEEN = "safety_notice_seen";
@@ -2060,6 +2067,51 @@ final class AppPreferences {
 
     static int lyricCacheLimitMb(Context context) {
         return Math.max(16, Math.min(512, get(context).getInt(KEY_LYRIC_CACHE_LIMIT_MB, 128)));
+    }
+
+    static String updateChannel(Context context) {
+        return UpdateChannelRules.normalize(get(context).getString(
+                KEY_UPDATE_CHANNEL, UpdateChannelRules.CHANNEL_STABLE));
+    }
+
+    static void setUpdateChannel(Context context, String channel) {
+        get(context).edit().putString(KEY_UPDATE_CHANNEL,
+                UpdateChannelRules.normalize(channel)).apply();
+    }
+
+    static boolean betaChannelDisclosed(Context context) {
+        return get(context).getBoolean(KEY_BETA_CHANNEL_DISCLOSED, false);
+    }
+
+    static void setBetaChannelDisclosed(Context context, boolean disclosed) {
+        get(context).edit().putBoolean(KEY_BETA_CHANNEL_DISCLOSED, disclosed).apply();
+    }
+
+    /** 该通道上被"不再提醒"的版本号，没有记录时返回 0。 */
+    static int skippedUpdateVersionCode(Context context, String channel) {
+        return Math.max(0, get(context).getInt(skippedUpdateVersionCodeKey(channel), 0));
+    }
+
+    static String skippedUpdateVersionName(Context context, String channel) {
+        return get(context).getString(skippedUpdateVersionNameKey(channel), "");
+    }
+
+    /** 记住"不再提醒此版本"：只影响自动检查，手动点「检查更新」仍会看到它。 */
+    static void skipUpdateVersion(Context context, String channel, int versionCode,
+                                  String versionName) {
+        get(context).edit()
+                .putInt(skippedUpdateVersionCodeKey(channel), Math.max(0, versionCode))
+                .putString(skippedUpdateVersionNameKey(channel),
+                        versionName == null ? "" : versionName.trim())
+                .apply();
+    }
+
+    private static String skippedUpdateVersionCodeKey(String channel) {
+        return KEY_SKIPPED_UPDATE_VERSION_CODE + "_" + UpdateChannelRules.normalize(channel);
+    }
+
+    private static String skippedUpdateVersionNameKey(String channel) {
+        return KEY_SKIPPED_UPDATE_VERSION_NAME + "_" + UpdateChannelRules.normalize(channel);
     }
 
     private static int defaultPanelWidthDp(String style) {
