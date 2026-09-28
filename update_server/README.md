@@ -89,6 +89,10 @@ ONLINE_TTL_MS=120000
 FEEDBACK_INTERVAL_MS=60000
 DIAGNOSTIC_INTERVAL_MS=60000
 ADMIN_TOKEN=replace-with-a-long-random-secret
+# 强烈建议：没有它时所有 GitHub API 调用走匿名配额（60 次/小时），同步容易 403 失败
+GITHUB_TOKEN=github_pat_xxx
+SYNC_INTERVAL_MS=300000
+HISTORY_RELEASE_LIMIT=20
 ```
 
 ## 反馈收件箱、回信与诊断
@@ -108,13 +112,22 @@ App 会把本应用未捕获的 Java 异常堆栈先保存到私有目录，绝�
 ## 更新协议
 
 客户端请求 `/update.json`，校验：
-
 - `packageName` 必须为 `com.zuoqirun.lyricscompanion`；
 - `versionCode` 必须大于本地版本；
 - 下载大小与 `sha256` 必须匹配；
 - APK 内部包名必须与当前应用一致。
 
 校验通过后，App 只启动一个安装流程：检测到 Shizuku 与 InstallerX 时优先使用 InstallerX，否则使用 Android `PackageInstaller`；仅在安装会话明确失败后，才依次回退到 InstallerX 和系统默认 APK 安装器，避免车机安装器互相冲突。
+
+## 同步健壮性
+
+一轮同步只打**一次** `/releases`（`per_page = max(HISTORY_RELEASE_LIMIT, BETA_RELEASE_SCAN)`）：最新正式版、最新测试版、历史条目都从同一份列表里取。以前是三处各打一次，`.env` 没有 `GITHUB_TOKEN` 时按匿名配额 60 次/小时算，12 轮/小时 × 3 很容易被别的消耗顶到 `HTTP 403 API rate limit exceeded`，整轮 `exit 1`；现在 12 次/小时，配上 token 后上限 5000 次/小时。
+
+下载 release 资源走**双入口**：先 `browser_download_url`（`github.com/...`，不吃 API 配额），失败再退到 API asset 直链 `api.github.com/repos/<repo>/releases/assets/<id>`（`Accept: application/octet-stream`）。线上日志里 `github.com` 这一跳会间歇性 `UND_ERR_CONNECT_TIMEOUT`，而 `api.github.com` 一直稳，换入口比单纯加退避更管用。回退只在 `github.com` 失败时发生，所以正常一轮只有 1 次 API 调用（实测一次 `github.com` 连挂两个包时为 1 次列表 + 2 次回退 = 3 次）——这也是必须配 `GITHUB_TOKEN` 的原因。
+
+历史同步**逐条兜错**：某条 release 的清单或 APK 抓不下来时，沿用上一轮 `versions.json` 里这条的记录（没有就跳过），不再让整轮 `exit 1`——否则 `versions.json` 会一直停在旧内容。
+
+`/health` 的 `lastSync` 在失败时会带一行 `error`（子进程 stderr 里最有信息量的那一行，最长 300 字符），例如 `HTTP 403: https://api.github.com/.../releases/latest - {"message":"API rate limit exceeded ..."}`，不用翻日志就能定位。
 
 ## 测试版（beta）通道
 

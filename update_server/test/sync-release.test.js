@@ -5,6 +5,7 @@ const assert = require("node:assert");
 const {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
   pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk, authFailure,
+  latestStableRelease, assetApiUrl,
 } = require("../sync-release.js");
 
 function fetchError(code, message) {
@@ -163,4 +164,28 @@ test("only a rejected token falls back to anonymous requests", () => {
   assert.equal(authFailure(403, ""), false);
   assert.equal(authFailure(404, "Not Found"), false);
   assert.equal(authFailure(0, "boom"), false);
+});
+
+test("the stable release is the newest non-prerelease in one shared list", () => {
+  // /releases 按创建时间倒序：最新正式版就是第一条非 prerelease 非 draft。
+  assert.equal(latestStableRelease([
+    {tag_name: "apk-301-beta", prerelease: true, draft: false},
+    {tag_name: "apk-300-stable", prerelease: false, draft: false},
+    {tag_name: "apk-299-stable", prerelease: false, draft: false},
+  ]).tag_name, "apk-300-stable");
+  assert.equal(latestStableRelease([
+    {tag_name: "apk-301-stable", prerelease: false, draft: true},
+    {tag_name: "apk-300-stable", prerelease: false, draft: false},
+  ]).tag_name, "apk-300-stable");
+  assert.equal(latestStableRelease([{tag_name: "apk-301-beta", prerelease: true}]), null);
+  assert.equal(latestStableRelease([]), null);
+  assert.equal(latestStableRelease(null), null);
+});
+
+test("builds the API asset URL used as the download fallback", () => {
+  assert.equal(assetApiUrl("zuo-qirun/Lyrics-Companion", {id: 594270607}),
+    "https://api.github.com/repos/zuo-qirun/Lyrics-Companion/releases/assets/594270607");
+  assert.equal(assetApiUrl("zuo-qirun/Lyrics-Companion", {}), "");
+  assert.equal(assetApiUrl("zuo-qirun/Lyrics-Companion", null), "");
+  assert.equal(assetApiUrl("zuo-qirun/Lyrics-Companion", {id: 0}), "");
 });
