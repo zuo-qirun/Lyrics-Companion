@@ -38,14 +38,16 @@ final class TrackIdentityRules {
      * @param incomingArtist   本轮上报的歌手
      * @param storedDurationMs 已保存的时长，未知时 {@code <= 0}
      * @param incomingDurationMs 本轮上报的时长，未知时 {@code <= 0}
-     * @param storedMediaId    已保存的媒体 ID
-     * @param incomingMediaId  本轮上报的媒体 ID
+     * @param storedCatalogId  已保存的**稳定目录 ID**（{@link #catalogTrackId}），解不出时传空串
+     * @param incomingCatalogId 本轮上报的**稳定目录 ID**，解不出时传空串。必须是解析后的：原始的不透明
+     *                         mediaId 会抖动，拿它当换歌证据会让这条规则失效、歌词行被当成新歌手重新
+     *                         匹配 —— 正是本规则要防的（review 第六轮 P2）
      */
     static boolean shouldIgnoreArtistOnlyChange(boolean sameSource, boolean samePublisher,
                                                 String storedTitle, String incomingTitle,
                                                 String storedArtist, String incomingArtist,
                                                 long storedDurationMs, long incomingDurationMs,
-                                                String storedMediaId, String incomingMediaId) {
+                                                String storedCatalogId, String incomingCatalogId) {
         if (!sameSource || !samePublisher) return false;
         if (safe(storedTitle).trim().isEmpty() || safe(incomingTitle).trim().isEmpty()) return false;
         // 标题必须完全没变：标题变了就是真的换歌（那是 TITLE 侧规则的事）。
@@ -57,9 +59,9 @@ final class TrackIdentityRules {
                 && Math.abs(storedDurationMs - incomingDurationMs) > DURATION_TOLERANCE_MS) {
             return false;
         }
-        // 两个媒体 ID 都已知且不同 = 明确的换歌证据；只要有一边未知就不算证据。
-        String leftId = safe(storedMediaId).trim();
-        String rightId = safe(incomingMediaId).trim();
+        // 两个目录 ID 都已知且不同 = 明确的换歌证据；只要有一边未知就不算证据。
+        String leftId = safe(storedCatalogId).trim();
+        String rightId = safe(incomingCatalogId).trim();
         return leftId.isEmpty() || rightId.isEmpty() || leftId.equals(rightId);
     }
 

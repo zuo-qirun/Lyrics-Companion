@@ -130,6 +130,11 @@ final class MusicStateStore {
             // 同一个 source id 不等于同一个发布者：VLC / Poweramp / AIMP… 都注册成 media
             // （review 第四轮 P2）。
             boolean samePublisher = TextUtils.equals(sourcePackage, normalizedSourcePackage);
+            // 曲目身份用的 ID 必须是解析出来的稳定目录 ID：不透明的 mediaId 会抖动，拿它当"换了歌"的
+            // 证据会把同一首歌判成换歌（位置锚点，review 第五轮 P2），也会让"只变歌手"的抑制失效、
+            // 歌词行被当成新歌手重新匹配（review 第六轮 P2）。
+            String storedCatalogId = TrackIdentityRules.catalogTrackId(source, mediaId);
+            String incomingCatalogId = TrackIdentityRules.catalogTrackId(normalizedSource, newMediaId);
             long now = SystemClock.elapsedRealtime();
             // A Bluetooth AVRCP broadcast and a MediaSession publisher (CarPlay and friends) can
             // both describe the same playback. Letting each write through swaps the track key on
@@ -191,8 +196,8 @@ final class MusicStateStore {
                 if (durationMs > 0L) newDuration = durationMs;
             } else if (!hasCompositeIdentity && TrackIdentityRules.shouldIgnoreArtistOnlyChange(
                     sameSource, samePublisher, title, newTitle, artist, newArtist,
-                    durationMs, newDuration, mediaId, newMediaId)) {
-                // 反对称的那种（issue #77）：TITLE / 时长 / 媒体 ID 都没变，只有 ARTIST 在变 ——
+                    durationMs, newDuration, storedCatalogId, incomingCatalogId)) {
+                // 反对称的那种（issue #77）：TITLE / 时长 / 目录 ID 都没变，只有 ARTIST 在变 ——
                 // 播放器把当前歌词行（或某种状态）写进了歌手栏。按换歌处理会让每一句歌词都重新
                 // 匹配一次，于是歌词在「已匹配」与「暂无匹配歌词」之间来回跳。这里保留原歌手，
                 // 曲目身份和已匹配的歌词都不动。换了应用（同一个 source id、不同包名）时不算 ——
@@ -232,11 +237,19 @@ final class MusicStateStore {
             if (rawPositionChanged || reportedPositionChangedElapsedMs < 0L) {
                 reportedPositionChangedElapsedMs = now;
             }
+            // 被判为残留的那份上报要等它"降下来"才恢复采信：车机切歌后可能还在继续推进上一首的位置，
+            // 值一直在变、但都是旧曲目的，"值变了"本身不足以证明它已经是新曲目的位置（review 第六轮 P2）。
+            if (reportedPositionUntrusted
+                    && PlaybackPositionRules.residualReleased(lastReportedPositionMs, newPosition)) {
+                reportedPositionUntrusted = false;
+            }
+            // 值变了、而且这份上报可信，才算"真的动了"：不可信的上报哪怕在变也不能夺走锚点。
+            boolean trustedPositionChanged = rawPositionChanged && !reportedPositionUntrusted;
             // 判据是「位置值多久没变」，不是「我们的估计领先它多少」：采信上报值的那几轮会把锚点的值
             // 和时刻一起刷成这次上报，领先量每轮都从零开始长 —— 车机一两秒报一次（或更快）时永远长不到
             // 阈值，歌词照样冻住（review #80 / Codex P2）。
             boolean staleReportedPosition = PlaybackPositionRules.isStaleReport(
-                    rawPositionChanged, reportedPositionUntrusted,
+                    trustedPositionChanged, reportedPositionUntrusted,
                     now - reportedPositionChangedElapsedMs);
             boolean reportedPositionChanged = !changed && rawPositionChanged;
             boolean sampledProgress = reportedPositionChanged
@@ -258,10 +271,7 @@ final class MusicStateStore {
             // 越界时，判为残留值，让新曲目从 0 开始，而不是把歌词算到末尾。这里只认「曲目自己的元数据
             // 真的换了」（歌名 / 歌手 / 稳定目录 ID）——曲目身份（lyricTrackKey）里还带着来源通道与词库
             // 设置，蓝牙 AVRCP 与 MediaSession 交接同一首歌、或播放中改词库时它同样会变，而这两种情况下
-            // 位置是连续有效的，拿来判残留会把歌词打回开头（review #80 / Codex P2）。ID 只用解析出来的
-            // 目录 ID：原始的不透明 mediaId 会抖动，当证据会把同一首歌判成换歌（review 第五轮 P2）。
-            String storedCatalogId = TrackIdentityRules.catalogTrackId(source, mediaId);
-            String incomingCatalogId = TrackIdentityRules.catalogTrackId(normalizedSource, newMediaId);
+            // 位置是连续有效的，拿来判残留会把歌词打回开头（review #80 / Codex P2）。
             boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(
                     TrackIdentityRules.isDifferentTrackMetadata(title, newTitle, artist, newArtist,
                             storedCatalogId, incomingCatalogId),
@@ -270,21 +280,24 @@ final class MusicStateStore {
             if (staleOnTrackChange) {
                 positionToStore = 0L;
                 positionTimeToStore = now;
+                // 在被证明是"降下来"的新曲目位置之前，这份上报都不再采信（review 第六轮 P2）。
+                reportedPositionUntrusted = true;
                 DiagnosticLog.record(context, "Playback", "stale position on track change reported="
                         + newPosition + " durationMs=" + newDuration);
-            } else if (PlaybackPositionRules.keepMonotonicEstimate(changed, newPlaying,
-                    rawPositionChanged, reportedPositionTime > 0L, transientZeroPosition,
-                    staleReportedPosition)) {
-                // Metadata-only automotive sessions commonly keep returning the same raw position,
-                // sometimes with a fresh timestamp. Preserve our monotonic estimate instead of
-                // resetting it every poll, when a transient navigation session reports position
-                // zero, or when the player keeps repeating a stuck value (issue #76).
-                positionToStore = Math.max(0L, estimatedPosition);
-                positionTimeToStore = now;
+            } else {
+                // 确实换到新曲目、而且这次上报的位置可信：锚点本来就会重建，残留闩锁也解开。
+                if (changed) reportedPositionUntrusted = false;
+                if (PlaybackPositionRules.keepMonotonicEstimate(changed, newPlaying,
+                        trustedPositionChanged, reportedPositionTime > 0L, transientZeroPosition,
+                        staleReportedPosition)) {
+                    // Metadata-only automotive sessions commonly keep returning the same raw position,
+                    // sometimes with a fresh timestamp. Preserve our monotonic estimate instead of
+                    // resetting it every poll, when a transient navigation session reports position
+                    // zero, or when the player keeps repeating a stuck value (issue #76).
+                    positionToStore = Math.max(0L, estimatedPosition);
+                    positionTimeToStore = now;
+                }
             }
-            // 被判为残留的这份上报要等它真的变了再采信，否则新曲目的锚点（0）下一轮又被旧值写回去。
-            reportedPositionUntrusted = staleOnTrackChange
-                    || (reportedPositionUntrusted && !rawPositionChanged);
             boolean playbackModeChanged = playing != newPlaying;
             trackChangedForLog = changed;
             playbackChangedForLog = playbackModeChanged;

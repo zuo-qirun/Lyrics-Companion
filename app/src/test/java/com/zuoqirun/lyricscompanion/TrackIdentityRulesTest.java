@@ -77,6 +77,12 @@ public class TrackIdentityRulesTest {
                 "地下铁", "地下铁", "萧亚轩", "萧亚轩",
                 TrackIdentityRules.catalogTrackId("media", "session-1"),
                 TrackIdentityRules.catalogTrackId("media", "session-2")));
+        // 同一件事也决定了"只变歌手"的抑制：抖动的不透明 ID 不再让规则失效、把歌词行当成新歌手重新
+        // 匹配（review 第六轮 P2）。
+        assertTrue(ignore("地下铁", "地下铁", "萧亚轩", "下一站的出口 你等着我",
+                240_000L, 240_000L,
+                TrackIdentityRules.catalogTrackId("media", "session-1"),
+                TrackIdentityRules.catalogTrackId("media", "session-2")));
     }
 
     @Test public void changingArtistWithStableTitleIsIgnored() {

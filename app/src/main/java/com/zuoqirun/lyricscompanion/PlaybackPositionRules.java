@@ -73,6 +73,17 @@ final class PlaybackPositionRules {
     }
 
     /**
+     * 已经被判为残留下来的那份上报，是否已经"降回"新曲目该在的位置、可以重新采信。
+     *
+     * <p>光看"值变了"不够：车机切歌之后可能还在继续推进**上一首**的位置 —— 值一直在变，但都是旧曲目的
+     * （review 第六轮 P2）。只有位置明显**低于**被判残留的那个值（回到新曲目开头附近，或者用户往后
+     * seek 回来）才算它回到了新曲目的时间轴上。
+     */
+    static boolean residualReleased(long rejectedMs, long incomingMs) {
+        return rejectedMs - incomingMs > SAME_POSITION_TOLERANCE_MS;
+    }
+
+    /**
      * 是否应当保留伴侣自己的单调估计，而不是把锚点写回这次上报的位置。
      *
      * <p>覆盖三种情况（前两种是原有行为，第三种是 issue #76 新增）：
@@ -84,14 +95,18 @@ final class PlaybackPositionRules {
      *         {@code playing == false} 就重新采信旧值 —— 否则暂停会让歌词往回跳、恢复播放又从那个
      *         旧值接着走（review 第三轮 P2）。</li>
      * </ol>
+     *
+     * @param trustedPositionChanged 位置值是否**可信地**变了：调用方在"这份上报已被判为残留、还没降
+     *                               回来"时必须传 {@code false}，否则旧曲目继续推进的位置会被当成
+     *                               新曲目的位置写进锚点（review 第六轮 P2）
      */
     static boolean keepMonotonicEstimate(boolean changed, boolean playing,
-                                         boolean positionChanged, boolean timestampPresent,
+                                         boolean trustedPositionChanged, boolean timestampPresent,
                                          boolean transientZero, boolean staleReport) {
         if (changed) return false;
         if (transientZero) return true;
-        // 位置值真的动了：以这次上报为准（用户 seek 过，或者播放器终于追上来了）。
-        if (positionChanged) return false;
+        // 位置值可信地动了：以这次上报为准（用户 seek 过，或者播放器终于追上来了）。
+        if (trustedPositionChanged) return false;
         if (staleReport) return true;
         if (!playing) return false;
         return !timestampPresent;

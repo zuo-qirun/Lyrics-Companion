@@ -106,7 +106,7 @@ public class PlaybackPositionRulesTest {
         // 播放器不给位置时间戳（老行为）：保留估计。
         assertTrue(PlaybackPositionRules.keepMonotonicEstimate(
                 false, true, false, false, false, false));
-        // 位置真的变了、或已经不在播放（这一份上报还不陈旧）：不保留。
+        // 位置可信地变了、或已经不在播放（这一份上报还不陈旧）：不保留。
         assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
                 false, true, true, true, false, true));
         assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
@@ -114,6 +114,19 @@ public class PlaybackPositionRulesTest {
         // 换了曲目时锚点必须重建。
         assertFalse(PlaybackPositionRules.keepMonotonicEstimate(
                 true, true, false, true, false, true));
+    }
+
+    @Test public void aCarriedOverReportIsOnlyTrustedAgainWhenItComesDown() {
+        // 车机切歌之后可能还在继续推进**上一首**的位置：值一直在变，但都是旧曲目的，不能凭"值变了"
+        // 就恢复采信 —— 那样第二份残留会被写进锚点，新歌词被拽回上一首的位置附近（review 第六轮 P2）。
+        assertFalse(PlaybackPositionRules.residualReleased(238_000L, 239_000L));
+        assertFalse(PlaybackPositionRules.residualReleased(238_000L, 238_050L));
+        // 回到新曲目该在的位置（或用户往后 seek 回来）才算回到新曲目的时间轴。
+        assertTrue(PlaybackPositionRules.residualReleased(238_000L, 3_000L));
+        assertTrue(PlaybackPositionRules.residualReleased(238_000L, 120_000L));
+        // 不可信的上报哪怕在变也不能夺走锚点：调用方这时必须传 trustedPositionChanged = false。
+        assertTrue(PlaybackPositionRules.keepMonotonicEstimate(
+                false, true, false, true, false, true));
     }
 
     @Test public void aStaleReportDoesNotUndoOurClockOnPause() {
