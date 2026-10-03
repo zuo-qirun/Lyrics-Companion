@@ -121,8 +121,9 @@ function firstLine(text) {
   return String(text || "").split(/\r?\n/).find((line) => line.trim()) || "";
 }
 
-async function request(url, json = false, allowAnonymousRetry = true) {
-  const headers = {"user-agent": "lyrics-companion-release-sync", "accept": "application/vnd.github+json"};
+async function request(url, options = {}) {
+  const {json = false, accept = "application/vnd.github+json", allowAnonymousRetry = true} = options;
+  const headers = {"user-agent": "lyrics-companion-release-sync", accept};
   const useAuth = Boolean(githubToken) && !authDisabled;
   if (useAuth) headers.authorization = `Bearer ${githubToken}`;
   const response = await fetchWithRetry(url, {headers, redirect: "follow"});
@@ -132,13 +133,45 @@ async function request(url, json = false, allowAnonymousRetry = true) {
     const reason = firstLine(detail) || `HTTP ${response.status}`;
     log(`GITHUB_TOKEN rejected (HTTP ${response.status}: ${reason}); continuing anonymously`);
     authDisabled = true;
-    return request(url, json, false);
+    return request(url, {...options, allowAnonymousRetry: false});
   }
   throw new Error(`HTTP ${response.status}: ${url}${detail ? ` - ${firstLine(detail)}` : ""}`);
 }
 
 async function githubJson(route) {
-  return request(`https://api.github.com/repos/${githubRepo}${route}`, true);
+  return request(`https://api.github.com/repos/${githubRepo}${route}`, {json: true});
+}
+
+/** GitHub API 的 asset 直链：第一跳走 api.github.com（比 github.com 稳），需要 octet-stream。 */
+function assetApiUrl(repo, asset) {
+  if (!asset || !asset.id) return "";
+  return `https://api.github.com/repos/${repo}/releases/assets/${asset.id}`;
+}
+
+/**
+ * 抓一个 release asset：先走 `browser_download_url`（不吃 API 配额），失败再退到 API asset 直链。
+ *
+ * <p>线上日志里失败**全部**是 `github.com/.../releases/download/...` 的 `UND_ERR_CONNECT_TIMEOUT`
+ * （undici 选中不通的 IP 就超时），而 `api.github.com` 一直稳；换入口比单纯加退避更管用。
+ */
+async function fetchAsset(asset, options = {}) {
+  const attempts = [
+    asset.browser_download_url ? {url: asset.browser_download_url, accept: ""} : null,
+    assetApiUrl(githubRepo, asset) ? {url: assetApiUrl(githubRepo, asset),
+      accept: "application/octet-stream"} : null,
+  ].filter(Boolean);
+  let lastError;
+  for (const attempt of attempts) {
+    try {
+      return await request(attempt.url,
+        {json: options.json, allowAnonymousRetry: options.allowAnonymousRetry,
+          ...(attempt.accept ? {accept: attempt.accept} : {})});
+    } catch (error) {
+      lastError = error;
+      log(`asset fetch failed via ${new URL(attempt.url).host}: ${error.message}`);
+    }
+  }
+  throw lastError;
 }
 
 function findAsset(release, predicate, description) {
@@ -164,13 +197,13 @@ async function download(asset, destination, allowReuse = true) {
     return;
   }
   log(`download ${asset.name}`);
-  const buffer = await request(asset.browser_download_url);
+  const buffer = await fetchAsset(asset);
   atomicWrite(destination, buffer);
 }
 
 async function releaseManifest(release, apkAsset) {
   const asset = (release.assets || []).find((item) => item.name === manifestAsset);
-  if (asset) return JSON.parse((await request(asset.browser_download_url)).toString("utf8"));
+  if (asset) return JSON.parse((await fetchAsset(asset)).toString("utf8"));
   const tagCode = String(release.tag_name || "").match(/apk-(\d+)-/);
   return {
     schemaVersion: 1,
@@ -297,10 +330,11 @@ function betaChannelUsesPrerelease(stableManifest, betaManifest) {
  * `betaAvailable: false` 的占位清单，客户端据此显示"该通道暂无可更新版本"。
  *
  * @param {{release: object, apkAsset: object, manifest: object}|null} stable 已同步的正式版。
+ * @param {Array<object>} [releases] 已取好的 `/releases` 列表（省一次 API 调用）。
  * @returns {Promise<{release: object, apkAsset: object, manifest: object}|null>} 同步到的清单。
  */
-async function syncBeta(stable = null) {
-  const beta = await firstUsableBeta(await listReleases(betaScanLimit));
+async function syncBeta(stable = null, releases = null) {
+  const beta = await firstUsableBeta(releases || await listReleases(betaScanLimit));
   const candidate = beta ? beta.manifest : null;
   if (!betaChannelUsesPrerelease(stable && stable.manifest, candidate)) {
     if (!stable) {
@@ -334,7 +368,7 @@ async function syncBeta(stable = null) {
   await download(apkAsset, betaApk, sameRelease);
   if (changelog) {
     // The beta changelog is a separate file: public/CHANGELOG.md stays the stable archive.
-    atomicWrite(betaChangelogPath, await request(changelog.browser_download_url));
+    atomicWrite(betaChangelogPath, await fetchAsset(changelog));
   }
   const output = {
     ...candidate,
@@ -373,7 +407,7 @@ async function syncLatest(release) {
   }
   await download(apkAsset, latestApk, sameRelease);
   if (changelog) atomicWrite(path.join(publicDir, "CHANGELOG.md"),
-    await request(changelog.browser_download_url));
+    await fetchAsset(changelog));
   const output = {
     ...manifest,
     schemaVersion: 1,
@@ -393,40 +427,74 @@ async function syncLatest(release) {
   return {release, apkAsset, manifest: output};
 }
 
-async function syncHistory(latest, beta = null) {
-  const releases = await listReleases(historyLimit);
+/** 上一轮 `versions.json` 里按 tag 索引的条目：这一轮某条抓不下来时就沿用它。 */
+function previousHistoryEntries() {
+  const file = path.join(publicDir, "versions.json");
+  const entries = new Map();
+  if (!fs.existsSync(file)) return entries;
+  try {
+    for (const entry of JSON.parse(fs.readFileSync(file, "utf8")).versions || []) {
+      if (entry && entry.releaseTag) entries.set(entry.releaseTag, {packageName: "com.zuoqirun.lyricscompanion",
+        channel: entry.channel || "stable", ...entry});
+    }
+  } catch (error) {
+    log(`cannot read the previous versions.json: ${error.message}`);
+  }
+  return entries;
+}
+
+/**
+ * 同步历史清单。
+ *
+ * <p>每条 release 单独兜错：某个包在 `github.com` 上抓不下来时沿用上一轮这条的记录（没有就跳过），
+ * 不再让整轮同步 exit 1——否则 `versions.json` 会一直停在旧内容（线上日志里反复出现）。
+ *
+ * @param {{release: object, manifest: object}} latest 已同步的正式版。
+ * @param {{release: object, manifest: object}|null} beta 已同步的测试版通道。
+ * @param {Array<object>} [releases] 已取好的 `/releases` 列表（省一次 API 调用）。
+ */
+async function syncHistory(latest, beta = null, releases = null) {
+  const list = (releases || await listReleases(historyLimit)).slice(0, historyLimit);
+  const previous = previousHistoryEntries();
   const versions = [];
   fs.mkdirSync(historyDir, {recursive: true});
-  for (const release of releases) {
+  for (const release of list) {
     const apkAsset = (release.assets || []).find((item) => {
       const matched = assetPattern.test(item.name); assetPattern.lastIndex = 0; return matched;
     });
     if (!apkAsset) continue;
-    const manifest = release.id === latest.release.id
-      ? latest.manifest
-      : beta && release.id === beta.release.id
-        ? beta.manifest
-        : await releaseManifest(release, apkAsset);
-    const fileName = `${safeSegment(release.tag_name)}-${safeSegment(apkAsset.name, "app.apk")}`;
-    const destination = path.join(historyDir, fileName);
-    await download(apkAsset, destination);
-    versions.push({
-      packageName: "com.zuoqirun.lyricscompanion",
-      channel: release.prerelease ? "beta" : "stable",
-      versionCode: manifest.versionCode,
-      versionName: manifest.versionName,
-      force: Boolean(manifest.force),
-      changelog: manifest.changelog || [release.body || ""].filter(Boolean),
-      commit: manifest.commit || release.target_commitish || "",
-      builtAt: manifest.builtAt || release.published_at,
-      publishedAt: release.published_at,
-      releaseTag: release.tag_name,
-      releaseUrl: release.html_url,
-      apkPath: `apk/history/${fileName}`,
-      githubApkUrl: apkAsset.browser_download_url,
-      sha256: sha256(destination),
-      size: fs.statSync(destination).size,
-    });
+    try {
+      const manifest = release.id === latest.release.id
+        ? latest.manifest
+        : beta && release.id === beta.release.id
+          ? beta.manifest
+          : await releaseManifest(release, apkAsset);
+      const fileName = `${safeSegment(release.tag_name)}-${safeSegment(apkAsset.name, "app.apk")}`;
+      const destination = path.join(historyDir, fileName);
+      await download(apkAsset, destination);
+      versions.push({
+        packageName: "com.zuoqirun.lyricscompanion",
+        channel: release.prerelease ? "beta" : "stable",
+        versionCode: manifest.versionCode,
+        versionName: manifest.versionName,
+        force: Boolean(manifest.force),
+        changelog: manifest.changelog || [release.body || ""].filter(Boolean),
+        commit: manifest.commit || release.target_commitish || "",
+        builtAt: manifest.builtAt || release.published_at,
+        publishedAt: release.published_at,
+        releaseTag: release.tag_name,
+        releaseUrl: release.html_url,
+        apkPath: `apk/history/${fileName}`,
+        githubApkUrl: apkAsset.browser_download_url,
+        sha256: sha256(destination),
+        size: fs.statSync(destination).size,
+      });
+    } catch (error) {
+      const kept = previous.get(release.tag_name);
+      log(`history entry failed for ${release.tag_name}: ${error.message}`
+        + (kept ? " (kept the previous entry)" : " (skipped)"));
+      if (kept) versions.push(kept);
+    }
   }
   versions.sort((a, b) => Number(b.versionCode) - Number(a.versionCode));
   atomicWrite(path.join(publicDir, "versions.json"), JSON.stringify({
@@ -438,11 +506,30 @@ async function syncHistory(latest, beta = null) {
   }, null, 2) + "\n");
 }
 
+/** 从一份 `/releases` 列表里取最新正式版：等价于 GitHub 的 `/releases/latest`（列表按创建时间倒序）。 */
+function latestStableRelease(releases) {
+  return (releases || []).find((release) =>
+    Boolean(release) && release.prerelease !== true && release.draft !== true) || null;
+}
+
+/**
+ * 同步一轮。
+ *
+ * <p>只打**一次** `/releases`：最新正式版、最新测试版、历史条目都从同一份列表里取。
+ * 以前是三处各打一次（`/releases/latest` + beta 扫描 + 历史），线上 `.env` 没有
+ * `GITHUB_TOKEN` 时按匿名配额 60 次/小时算，12 轮/小时 × 3 = 36 次，很容易被别的消耗顶到
+ * `HTTP 403 API rate limit exceeded`，整轮 exit 1。
+ */
 async function main() {
   fs.mkdirSync(apkDir, {recursive: true});
-  const latest = await syncLatest(await latestRelease());
-  const beta = await syncBeta(latest);
-  await syncHistory(latest, beta);
+  const releases = await listReleases(Math.max(historyLimit, betaScanLimit, 1));
+  // 指定 RELEASE_TAG 时才需要额外取一次（列表里可能不含这个 tag）。
+  const stable = releaseTag === "latest"
+    ? latestStableRelease(releases) : await latestRelease();
+  if (!stable) throw new Error("no stable release found in the repository");
+  const latest = await syncLatest(stable);
+  const beta = await syncBeta(latest, releases);
+  await syncHistory(latest, beta, releases);
   log(`synced ${latest.manifest.versionName} (${latest.manifest.versionCode})`
     + (beta ? ` and beta ${beta.manifest.versionName} (${beta.manifest.versionCode})` : ""));
 }
@@ -457,5 +544,5 @@ if (require.main === module) {
 module.exports = {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
   pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk, firstUsableBeta, syncBeta,
-  authFailure,
+  authFailure, latestStableRelease, assetApiUrl,
 };

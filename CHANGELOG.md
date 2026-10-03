@@ -2,6 +2,15 @@
 
 > ⚠️ **未测试**：`20260926-*` 这四个版本（bug 批次 + features-1/2/3）只在本地跑通了单元测试 + Android Lint + 签名 Release 构建，并覆盖安装到一台手机上做启动冒烟；**尚未在车机上完成真机验证**。凡是涉及车型 ROM（东风/华阳/哈弗）、同名双屏、车机左侧悬浮栏、副屏与额外屏、U 盘 / SAF 目录、弱车机帧率与耗电的结论，都还需要实测确认。
 
+## 20260928-sync-hardening
+
+> ⚠️ 只影响更新服务器，不影响 App 行为。服务端 `npm test` 34 用例 0 失败；已在生产验证（一轮同步 `exit 0`，日志可见 `asset fetch failed via github.com` 后自动换入口继续）。
+
+- **一轮同步只打一次 GitHub API**：最新正式版、最新测试版、历史条目改成从同一份 `/releases?per_page=max(HISTORY_RELEASE_LIMIT, BETA_RELEASE_SCAN)` 里取。原来三处各打一次，而线上 `.env` 没有 `GITHUB_TOKEN`，全是匿名调用（60 次/小时），12 轮/小时 × 3 次很容易被顶到 `HTTP 403 API rate limit exceeded` 并整轮失败（日志里那次 430ms 就失败的同步正是这个）。现在正常情况下 12 次/小时；`.env` 补上 `GITHUB_TOKEN` 后上限 5000 次/小时。
+- **下载资源走双入口**：先 `github.com/.../releases/download/...`，失败自动退到 API asset 直链 `api.github.com/repos/<repo>/releases/assets/<id>`。线上日志里失败全是 `github.com` 这一跳的 `UND_ERR_CONNECT_TIMEOUT`（undici 选中不通的 IP），而 `api.github.com` 稳定，所以换入口比单纯加退避有效。
+- **历史同步逐条兜错**：某条 release 抓不下来时沿用上一轮 `versions.json` 里的记录（没有就跳过），不再让整轮 `exit 1` 把历史清单卡在旧内容。
+- **`/health` 带失败原因**：`lastSync.error` 给出子进程 stderr 里最有信息量的一行（如 `HTTP 403 ... API rate limit exceeded`），不用翻日志。
+
 ## 20260928-beta-channel
 
 > ⚠️ 未测试（待真机验证）。本次完成本地单元测试（408 用例 / 0 失败）+ Android Lint（0 error）+ 签名 Release 构建（`lintVitalRelease` 通过）。通道切换、测试版弹窗与「不再提醒」的交互需要装到车机上确认。最低支持 Android 4.4。
