@@ -1,146 +1,431 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#090b14">
-  <meta name="description" content="Lyrics Companion：为 Android 主屏与副屏打造的实时歌词伴侣。">
-  <title>Lyrics Companion · 歌词伴侣</title>
-  <style>
-    :root { color-scheme: dark; --ink:#f7f7fb; --muted:#a8a9bb; --line:rgba(255,255,255,.11); --surface:rgba(22,24,39,.76); --accent:#c6ff5e; --violet:#a992ff; --radius:26px; }
-    * { box-sizing:border-box; }
-    html { scroll-behavior:smooth; }
-    body { margin:0; min-width:320px; color:var(--ink); background:#090b14; font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; line-height:1.55; }
-    body::before, body::after { content:""; position:fixed; z-index:-1; width:42rem; height:42rem; border-radius:50%; filter:blur(16px); pointer-events:none; }
-    body::before { top:-25rem; left:-17rem; background:radial-gradient(circle,rgba(169,146,255,.28),transparent 67%); }
-    body::after { right:-21rem; bottom:-29rem; background:radial-gradient(circle,rgba(198,255,94,.18),transparent 68%); }
-    a { color:inherit; }
-    .shell { width:min(1160px, calc(100% - 40px)); margin:auto; }
-    .nav { display:flex; align-items:center; justify-content:space-between; padding:24px 0; gap:18px; }
-    .brand { display:inline-flex; align-items:center; gap:10px; font-size:14px; font-weight:750; letter-spacing:.02em; text-decoration:none; }
-    .mark { display:grid; place-items:center; width:31px; height:31px; border-radius:10px; background:linear-gradient(145deg,#d7ff92,#8a73ed); color:#11121b; font-size:18px; box-shadow:0 8px 22px rgba(169,146,255,.22); }
-    .nav-links { display:flex; gap:22px; color:var(--muted); font-size:14px; }
-    .nav-links a { text-decoration:none; transition:color .2s; }
-    .nav-links a:hover { color:var(--ink); }
-    .hero { display:grid; grid-template-columns:1.05fr .95fr; align-items:center; gap:64px; padding:76px 0 100px; }
-    .eyebrow { display:inline-flex; align-items:center; gap:8px; color:#e0ffaf; font-size:12px; letter-spacing:.14em; font-weight:800; }
-    .pulse { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 5px rgba(198,255,94,.12); }
-    h1 { max-width:650px; margin:17px 0 18px; font-size:clamp(44px,6.2vw,78px); letter-spacing:-.075em; line-height:.99; }
-    h1 em { color:var(--accent); font-style:normal; }
-    .lead { max-width:565px; margin:0; color:var(--muted); font-size:18px; }
-    .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:31px; }
-    .button { display:inline-flex; justify-content:center; align-items:center; min-height:49px; padding:0 19px; gap:8px; border:1px solid transparent; border-radius:999px; font-weight:750; font-size:14px; text-decoration:none; transition:transform .2s, background .2s, border-color .2s; }
-    .button:hover { transform:translateY(-2px); }
-    .button-primary { color:#13150d; background:var(--accent); box-shadow:0 14px 32px rgba(198,255,94,.15); }
-    .button-secondary { color:var(--ink); border-color:var(--line); background:rgba(255,255,255,.04); }
-    .hero-art { position:relative; min-height:430px; }
-    .device { position:absolute; overflow:hidden; border:1px solid rgba(255,255,255,.16); background:linear-gradient(150deg,rgba(34,37,59,.93),rgba(17,19,31,.9)); box-shadow:0 32px 70px rgba(0,0,0,.35); }
-    .device-main { width:min(100%,430px); height:390px; right:0; top:0; padding:29px; border-radius:32px; }
-    .device-secondary { width:250px; height:160px; left:-20px; bottom:0; padding:19px; border-radius:23px; transform:rotate(-6deg); }
-    .ambient { position:absolute; width:240px; height:240px; top:42px; right:55px; border-radius:50%; background:radial-gradient(circle,rgba(169,146,255,.36),transparent 65%); filter:blur(13px); }
-    .now-playing { position:relative; color:#989aad; font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
-    .cover { position:relative; width:126px; height:126px; margin:30px auto 22px; border-radius:22px; background:linear-gradient(145deg,#9a81f7 5%,#35416a 47%,#c9ff69); box-shadow:0 18px 28px rgba(0,0,0,.3); }
-    .cover::before,.cover::after { content:""; position:absolute; border-radius:50%; border:2px solid rgba(255,255,255,.44); }
-    .cover::before { inset:18px; } .cover::after { inset:38px; border-width:6px; }
-    .song { position:relative; text-align:center; font-weight:750; font-size:17px; }
-    .artist { position:relative; margin-top:4px; color:#a7a8b8; text-align:center; font-size:12px; }
-    .lyric { position:relative; margin-top:25px; font-size:13px; text-align:center; color:#9d9eae; }
-    .lyric strong { color:#efffe0; font-weight:750; }
-    .bar { position:relative; display:flex; align-items:end; gap:3px; justify-content:center; height:19px; margin-top:15px; }
-    .bar i { width:3px; border-radius:4px; background:var(--accent); opacity:.8; } .bar i:nth-child(1){height:7px}.bar i:nth-child(2){height:15px}.bar i:nth-child(3){height:11px}.bar i:nth-child(4){height:19px}.bar i:nth-child(5){height:10px}.bar i:nth-child(6){height:14px}.bar i:nth-child(7){height:6px}
-    .secondary-label { color:#c7ff77; font-size:10px; letter-spacing:.1em; font-weight:800; }
-    .secondary-lyric { margin-top:28px; font-size:15px; font-weight:750; white-space:nowrap; }
-    .secondary-lyric span { color:#a794ff; }
-    .secondary-progress { height:3px; margin-top:14px; border-radius:4px; background:#3b3e55; } .secondary-progress::before { content:""; display:block; width:67%; height:100%; border-radius:inherit; background:var(--accent); }
-    .status-grid { display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-    .status { padding:25px 20px; border-right:1px solid var(--line); } .status:last-child { border:0; }
-    .status b { display:block; font-size:13px; } .status span { display:block; margin-top:4px; color:var(--muted); font-size:13px; }
-    .section { padding:106px 0; }
-    .section-label { color:#bdff57; font-weight:800; font-size:12px; letter-spacing:.13em; }
-    h2 { max-width:690px; margin:14px 0 0; font-size:clamp(31px,4.3vw,51px); letter-spacing:-.055em; line-height:1.07; }
-    .feature-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:42px; }
-    .feature { min-height:232px; padding:26px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); box-shadow:inset 0 1px rgba(255,255,255,.03); }
-    .feature-icon { display:grid; place-items:center; width:42px; height:42px; border:1px solid rgba(198,255,94,.25); border-radius:14px; color:var(--accent); background:rgba(198,255,94,.07); font-size:19px; }
-    .feature h3 { margin:51px 0 7px; font-size:19px; letter-spacing:-.025em; } .feature p { max-width:410px; margin:0; color:var(--muted); font-size:14px; }
-    .feature-wide { grid-column:span 2; min-height:auto; display:flex; align-items:center; justify-content:space-between; gap:32px; }
-    .feature-wide h3 { margin:0 0 8px; } .feature-wide p { max-width:535px; } .feature-wide .feature-icon { flex:none; }
-    .release { display:grid; grid-template-columns:1.1fr .9fr; gap:24px; align-items:stretch; padding:46px; border-radius:32px; background:linear-gradient(128deg,#222640 0%,#191b2c 55%,#28243f 100%); border:1px solid var(--line); overflow:hidden; }
-    .release h2 { margin:10px 0 12px; font-size:clamp(29px,4vw,44px); } .release p { max-width:520px; margin:0; color:#c5c5d0; }
-    .release-meta { display:grid; align-content:center; gap:11px; padding:25px; border-radius:22px; background:rgba(5,6,13,.24); }
-    .release-meta strong { font-size:21px; letter-spacing:-.03em; } .release-meta span { color:#bcbccc; font-size:13px; }
-    .download-state { color:#f0ffd7; } .download-state.error { color:#ffc5c5; }
-    .footer { display:flex; justify-content:space-between; gap:20px; padding:30px 0 40px; color:#88899a; font-size:13px; } .footer a { text-decoration:none; }
-    @media (max-width:760px) { .shell{width:min(100% - 32px,1160px)} .nav-links{gap:15px;font-size:13px}.hero{grid-template-columns:1fr;padding:53px 0 66px;gap:45px}.hero-art{min-height:360px;width:calc(100% - 8px);margin:auto}.device-main{height:333px}.device-secondary{left:-8px;width:205px;height:137px}.cover{width:105px;height:105px;margin:21px auto 15px}.lyric{margin-top:17px}.status-grid{grid-template-columns:1fr}.status{border-right:0;border-bottom:1px solid var(--line)}.status:last-child{border-bottom:0}.section{padding:74px 0}.feature-grid{grid-template-columns:1fr}.feature-wide{grid-column:span 1}.feature h3{margin-top:40px}.release{grid-template-columns:1fr;padding:29px 24px}.footer{display:block;line-height:2}.footer span{display:block}.nav-links a:first-child{display:none} }
-  </style>
-</head>
-<body>
-  <header class="shell nav">
-    <a class="brand" href="/" aria-label="Lyrics Companion 首页"><span class="mark">♪</span>LYRICS COMPANION</a>
-    <nav class="nav-links" aria-label="页面导航"><a href="#features">主要功能</a><a href="/versions">历史版本</a></nav>
-  </header>
-  <main>
-    <section class="shell hero">
-      <div>
-        <div class="eyebrow"><span class="pulse"></span>ANDROID LIVE LYRICS</div>
-        <h1>让歌词，<br><em>跟着音乐抵达</em>每一块屏幕。</h1>
-        <p class="lead">Lyrics Companion 为主屏悬浮窗与 Android 副屏提供实时歌词、逐字节奏与真正独立的显示控制。</p>
-        <div class="actions">
-          <a id="download" class="button button-primary" hidden>下载最新版 APK <span aria-hidden="true">↓</span></a>
-          <a class="button button-secondary" href="#features">探索主要功能 <span aria-hidden="true">↘</span></a>
-        </div>
-      </div>
-      <div class="hero-art" aria-label="主屏与副屏歌词效果示意">
-        <div class="device device-main"><div class="ambient"></div><div class="now-playing">NOW PLAYING</div><div class="cover"></div><div class="song">Afterglow</div><div class="artist">Lyrics Companion</div><div class="lyric"><strong>让每一句歌词</strong> 与当下的节奏同步</div><div class="bar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-        <div class="device device-secondary"><div class="secondary-label">SECONDARY DISPLAY</div><div class="secondary-lyric">我听见 <span>心跳的回声</span></div><div class="secondary-progress"></div></div>
-      </div>
-    </section>
-    <section class="shell status-grid" aria-label="产品能力概览">
-      <div class="status"><b>主副屏独立配置</b><span>显示参数与 Refined 细节分别保存</span></div>
-      <div class="status"><b>通用播放器支持</b><span>通过 Android MediaSession 读取音乐状态</span></div>
-      <div class="status"><b>自动安全更新</b><span>校验包名、大小与 SHA-256 后安装</span></div>
-    </section>
-    <section id="features" class="shell section">
-      <div class="section-label">DESIGNED FOR THE MOMENT</div>
-      <h2>不是把歌词搬上屏幕，<br>而是让它恰好出现在需要的位置。</h2>
-      <div class="feature-grid">
-        <article class="feature"><div class="feature-icon">◌</div><h3>原生副屏渲染</h3><p>直接在目标 Display 创建独立歌词层，而非投屏或截图；主屏与副屏各自保持流畅、清晰。</p></article>
-        <article class="feature"><div class="feature-icon">↯</div><h3>逐字节奏与多源歌词</h3><p>优先呈现 YRC、QRC、KRC 的逐字时间轴，并在多个歌词源之间智能匹配与回退。</p></article>
-        <article class="feature"><div class="feature-icon">⌘</div><h3>真正独立的显示控制</h3><p>主副屏分别调整尺寸、封面、背景和 Refined 样式；紧凑副屏可单独关闭封面与律动条。</p></article>
-        <article class="feature"><div class="feature-icon">▶</div><h3>把播放控制留在眼前</h3><p>主屏悬浮窗可按需显示上一首、播放/暂停、下一首，并向当前 MediaSession 发送真实控制指令。</p></article>
-        <article class="feature feature-wide"><div><h3>为你的布局而设计</h3><p>可视化编辑器支持拖放歌词、封面与控制区；副屏位置摇杆让每块车机或外接屏都能恰好对齐。</p></div><div class="feature-icon">✦</div></article>
-      </div>
-    </section>
-    <section class="shell section">
-      <div class="release">
-        <div><div class="section-label">CURRENT RELEASE</div><h2 id="version">正在读取最新版本</h2><p id="notes">更新说明将在此处显示。</p><div class="actions"><a id="download-bottom" class="button button-primary" hidden>获取最新 APK <span aria-hidden="true">↓</span></a><a class="button button-secondary" href="/versions">查看历史版本</a></div></div>
-        <aside class="release-meta" aria-live="polite"><span>更新通道</span><strong id="channel">正在连接</strong><span id="release-status" class="download-state">正在读取发布信息…</span></aside>
-      </div>
-    </section>
-  </main>
-  <footer class="shell footer"><span>© Lyrics Companion · Android 实时歌词伴侣</span><a href="/versions">历史版本与下载 →</a></footer>
-  <script>
-    (() => {
-      const version = document.getElementById("version");
-      const notes = document.getElementById("notes");
-      const channel = document.getElementById("channel");
-      const status = document.getElementById("release-status");
-      const downloads = [document.getElementById("download"), document.getElementById("download-bottom")];
-      function formatBytes(value) { if (!Number.isFinite(value) || value <= 0) return "APK 已准备就绪"; return `${(value / 1024 / 1024).toFixed(1)} MB · 已提供 SHA-256 校验`; }
-      fetch("/update.json", {cache:"no-store"}).then((response) => { if (!response.ok) throw new Error("release unavailable"); return response.json(); }).then((release) => {
-        const name = release.versionName || "最新版本";
-        version.textContent = `版本 ${name}`;
-        notes.textContent = release.changelogText || (Array.isArray(release.changelog) ? release.changelog.join("\n") : release.changelog) || "已同步最新正式发布。";
-        channel.textContent = release.downloadChannel === "github" ? "GitHub Release" : "官方镜像";
-        status.textContent = formatBytes(Number(release.size));
-        if (release.apkUrl) downloads.forEach((link) => { link.href = release.apkUrl; link.hidden = false; });
-      }).catch(() => {
-        version.textContent = "暂时没有可用版本";
-        notes.textContent = "发布信息稍后会自动恢复，请前往历史版本页查看已同步的发布。";
-        channel.textContent = "等待同步";
-        status.textContent = "当前无法读取发布信息";
-        status.classList.add("error");
-      });
-    })();
-  </script>
-</body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#111310" />
+        <meta
+            name="description"
+            content="歌词伴侣：Android 手机与车机的悬浮歌词、逐字歌词和独立副屏显示。分别下载正式版与测试版，查看更新日志和版本归档。"
+        />
+        <title>歌词伴侣 · 让歌词刚好在眼前</title>
+        <link rel="stylesheet" href="/site.css?v=20261003" />
+        <script src="/site.js?v=20261003" defer></script>
+    </head>
+    <body>
+        <a class="skip" href="#main">跳到主要内容</a>
+        <header class="shell nav">
+            <a class="brand" href="/" aria-label="歌词伴侣首页"
+                ><span class="brand-mark" aria-hidden="true">♪</span
+                ><span class="brand-name"
+                    >歌词伴侣<small>LYRICS COMPANION</small></span
+                ></a
+            >
+            <nav class="nav-links" aria-label="主要导航">
+                <a class="desktop-link" href="/#experience">功能体验</a
+                ><a class="desktop-link" href="/#guide">使用指南</a
+                ><a href="/versions">版本归档</a
+                ><a class="nav-cta" href="/#downloads">下载 APK ↗</a>
+            </nav>
+        </header>
+        <main id="main">
+            <section class="shell hero">
+                <div class="reveal">
+                    <div class="eyebrow">YOUR MUSIC. IN SIGHT.</div>
+                    <h1>音乐在播放。<br />歌词，<span>刚好在眼前。</span></h1>
+                    <p class="hero-lead">
+                        给 Android
+                        手机与车机一块属于音乐的空间。悬浮歌词、逐字节奏、独立副屏，让每一句都出现在你想要的位置。
+                    </p>
+                    <div class="actions">
+                        <a class="button primary down" href="#downloads"
+                            >选择下载渠道</a
+                        ><a class="button arrow" href="#experience"
+                            >看看歌词样式</a
+                        >
+                    </div>
+                    <div class="hero-foot">
+                        <span>ANDROID 4.4+</span><span>手机 / 车机 / 副屏</span
+                        ><span>开源项目</span>
+                    </div>
+                </div>
+                <div
+                    class="hero-art reveal delay"
+                    role="img"
+                    aria-label="歌词显示概念示意：经典悬浮歌词和灵动岛双行歌词，非实机截图"
+                >
+                    <div class="record-index">LC — 001 / SIDE A</div>
+                    <div class="record"></div>
+                    <div class="demo-panel">
+                        <div class="demo-head">
+                            <span>LYRICS COMPANION</span
+                            ><span class="demo-playing">PLAYING</span>
+                        </div>
+                        <div class="demo-track">
+                            <div class="mini-cover"></div>
+                            <div>
+                                <strong>此刻，听见</strong
+                                ><small>一段属于自己的旋律</small>
+                            </div>
+                        </div>
+                        <div class="demo-lyrics">
+                            <p>把喧闹留在身后</p>
+                            <p class="current">
+                                <span>让每一句</span> 都在眼前
+                            </p>
+                            <p>沿着旋律，慢慢向前</p>
+                        </div>
+                        <div class="demo-timeline"></div>
+                        <div class="demo-bottom">
+                            <span>01:42 / 03:28</span
+                            ><span>◀ &nbsp; Ⅱ &nbsp; ▶</span>
+                        </div>
+                    </div>
+                    <div class="island-demo">
+                        <div class="mini-cover"></div>
+                        <div>
+                            <strong>让每一句，都在眼前</strong
+                            ><small>沿着旋律，慢慢向前</small>
+                        </div>
+                    </div>
+                    <div class="demo-caption">
+                        LYRIC DISPLAY / CONCEPT PREVIEW
+                    </div>
+                </div>
+            </section>
+            <section class="shell proof-strip" aria-label="产品概览">
+                <div>
+                    <b>一个播放器，多种歌词样式</b
+                    ><span>经典 · 纯净 · 灵动岛 · Refined · 更多</span>
+                </div>
+                <div>
+                    <b>每块屏幕，独立设置</b
+                    ><span>分别调整样式、位置、尺寸与颜色</span>
+                </div>
+                <div>
+                    <b>版本渠道，自己选择</b
+                    ><span>日常使用正式版，尝鲜选择测试版</span>
+                </div>
+            </section>
+            <section id="experience" class="shell section">
+                <div class="section-head">
+                    <div>
+                        <div class="section-number">01 / EXPERIENCE</div>
+                        <h2>换一种方式，<br />看见正在听的音乐。</h2>
+                    </div>
+                    <p class="section-intro">
+                        从不打扰画面的纯净歌词，到把封面与歌词收进胶囊的小窗。为你的屏幕，找到刚好的样子。
+                    </p>
+                </div>
+                <div class="experience">
+                    <div class="experience-stage">
+                        <span class="stage-label"
+                            >LYRIC STYLE / 样式概念预览</span
+                        >
+                        <div class="style-preview pure" data-style-preview>
+                            <p class="preview-prev">把喧闹留在身后</p>
+                            <p class="selected-line">让每一句，都在眼前</p>
+                            <p>沿着旋律，慢慢向前</p>
+                        </div>
+                        <div>
+                            <div
+                                class="style-choices"
+                                role="group"
+                                aria-label="选择歌词样式预览"
+                            >
+                                <button
+                                    class="style-choice"
+                                    type="button"
+                                    aria-pressed="true"
+                                    data-preview-style="pure"
+                                >
+                                    纯净</button
+                                ><button
+                                    class="style-choice"
+                                    type="button"
+                                    aria-pressed="false"
+                                    data-preview-style="compact"
+                                >
+                                    紧凑</button
+                                ><button
+                                    class="style-choice"
+                                    type="button"
+                                    aria-pressed="false"
+                                    data-preview-style="island"
+                                >
+                                    灵动岛
+                                </button>
+                            </div>
+                            <p class="stage-note">
+                                示意界面。实际效果随歌词、播放器信息和显示设置变化。
+                            </p>
+                        </div>
+                    </div>
+                    <div class="feature-list">
+                        <article class="feature-row">
+                            <h3><span>01</span>逐字歌词，跟上每个节奏</h3>
+                            <p>
+                                支持多个歌词源、逐字时间轴与翻译。播放器提供实时歌词时，也可以直接显示当前句。
+                            </p>
+                        </article>
+                        <article class="feature-row">
+                            <h3><span>02</span>手机、车机与副屏各有位置</h3>
+                            <p>
+                                主屏悬浮窗与副屏分别配置。每块屏幕的字号、位置和样式独立保存。
+                            </p>
+                        </article>
+                        <article class="feature-row">
+                            <h3><span>03</span>让画面保留你的习惯</h3>
+                            <p>
+                                按需调整封面、背景、颜色与长句显示；在合适的样式里保留播放控制。
+                            </p>
+                        </article>
+                        <article class="feature-row">
+                            <h3><span>04</span>兼顾日常，也照顾旧设备</h3>
+                            <p>
+                                最低支持 Android
+                                4.4。识别与控制能力取决于播放器和系统提供的信息。
+                            </p>
+                        </article>
+                    </div>
+                </div>
+            </section>
+            <section id="downloads" class="shell section downloads-section">
+                <div class="section-head">
+                    <div>
+                        <div class="section-number">02 / RELEASE CHANNELS</div>
+                        <h2>选好渠道，再开始听。</h2>
+                    </div>
+                    <p class="section-intro">
+                        正式版与测试版分别提供版本信息和更新说明。官方镜像与
+                        GitHub 是下载来源，不是发布渠道。
+                    </p>
+                </div>
+                <div class="channel-grid">
+                    <article
+                        class="channel-card stable"
+                        data-release-channel="stable"
+                        aria-labelledby="stable-title"
+                    >
+                        <div class="channel-top">
+                            <span class="channel-name">EVERYDAY LISTENING</span
+                            ><span class="badge">日常使用 · STABLE</span>
+                        </div>
+                        <h3 id="stable-title">正式版</h3>
+                        <p class="channel-desc">
+                            面向日常使用的正式发布。第一次安装或不想频繁尝鲜，建议从这里开始。
+                        </p>
+                        <div class="version-row">
+                            <span class="version-label">VERSION</span
+                            ><span data-field="version">正在读取版本…</span>
+                        </div>
+                        <p class="release-detail" data-field="detail"></p>
+                        <p
+                            class="channel-notice"
+                            data-field="notice"
+                            hidden
+                        ></p>
+                        <div class="channel-actions">
+                            <a
+                                class="button primary down"
+                                data-field="download"
+                                hidden
+                                >下载正式版 APK</a
+                            ><a
+                                class="text-link"
+                                data-field="github"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                hidden
+                                >GitHub 发布页 ↗</a
+                            >
+                        </div>
+                        <div aria-live="polite" aria-atomic="true">
+                            <p class="release-message">
+                                <span data-field="status"
+                                    >正在连接发布服务…</span
+                                ><button
+                                    class="retry"
+                                    type="button"
+                                    data-field="retry"
+                                    hidden
+                                >
+                                    重新加载正式版
+                                </button>
+                            </p>
+                        </div>
+                        <details
+                            class="changelog"
+                            data-field="changelog"
+                            hidden
+                        >
+                            <summary>正式版更新说明</summary>
+                            <div class="release-notes" data-field="notes"></div>
+                        </details>
+                    </article>
+                    <article
+                        class="channel-card beta"
+                        data-release-channel="beta"
+                        aria-labelledby="beta-title"
+                    >
+                        <div class="channel-top">
+                            <span class="channel-name">EARLY ACCESS</span
+                            ><span class="badge">尝鲜 · BETA</span>
+                        </div>
+                        <h3 id="beta-title">测试版</h3>
+                        <p class="channel-desc">
+                            提前体验新功能。可能存在兼容或显示问题，适合愿意参与反馈的用户。
+                        </p>
+                        <div class="version-row">
+                            <span class="version-label">VERSION</span
+                            ><span data-field="version">正在读取版本…</span>
+                        </div>
+                        <p class="release-detail" data-field="detail"></p>
+                        <p
+                            class="channel-notice"
+                            data-field="notice"
+                            hidden
+                        ></p>
+                        <div class="channel-actions">
+                            <a
+                                class="button beta-button down"
+                                data-field="download"
+                                hidden
+                                >下载测试版 APK</a
+                            ><a
+                                class="text-link"
+                                data-field="github"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                hidden
+                                >GitHub 发布页 ↗</a
+                            >
+                        </div>
+                        <div aria-live="polite" aria-atomic="true">
+                            <p class="release-message">
+                                <span data-field="status"
+                                    >正在连接发布服务…</span
+                                ><button
+                                    class="retry"
+                                    type="button"
+                                    data-field="retry"
+                                    hidden
+                                >
+                                    重新加载测试版
+                                </button>
+                            </p>
+                        </div>
+                        <details
+                            class="changelog"
+                            data-field="changelog"
+                            hidden
+                        >
+                            <summary>测试版更新说明</summary>
+                            <div class="release-notes" data-field="notes"></div>
+                        </details>
+                    </article>
+                </div>
+                <div class="channel-guide">
+                    <p>
+                        <strong>已安装？可以在应用里切换更新渠道。</strong
+                        ><br />前往「高级 → 应用更新 →
+                        加入测试版更新通道」。关闭后恢复正式版检查；若已安装测试版的版本号更高，可能需要等待更高版本的正式版。
+                    </p>
+                    <a class="text-link" href="/versions">查看完整版本归档 ↗</a>
+                </div>
+                <noscript
+                    ><p class="release-message">
+                        浏览器未启用 JavaScript，无法读取实时版本。请前往
+                        <a
+                            class="text-link"
+                            href="https://github.com/zuo-qirun/Lyrics-Companion/releases"
+                            >GitHub 发布页</a
+                        >，按正式版 / Pre-release 标记选择下载。
+                    </p></noscript
+                >
+            </section>
+            <section id="guide" class="shell section">
+                <div class="section-head">
+                    <div>
+                        <div class="section-number">03 / GET STARTED</div>
+                        <h2>三步，让歌词在眼前。</h2>
+                    </div>
+                    <p class="section-intro">
+                        先让应用认识正在播放的音乐，再选择你喜欢的显示方式。
+                    </p>
+                </div>
+                <div class="guide-grid">
+                    <article class="guide-step">
+                        <span class="step-index">01</span>
+                        <h3>下载并安装</h3>
+                        <p>
+                            选择适合自己的发布渠道，下载 APK 到 Android
+                            手机或车机，并完成安装。
+                        </p>
+                    </article>
+                    <article class="guide-step">
+                        <span class="step-index">02</span>
+                        <h3>按应用提示授权</h3>
+                        <p>
+                            开启通知读取与悬浮窗等所需权限。应用会提示各项权限的用途与状态。
+                        </p>
+                    </article>
+                    <article class="guide-step">
+                        <span class="step-index">03</span>
+                        <h3>播放音乐，调整样式</h3>
+                        <p>
+                            打开播放器播放一首歌，在伴侣里开启歌词显示，再为主屏或副屏调整位置与字号。
+                        </p>
+                    </article>
+                </div>
+                <div class="faq">
+                    <details>
+                        <summary>正式版和测试版有什么区别？</summary>
+                        <p>
+                            正式版面向日常使用；测试版会提前提供新功能，也可能存在未验证的问题。两条渠道独立展示与检查更新。测试通道可能提供比旧测试构建更新的正式版，这时下载卡会明确标注。
+                        </p>
+                    </details>
+                    <details>
+                        <summary>所有播放器都能显示逐字歌词吗？</summary>
+                        <p>
+                            逐字效果需要可用的逐字时间轴。实际识别、封面、播放进度和控制能力取决于播放器与系统提供的信息；不具备逐字数据时显示普通歌词或实时歌词。
+                        </p>
+                    </details>
+                    <details>
+                        <summary>车机或副屏没显示，怎么办？</summary>
+                        <p>
+                            先检查权限与目标显示器选择，再查看应用的「音乐状态与诊断」。不同车机
+                            ROM、播放器和外接屏需要实际验证，可通过应用内反馈提供诊断信息。
+                        </p>
+                    </details>
+                    <details>
+                        <summary>测试版可以直接切回正式版吗？</summary>
+                        <p>
+                            关闭测试版通道会恢复正式版检查，但不会自动降级。测试版版本号较高时，需要等待新版正式版；手动安装旧版前应确认签名与设备是否允许降级，保留原应用数据。
+                        </p>
+                    </details>
+                </div>
+            </section>
+        </main>
+        <footer class="shell footer">
+            <div>
+                <span>歌词伴侣 / LYRICS COMPANION</span>
+                <p>让歌词，刚好出现在需要的位置。</p>
+            </div>
+            <div class="footer-links">
+                <a
+                    href="https://github.com/zuo-qirun/Lyrics-Companion"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >GitHub ↗</a
+                ><a href="/versions">版本归档</a
+                ><a
+                    href="https://github.com/zuo-qirun/Lyrics-Companion/issues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >问题反馈 ↗</a
+                >
+            </div>
+        </footer>
+    </body>
 </html>

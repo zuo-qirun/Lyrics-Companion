@@ -38,7 +38,11 @@ curl http://127.0.0.1:8790/versions.json
 curl http://127.0.0.1:8790/faq.json
 ```
 
-网页入口：`/` 为最新版，`/versions` 为历史版本。`/faq.json` 提供 App 内 FAQ，客户端会在成功刷新后缓存最近一次有效内容。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。`/update-beta.json` 与 `/update-github-beta.json` 是测试版通道的同名端点（见下）。
+网页入口：`/` 为产品官网，分别展示正式版和测试版的版本、下载与更新说明；两条通道独立加载，失败时可以单独重试。测试通道返回更新的正式版时，会明确显示「当前测试通道提供正式版」，下载按钮和更新说明也按实际版本标注。官方镜像与 GitHub 仅表示下载来源。
+
+`/versions` 为版本归档，默认筛选正式版；`/versions?channel=beta` 查看测试版，`/versions?channel=all` 查看全部。旧清单中没有渠道字段的记录按正式版处理。官网样式和交互分别位于 `public/site.css` 与 `public/site.js`，部署时需与两个 HTML 文件一起更新，无需前端构建步骤。
+
+`/faq.json` 提供 App 内 FAQ，客户端会在成功刷新后缓存最近一次有效内容。`/update-github.json` 和 `/versions-github.json` 会让客户端下载 GitHub 资源；默认端点优先使用服务器本地镜像。`/update-beta.json` 与 `/update-github-beta.json` 是测试版通道的同名端点（见下）。
 
 ## systemd
 
