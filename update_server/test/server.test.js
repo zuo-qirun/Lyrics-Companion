@@ -110,10 +110,48 @@ test("HTTP server accepts heartbeats and persists bounded feedback", async () =>
     const diagnostic = await post("/api/diagnostics/crash", {clientId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       appVersion: "test", summary: "IllegalStateException", details: largeDetails});
     assert.equal(diagnostic.status, 201);
+    const diagnosticId = (await diagnostic.json()).id;
     const diagnostics = await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics`, {headers: adminHeaders});
     const diagnosticItems = (await diagnostics.json()).diagnostics;
     assert.equal(diagnosticItems[0].kind, "crash");
     assert.equal(diagnosticItems[0].details.length, largeDetails.length);
+
+    // summary=1：给聊天机器人用的小响应，去掉 details 只留长度与开头 300 字。
+    const compact = await (await fetch(
+      `http://127.0.0.1:${port}/api/admin/diagnostics?summary=1`,
+      {headers: adminHeaders})).json();
+    assert.equal(compact.summary, true);
+    assert.equal(compact.diagnostics[0].details, undefined);
+    assert.equal(compact.diagnostics[0].detailsLength, largeDetails.length);
+    assert.equal(compact.diagnostics[0].detailsPreview.length, 300);
+    assert.equal(compact.diagnostics[0].summary, "IllegalStateException");
+    // 不带参数仍是全量，管理面板照旧。
+    const full = await (await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics`,
+      {headers: adminHeaders})).json();
+    assert.equal(full.summary, false);
+    assert.equal(full.diagnostics[0].details.length, largeDetails.length);
+    // kind 过滤。
+    const crashes = await (await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics?kind=crash`,
+      {headers: adminHeaders})).json();
+    assert.equal(crashes.diagnostics.length, 1);
+    const snapshots = await (await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics?kind=snapshot`,
+      {headers: adminHeaders})).json();
+    assert.equal(snapshots.diagnostics.length, 0);
+    // 按 id 取单条，带完整 details。
+    const one = await (await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics/${diagnosticId}`,
+      {headers: adminHeaders})).json();
+    assert.equal(one.diagnostic.id, diagnosticId);
+    assert.equal(one.diagnostic.details.length, largeDetails.length);
+    const missing = await fetch(
+      `http://127.0.0.1:${port}/api/admin/diagnostics/00000000-0000-4000-8000-000000000000`,
+      {headers: adminHeaders});
+    assert.equal(missing.status, 404);
+    // 未带令牌仍是 401（新端点同样要过 requireAdmin）。
+    const unauthorized = await fetch(`http://127.0.0.1:${port}/api/admin/diagnostics?summary=1`);
+    assert.equal(unauthorized.status, 401);
+    const unauthorizedOne = await fetch(
+      `http://127.0.0.1:${port}/api/admin/diagnostics/${diagnosticId}`);
+    assert.equal(unauthorizedOne.status, 401);
   } finally {
     if (child.exitCode === null) {
       child.kill();
