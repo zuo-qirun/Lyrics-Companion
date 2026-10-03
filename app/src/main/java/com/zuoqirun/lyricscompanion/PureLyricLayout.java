@@ -23,6 +23,14 @@ final class PureLyricLayout {
     static float constrainedCurrentSize(float requestedSize, float availableHeight,
                                         int lineCount, int translatedLineCount,
                                         boolean currentTranslated, float secondaryScale) {
+        return constrainedCurrentSize(requestedSize, availableHeight, lineCount,
+                translatedLineCount, currentTranslated, secondaryScale, 0);
+    }
+
+    static float constrainedCurrentSize(float requestedSize, float availableHeight,
+                                        int lineCount, int translatedLineCount,
+                                        boolean currentTranslated, float secondaryScale,
+                                        int titleLines) {
         int count = Math.max(1, lineCount);
         float safeScale = Math.max(0.35f, secondaryScale);
         int translations = Math.max(0, Math.min(count, translatedLineCount));
@@ -33,7 +41,8 @@ final class PureLyricLayout {
                 + secondaryTranslations * safeScale
                 * (TRANSLATION_SCALE + TRANSLATION_GAP_RATIO);
         float scalable = 1f + (count - 1) * safeScale + translatedWeight
-                + (count - 1) * entryGapRatio(count);
+                + (count - 1) * entryGapRatio(count)
+                + (titleLines > 0 ? Math.min(3, titleLines) * 1.22f + 0.3f : 0f);
         float capped = Math.max(1f, availableHeight) / Math.max(1f, scalable);
         return Math.min(requestedSize, capped);
     }

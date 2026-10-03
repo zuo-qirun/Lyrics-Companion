@@ -89,8 +89,8 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
 
         LinearLayout background = card("背景");
         addChoice(background, "类型", AppPreferences.KEY_REFINED_BACKGROUND_TYPE,
-                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘"},
-                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield"},
+                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘", "封面渐隐"},
+                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield", "cover_fade"},
                 AppPreferences.refinedBackgroundType(this, secondary));
         addToggle(background, "静态流体", AppPreferences.KEY_REFINED_STATIC_FLUID,
                 AppPreferences.refinedStaticFluid(this, secondary));

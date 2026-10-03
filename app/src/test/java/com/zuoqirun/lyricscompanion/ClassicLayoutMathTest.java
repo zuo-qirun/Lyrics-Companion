@@ -6,6 +6,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class ClassicLayoutMathTest {
+    @Test public void enlargedTitleIsIndependentOfSmallPanelContentScale() {
+        assertEquals(27f, ClassicLayoutMath.titleSizePx(1f, 0.4f, 1.8f, true), 0.001f);
+        assertEquals(10.8f, ClassicLayoutMath.titleSizePx(1f, 0.4f, 1.8f, false), 0.001f);
+        assertEquals(54f, ClassicLayoutMath.titleSizePx(2f, 0.8f, 1.8f, true), 0.001f);
+    }
+
     /** 状态行 + 歌名 + n 行歌词的常见组合，字号按经典样式的默认值。 */
     private static void fillDefaultRows(float[] sizes, boolean[] scales, float[] mins,
                                         boolean[] uniform, int lyricRows) {

@@ -44,6 +44,20 @@ public class DisplayStyleScopeTest {
         assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_REFINED_TEXT_EFFECT));
     }
 
+    @Test public void newDisplayOptionsDoNotLeakAcrossStylesOrScreens() {
+        String[] keys = {AppPreferences.KEY_ISLAND_SECOND_ROW, AppPreferences.KEY_PURE_SHOW_TITLE,
+                AppPreferences.KEY_CLASSIC_KEEP_TITLE_SIZE, AppPreferences.KEY_CLASSIC_LONG_LINE_MODE,
+                AppPreferences.KEY_LIVE_LYRIC_ANIMATION, AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION,
+                AppPreferences.KEY_COVER_FADE_PERCENT, AppPreferences.KEY_COVER_FADE_LENGTH,
+                AppPreferences.KEY_COVER_FADE_BLUR, AppPreferences.KEY_COVER_FADE_TOP,
+                AppPreferences.KEY_COVER_FADE_COLOR, AppPreferences.KEY_REFINED_BACKGROUND_TYPE};
+        for (String key : keys) {
+            assertTrue(key, AppPreferences.isStyleScopedKey(key));
+            assertEquals(key + "_main_pure", AppPreferences.styleScopedKey(key, false, "pure"));
+            assertEquals(key + "_secondary_island", AppPreferences.styleScopedKey(key, true, "island"));
+        }
+    }
+
     @Test public void behaviourSettingsStayPerScreenOnly() {
         // 这些跟样式无关：按样式各存一份会让用户改了一处、另一处不生效。
         assertFalse(AppPreferences.isStyleScopedKey(AppPreferences.KEY_OVERLAY_STYLE));

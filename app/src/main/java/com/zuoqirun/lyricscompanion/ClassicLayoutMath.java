@@ -26,6 +26,11 @@ final class ClassicLayoutMath {
 
     private ClassicLayoutMath() { }
 
+    static float titleSizePx(float density, float densityUnit, float titleScale,
+                             boolean keepRequestedSize) {
+        return 15f * (keepRequestedSize ? density : densityUnit) * titleScale;
+    }
+
     static float contentScale(float width, float height, float density) {
         float safeDensity = Math.max(0.01f, density);
         float referenceArea = 390f * 226f * safeDensity * safeDensity;

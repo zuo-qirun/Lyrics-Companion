@@ -168,6 +168,37 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.longLineMode(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_LONG_LINE_MODE, value));
+        if ("default".equals(AppPreferences.overlayStyle(this, secondary))) {
+            addChoice(panel, "经典长句显示方式",
+                    new String[]{"跟随原样（默认）", "跑马灯（不缩放）", "缩小字号", "换行"},
+                    new String[]{"legacy", "marquee", "shrink", "wrap"},
+                    AppPreferences.classicLongLineMode(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_CLASSIC_LONG_LINE_MODE, value));
+            addToggle(panel, "经典歌名保持设定字号（长歌名跑马灯）",
+                    AppPreferences.KEY_CLASSIC_KEEP_TITLE_SIZE,
+                    AppPreferences.classicKeepTitleSize(this, secondary));
+            panel.addView(text("歌名按实际字号预留高度；空间不足时请增大面板高度或减少歌词行数。",
+                    12, 0xFFD7E1EE, false));
+        }
+        if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
+            addChoice(panel, "胶囊第二行内容",
+                    new String[]{"跟随原样（默认）", "歌名 / 歌手", "下一句歌词", "歌词翻译", "无"},
+                    new String[]{"legacy", "title", "next", "translation", "none"},
+                    AppPreferences.islandSecondRow(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_ISLAND_SECOND_ROW, value));
+            panel.addView(text("高度不足 56dp 或文字区过窄时退回单行；第二行跟随下一句字号与不透明度。",
+                    12, 0xFFD7E1EE, false));
+        }
+        addToggle(panel, "播放器实时歌词切句动画", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
+                AppPreferences.liveLyricAnimation(this, secondary));
+        addSeek(panel, "实时歌词过渡时长", 0, 800,
+                AppPreferences.liveLyricAnimationDuration(this, secondary), " ms",
+                value -> AppPreferences.putDisplayInt(this, secondary,
+                        AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, value));
+        panel.addView(text("实时歌词换句时淡入并轻微上移，不估算演唱或逐字时长；默认关闭，顶部歌词条不受影响。",
+                12, 0xFFD7E1EE, false));
         // 粒子量 and 逐字歌词及时擦除 belong to the dissolve: they are only offered while it is
         // switched on, and go away with it. The holder exists because the master toggle is built
         // before the rows it controls.
@@ -232,6 +263,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         panel.addView(text("匹配期间面板底部显示发散小点；默认超过 3 秒才出现，动画约 30 fps。",
                 12, 0xFFD7E1EE, false));
         if ("pure".equals(AppPreferences.overlayStyle(this, secondary))) {
+            addToggle(panel, "纯净模式显示歌名", AppPreferences.KEY_PURE_SHOW_TITLE,
+                    AppPreferences.pureShowTitle(this, secondary));
             addToggle(panel, "纯净歌词显示翻译", AppPreferences.KEY_PURE_SHOW_TRANSLATION,
                     AppPreferences.pureShowTranslation(this, secondary));
         }
@@ -433,11 +466,28 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 0xFFD7E1EE, false));
         // 动态星空背景 + 发光歌词（issue #59）：背景类型里的「星空」档与它的四个参数。
         addChoice(artwork, "背景类型（Refined / 紧凑）",
-                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘"},
-                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield"},
+                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘", "封面渐隐"},
+                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield", "cover_fade"},
                 AppPreferences.refinedBackgroundType(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_REFINED_BACKGROUND_TYPE, value));
+        addSeek(artwork, "渐隐封面占比", 40, 70,
+                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, 55), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, value));
+        addSeek(artwork, "封面渐隐长度", 0, 40,
+                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_LENGTH, 20), "% 面板高度",
+                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_LENGTH, value));
+        addSeek(artwork, "渐隐封面模糊（0 = 清晰）", 0, 100,
+                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_BLUR, 0), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_BLUR, value));
+        addToggle(artwork, "渐隐封面顶部对齐（关闭为居中裁切）", AppPreferences.KEY_COVER_FADE_TOP,
+                AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_COVER_FADE_TOP, true));
+        addChoice(artwork, "封面渐隐底色",
+                new String[]{"日夜底色（在颜色页分别设置）", "封面主色"}, new String[]{"theme", "artwork"},
+                AppPreferences.displayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, "theme"),
+                value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, value));
+        artwork.addView(text("封面渐隐沿用背景不透明度、亮度与遮罩；无封面时只显示底色。胶囊深色背景也跟随不透明度，0 即透明。",
+                12, 0xFFD7E1EE, false));
         addSeek(artwork, "星空密度", 10, 200,
                 AppPreferences.starfieldDensityPercent(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,

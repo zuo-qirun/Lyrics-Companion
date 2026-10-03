@@ -114,6 +114,17 @@ final class AppPreferences {
     static final String KEY_LYRIC_SOURCE_COLOR = "lyric_source_color";
     static final String KEY_BACKGROUND_LIGHT_COLOR = "background_light_color";
     static final String KEY_BACKGROUND_DARK_COLOR = "background_dark_color";
+    static final String KEY_ISLAND_SECOND_ROW = "island_second_row";
+    static final String KEY_PURE_SHOW_TITLE = "pure_show_title";
+    static final String KEY_CLASSIC_KEEP_TITLE_SIZE = "classic_keep_title_size";
+    static final String KEY_CLASSIC_LONG_LINE_MODE = "classic_long_line_mode";
+    static final String KEY_LIVE_LYRIC_ANIMATION = "live_lyric_animation";
+    static final String KEY_LIVE_LYRIC_ANIMATION_DURATION = "live_lyric_animation_duration";
+    static final String KEY_COVER_FADE_PERCENT = "cover_fade_percent";
+    static final String KEY_COVER_FADE_LENGTH = "cover_fade_length";
+    static final String KEY_COVER_FADE_BLUR = "cover_fade_blur";
+    static final String KEY_COVER_FADE_TOP = "cover_fade_top";
+    static final String KEY_COVER_FADE_COLOR = "cover_fade_color";
     static final String KEY_SMOOTH_LYRIC_SCROLL = "smooth_lyric_scroll";
     static final String KEY_LYRIC_CATALOG = "lyric_catalog";
     /** Optional per-player-category override kept for backward compatibility. */
@@ -427,7 +438,12 @@ final class AppPreferences {
                     KEY_TRAILING_ACCENT, KEY_REFINED_TEXT_EFFECT, KEY_ARTIST_SCALE,
                     KEY_SPECTRUM_HEIGHT_PERCENT, KEY_SPECTRUM_GAP_DP,
                     KEY_PANEL_SHADOW_PERCENT, KEY_STYLE_MASK_MODE, KEY_STYLE_BRIGHTNESS,
-                    KEY_CONTENT_PADDING_PERCENT, KEY_LONG_LINE_MODE)));
+                    KEY_CONTENT_PADDING_PERCENT, KEY_LONG_LINE_MODE,
+                    KEY_ISLAND_SECOND_ROW, KEY_PURE_SHOW_TITLE, KEY_CLASSIC_KEEP_TITLE_SIZE,
+                    KEY_CLASSIC_LONG_LINE_MODE, KEY_LIVE_LYRIC_ANIMATION,
+                    KEY_LIVE_LYRIC_ANIMATION_DURATION, KEY_COVER_FADE_PERCENT,
+                    KEY_COVER_FADE_LENGTH, KEY_COVER_FADE_BLUR, KEY_COVER_FADE_TOP,
+                    KEY_COVER_FADE_COLOR, KEY_REFINED_BACKGROUND_TYPE)));
 
     /** 屏 × 样式两级键；样式为空时按默认样式（经典 {@code default}）算。 */
     static String styleScopedKey(String key, boolean secondary, String style) {
@@ -1190,6 +1206,34 @@ final class AppPreferences {
         putDisplayInt(context, secondary,
                 light ? KEY_BACKGROUND_LIGHT_COLOR : KEY_BACKGROUND_DARK_COLOR,
                 color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static String islandSecondRow(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_ISLAND_SECOND_ROW, "legacy");
+        return "next".equals(value) || "translation".equals(value) || "none".equals(value)
+                || "title".equals(value) ? value : "legacy";
+    }
+
+    static String classicLongLineMode(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_CLASSIC_LONG_LINE_MODE, "legacy");
+        return "legacy".equals(value) ? value : LongLineLayout.normalizeMode(value);
+    }
+
+    static boolean pureShowTitle(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_PURE_SHOW_TITLE, false);
+    }
+
+    static boolean classicKeepTitleSize(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_CLASSIC_KEEP_TITLE_SIZE, false);
+    }
+
+    static boolean liveLyricAnimation(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_LIVE_LYRIC_ANIMATION, false);
+    }
+
+    static int liveLyricAnimationDuration(Context context, boolean secondary) {
+        return Math.max(0, Math.min(800,
+                displayInt(context, secondary, KEY_LIVE_LYRIC_ANIMATION_DURATION, 300)));
     }
 
     static boolean smoothLyricScroll(Context context, boolean secondary) {
