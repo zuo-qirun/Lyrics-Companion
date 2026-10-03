@@ -4,7 +4,7 @@ const {test} = require("node:test");
 const assert = require("node:assert");
 const {
   isRetryableFetchError, isRetryableResponse, retryDelayMs, retryCount, fetchWithRetry,
-  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk,
+  pickBetaRelease, betaChannelUsesPrerelease, hasBetaApk, authFailure,
 } = require("../sync-release.js");
 
 function fetchError(code, message) {
@@ -151,4 +151,16 @@ test("skips prereleases without a matching APK", () => {
   assert.equal(pickBetaRelease(releases, hasBetaApk).tag_name, "apk-300-bbbbbbb");
   // 全不可用就当作"没有测试版"，交给正式版兜底。
   assert.equal(pickBetaRelease([releases[0]], hasBetaApk), null);
+});
+
+test("only a rejected token falls back to anonymous requests", () => {
+  assert.equal(authFailure(401, ""), true);
+  assert.equal(authFailure(403, "Bad credentials"), true);
+  assert.equal(authFailure(403, "{\"message\":\"Invalid token\"}"), true);
+  assert.equal(authFailure(403, "token expired"), true);
+  // 配额用尽不是"token 失效"，不该退化成匿名再打一遍。
+  assert.equal(authFailure(403, "API rate limit exceeded for 1.2.3.4"), false);
+  assert.equal(authFailure(403, ""), false);
+  assert.equal(authFailure(404, "Not Found"), false);
+  assert.equal(authFailure(0, "boom"), false);
 });
