@@ -234,17 +234,31 @@ function readVersions(req, github) {
   return data;
 }
 
+/** 从同步子进程的 stderr 尾巴里挑一行最有信息量的，放进 `/health`，免得失败只有一个 code。 */
+function syncErrorSummary(text) {
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const meaningful = lines.filter((line) =>
+    /error|failed|timeout|HTTP \d{3}|rate limit/i.test(line));
+  const pick = meaningful.length > 0 ? meaningful[meaningful.length - 1] : lines[lines.length - 1];
+  return (pick || "").slice(0, 300);
+}
+
 function runSync(reason) {
   if (!autoSync || syncing) return;
   syncing = true;
   const startedAt = new Date().toISOString();
   const child = spawn(process.execPath, [syncScript], {cwd: __dirname,
     env: process.env, stdio: ["ignore", "pipe", "pipe"]});
+  let stderrTail = "";
   child.stdout.pipe(process.stdout);
-  child.stderr.pipe(process.stderr);
+  child.stderr.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    stderrTail = (stderrTail + String(chunk)).slice(-2000);
+  });
   child.on("close", (code) => {
     syncing = false;
-    lastSync = {reason, code, startedAt, finishedAt: new Date().toISOString()};
+    lastSync = {reason, code, startedAt, finishedAt: new Date().toISOString(),
+      ...(code === 0 ? {} : {error: syncErrorSummary(stderrTail)})};
   });
   child.on("error", (error) => {
     syncing = false;
