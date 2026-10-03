@@ -360,7 +360,23 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/admin/diagnostics") {
       if (!requireAdmin(req, res)) return;
       if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
-      sendJson(res, 200, {ok: true, diagnostics: diagnosticStore.list(url.searchParams.get("limit"))});
+      // summary=1（`?summary`）去掉 details，只留长度与开头 300 字：给聊天机器人这类客户端用，
+      // 默认仍是全量，管理面板照旧渲染完整正文。
+      const rawSummary = url.searchParams.get("summary");
+      const summary = (rawSummary !== null && rawSummary !== "0")
+        || url.searchParams.get("fields") === "summary";
+      sendJson(res, 200, {ok: true, summary,
+        diagnostics: diagnosticStore.list(url.searchParams.get("limit"),
+          {summary, kind: url.searchParams.get("kind") || ""})});
+      return;
+    }
+    const diagnosticRoute = url.pathname.match(/^\/api\/admin\/diagnostics\/([a-f0-9-]{36})$/i);
+    if (diagnosticRoute) {
+      if (!requireAdmin(req, res)) return;
+      if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }
+      const entry = diagnosticStore.get(diagnosticRoute[1]);
+      if (!entry) { sendJson(res, 404, {ok: false, error: "diagnostic not found"}); return; }
+      sendJson(res, 200, {ok: true, diagnostic: entry});
       return;
     }
     const replyRoute = url.pathname.match(/^\/api\/admin\/feedback\/([a-f0-9-]{36})\/replies$/i);

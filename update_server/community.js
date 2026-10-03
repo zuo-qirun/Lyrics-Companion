@@ -179,9 +179,34 @@ class DiagnosticStore extends RateLimitedStore {
     return entry;
   }
 
-  list(limit = 100) {
-    return readJsonLines(this.filePath).slice(
+  /**
+   * 读取诊断记录（新 → 旧）。
+   *
+   * <p>默认返回全量（管理面板要渲染 `details`）；`summary: true` 时去掉正文、只留长度与开头
+   * 300 字，给"在聊天窗口里读日志"这类客户端用——单条 details 上限 1.2 MB，30 条全量能到几十 MB。
+   *
+   * @param {number|string} limit 最多几条（1..50）。
+   * @param {{summary?: boolean, kind?: string}} [options] `kind` 过滤 crash / snapshot。
+   */
+  list(limit = 100, options = {}) {
+    const entries = readJsonLines(this.filePath).slice(
       -Math.max(1, Math.min(50, Number(limit) || 20))).reverse();
+    const filtered = options.kind
+      ? entries.filter((entry) => entry.kind === options.kind) : entries;
+    if (!options.summary) return filtered;
+    return filtered.map(({details, ...rest}) => ({
+      ...rest,
+      detailsLength: (details || "").length,
+      detailsPreview: (details || "").slice(0, 300),
+    }));
+  }
+
+  /** 按 id 取一条完整记录（含 details）；id 不合法或不存在时返回 null。 */
+  get(id) {
+    const wanted = String(id || "").trim().toLowerCase();
+    if (!/^[a-f0-9-]{36}$/.test(wanted)) return null;
+    return readJsonLines(this.filePath).find((entry) =>
+      String(entry.id || "").toLowerCase() === wanted) || null;
   }
 }
 
