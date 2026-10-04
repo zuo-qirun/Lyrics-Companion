@@ -1308,9 +1308,10 @@ final class LyricsPanelView extends View {
         int classicTextSave = canvas.save();
         canvas.clipRect(0f, 0f, width, Math.max(1f, areaBottom));
         for (int index = 0; index < rowCount; index++) {
-            float baseline = blockTop + classicBlock.baselinesPx[index]
-                    + previewShift + basicScrollShift;
             int kind = classicRowKinds[index];
+            float baseline = ClassicLayoutMath.rowBaseline(blockTop, classicBlock.baselinesPx[index],
+                    kind == CLASSIC_ROW_STATUS || kind == CLASSIC_ROW_TITLE,
+                    previewShift, basicScrollShift);
             if (kind == CLASSIC_ROW_STATUS) {
                 // Panel metadata: its own colours, and never an outline.
                 drawingMetadata = true;
@@ -3528,6 +3529,7 @@ final class LyricsPanelView extends View {
                                    float size, float width, int color, String mode,
                                    float density, Paint.Align align, int maxLines) {
         if (value == null || value.isEmpty()) return;
+        color = resolveMetadataColor(value, color);
         String text = value.replace('\n', ' ');
         setTextPaintForValue(size, Typeface.BOLD, text);
         paint.setTextAlign(Paint.Align.LEFT);
@@ -3537,7 +3539,8 @@ final class LyricsPanelView extends View {
             for (int index = 0; index < chunks.size(); index++) {
                 String chunk = chunks.get(index).text;
                 float x = align == Paint.Align.CENTER ? left + (width - paint.measureText(chunk)) / 2f : left;
-                drawLyricText(canvas, chunk, x, baseline + index * size * 1.22f, size, color);
+                drawScrollingTextChunk(canvas, chunk, value, chunks.get(index).start,
+                        x, baseline + index * size * 1.22f, size, color);
             }
             return;
         }
@@ -3560,8 +3563,28 @@ final class LyricsPanelView extends View {
                 : align == Paint.Align.CENTER ? left + (width - measured) * 0.5f : left;
         int save = canvas.save();
         canvas.clipRect(left, baseline - size * 1.25f, left + width, baseline + size * 0.35f);
-        drawLyricText(canvas, text, x, baseline, size, color);
+        drawScrollingTextChunk(canvas, text, value, 0, x, baseline, size, color);
         canvas.restoreToCount(save);
+    }
+
+    private void drawScrollingTextChunk(Canvas canvas, String text, String original, int start,
+                                        float x, float baseline, float size, int fallback) {
+        if (!drawingMetadata || frameArtist.isEmpty()
+                || !original.equals(frameTitle + " · " + frameArtist)) {
+            drawLyricText(canvas, text, x, baseline, size, fallback);
+            return;
+        }
+        int titleEnd = Math.max(0, Math.min(text.length(), frameTitle.length() - start));
+        int artistStart = Math.max(titleEnd, Math.min(text.length(), frameTitle.length() + 3 - start));
+        int[] boundaries = {0, titleEnd, artistStart, text.length()};
+        int[] colors = {resolveMetadataColor(frameTitle, fallback), fallback,
+                resolveMetadataColor(frameArtist, fallback)};
+        for (int index = 0; index < colors.length; index++) {
+            if (boundaries[index] == boundaries[index + 1]) continue;
+            String part = text.substring(boundaries[index], boundaries[index + 1]);
+            drawLyricText(canvas, part, x, baseline, size, colors[index]);
+            x += paint.measureText(part);
+        }
     }
 
     private Bitmap coverFadePreview(Bitmap art) {

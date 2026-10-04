@@ -82,6 +82,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 "恢复播放时自动显示已启用的主屏悬浮窗和副屏歌词",
                 AppPreferences.KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING,
                 AppPreferences.hideOverlaysWhenNotPlaying(this), false);
+        addPauseGraceRow(rules);
         addRuleToggle(rules, "进入当前播放器后隐藏",
                 "离开当前媒体会话所属的播放器后自动恢复",
                 AppPreferences.KEY_HIDE_OVERLAYS_IN_PLAYER,
@@ -272,6 +273,28 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                         AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
                 AppPreferences.putDisplayInt(OverlayVisibilitySettingsActivity.this, true,
                         AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
+                AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+    }
+
+    private void addPauseGraceRow(LinearLayout parent) {
+        TextView value = text("暂停多久后隐藏：" + AppPreferences.pauseHideGraceMs(this) / 1000L
+                + " 秒", 14, 0xFFD7E1EE, true);
+        parent.addView(value);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(60);
+        seek.setProgress((int) (AppPreferences.pauseHideGraceMs(this) / 1000L));
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
+                                                    boolean fromUser) {
+                value.setText("暂停多久后隐藏：" + progress + " 秒");
+                if (!fromUser) return;
+                AppPreferences.get(OverlayVisibilitySettingsActivity.this).edit()
+                        .putInt(AppPreferences.KEY_PAUSE_HIDE_GRACE_SECONDS, progress).apply();
                 AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
             }
             @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }

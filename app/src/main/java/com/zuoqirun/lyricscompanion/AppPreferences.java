@@ -190,6 +190,7 @@ final class AppPreferences {
     static final String KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING =
             "hide_overlays_when_not_playing";
     static final String KEY_HIDE_OVERLAYS_IN_PLAYER = "hide_overlays_in_player";
+    static final String KEY_PAUSE_HIDE_GRACE_SECONDS = "pause_hide_grace_seconds";
     static final String KEY_HIDE_OVERLAYS_IN_APPS = "hide_overlays_in_apps";
     static final String KEY_HIDE_SELECTED_APPS_ON_MAIN = "hide_selected_apps_on_main";
     static final String KEY_HIDE_SELECTED_APPS_ON_SECONDARY = "hide_selected_apps_on_secondary";
@@ -1774,12 +1775,18 @@ final class AppPreferences {
 
     /** An enabled auto-start option must always have a visible target to restore. */
     static boolean ensureAutoStartOverlayTarget(Context context) {
-        if (mainEnabled(context) || secondaryEnabled(context) || topLyricStrip(context)
-                || bottomSpectrum(context)) {
+        if (!needsDefaultOverlayTarget(mainEnabled(context), secondaryEnabled(context),
+                topLyricStrip(context), bottomSpectrum(context),
+                DisplaySlotRegistry.entries(context).size())) {
             return false;
         }
         get(context).edit().putBoolean(KEY_MAIN_OVERLAY, true).apply();
         return true;
+    }
+
+    static boolean needsDefaultOverlayTarget(boolean main, boolean secondary,
+                                            boolean topStrip, boolean spectrum, int extraCount) {
+        return !main && !secondary && !topStrip && !spectrum && extraCount == 0;
     }
 
     static boolean serviceStoppedByUser(Context context) {
@@ -1837,6 +1844,11 @@ final class AppPreferences {
 
     static boolean hideOverlaysWhenNotPlaying(Context context) {
         return get(context).getBoolean(KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING, false);
+    }
+
+    static long pauseHideGraceMs(Context context) {
+        return Math.max(0, Math.min(60, get(context)
+                .getInt(KEY_PAUSE_HIDE_GRACE_SECONDS, 3))) * 1000L;
     }
 
     static boolean hideOverlaysInPlayer(Context context) {

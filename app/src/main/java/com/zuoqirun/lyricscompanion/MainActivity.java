@@ -62,6 +62,9 @@ import java.util.concurrent.Executors;
 @SuppressLint("SetTextI18n")
 public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CUSTOM_FONT = 2417;
+    private static final int REQUEST_FONT_STORAGE = 2422;
+    private static final ExecutorService FONT_EXECUTOR = Executors.newSingleThreadExecutor();
+    private String pendingFontDirectory = "";
     private static final int REQUEST_RECORD_AUDIO = 2418;
     private static final int REQUEST_LOCAL_LYRIC_DIRECTORY = 2419;
     private static final int REQUEST_BLUETOOTH_CONNECT = 2420;
@@ -185,6 +188,7 @@ public final class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         if (savedInstanceState != null) {
             selectedSection = savedInstanceState.getInt(STATE_SELECTED_SECTION, 0);
+            pendingFontDirectory = savedInstanceState.getString("pending_font_directory", "");
         }
         boolean launcherIntent = isLauncherIntent();
         if (launcherIntent) {
@@ -205,10 +209,15 @@ public final class MainActivity extends AppCompatActivity {
         MusicStateStore.initialize(this);
         handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
         handler.postDelayed(() -> checkForUpdates(false), 2_000L);
+        if (savedInstanceState == null && Intent.ACTION_VIEW.equals(getIntent().getAction())
+                && getIntent().getData() != null) {
+            confirmFontImport(getIntent().getData());
+        }
     }
 
     @Override protected void onSaveInstanceState(Bundle outState) {
         outState.putInt(STATE_SELECTED_SECTION, selectedSection);
+        outState.putString("pending_font_directory", pendingFontDirectory);
         super.onSaveInstanceState(outState);
     }
 
@@ -284,6 +293,17 @@ public final class MainActivity extends AppCompatActivity {
         if (requestCode != REQUEST_CUSTOM_FONT || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
+        importFont(uri);
+    }
+
+    private void confirmFontImport(Uri uri) {
+        new MaterialAlertDialogBuilder(this).setTitle("导入全局字体")
+                .setMessage("将所选字体应用到界面与全部歌词？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("导入", (dialog, which) -> importFont(uri)).show();
+    }
+
+    private void importFont(Uri uri) {
         try {
             String name = CustomFontStore.importFont(this, uri);
             AppPreferences.changed(this);
@@ -1471,6 +1491,8 @@ public final class MainActivity extends AppCompatActivity {
                     ? "已授予存储读取权限，正在重新读取本地歌词"
                     : LocalLyricClient.manualDirectorySaveMessage(this), Toast.LENGTH_LONG);
             MusicStateStore.reloadLyrics(this);
+        } else if (requestCode == REQUEST_FONT_STORAGE) {
+            scanFontDirectory(pendingFontDirectory);
         }
     }
 
@@ -2456,9 +2478,20 @@ public final class MainActivity extends AppCompatActivity {
         resetParams.leftMargin = dp(10);
         row.addView(resetButton, resetParams);
         parent.addView(row);
+        MaterialButton scanButton = button("扫描字体目录", false);
+        scanButton.setOnClickListener(v -> chooseFontDirectory());
+        parent.addView(scanButton, new LinearLayout.LayoutParams(-1, dp(46)));
     }
 
     private void openFontPicker() {
+        for (String action : new String[]{Intent.ACTION_OPEN_DOCUMENT, Intent.ACTION_GET_CONTENT}) {
+            Intent fontIntent = new Intent(action).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/octet-stream")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"font/ttf", "font/otf", "font/ttc",
+                            "application/x-font-ttf", "application/x-font-otf", "application/x-font",
+                            "application/ttf", "application/octet-stream"});
+            if (startDocumentPicker(fontIntent)) return;
+        }
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
@@ -2469,6 +2502,61 @@ public final class MainActivity extends AppCompatActivity {
         if (startDocumentPicker(fallback)) return;
         SafeToast.show(this, "此设备没有可用的文件选择器，请安装或启用系统文件管理器后重试。",
                 Toast.LENGTH_LONG);
+    }
+
+    private void chooseFontDirectory() {
+        TextInputLayout layout = new TextInputLayout(this);
+        layout.setHint("字体目录路径");
+        layout.setPadding(dp(20), 0, dp(20), 0);
+        TextInputEditText input = new TextInputEditText(this);
+        input.setSingleLine(true);
+        input.setText(android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS).getAbsolutePath());
+        layout.addView(input);
+        new MaterialAlertDialogBuilder(this).setTitle("扫描字体目录")
+                .setView(layout).setNegativeButton("取消", null)
+                .setNeutralButton("已授权歌词目录", (dialog, which) -> scanFontDirectory(null))
+                .setPositiveButton("扫描", (dialog, which) -> {
+                    pendingFontDirectory = input.getText() == null ? "" : input.getText().toString().trim();
+                    if (!LocalLyricClient.requestManualDirectoryAccess(this, REQUEST_FONT_STORAGE)) {
+                        scanFontDirectory(pendingFontDirectory);
+                    }
+                }).show();
+    }
+
+    private void scanFontDirectory(String path) {
+        if (path != null && !LocalLyricClient.canReadManualDirectory(this)) {
+            SafeToast.show(this, "无法读取该路径，请授予存储读取权限，或使用已授权歌词目录 / 文件管理器打开字体",
+                    Toast.LENGTH_LONG);
+            return;
+        }
+        SafeToast.show(this, "正在扫描字体", Toast.LENGTH_SHORT);
+        FONT_EXECUTOR.execute(() -> {
+            try {
+                List<FontDirectoryScanner.FontFile> fonts = path == null
+                        ? FontDirectoryScanner.scanTree(this, AppPreferences.get(this).getString(
+                                AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI, ""))
+                        : FontDirectoryScanner.scanFiles(new java.io.File(path));
+                handler.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (fonts.isEmpty()) {
+                        SafeToast.show(this, "未找到可读的 .ttf / .otf / .ttc 字体，请检查目录和权限",
+                                Toast.LENGTH_LONG);
+                        return;
+                    }
+                    String[] names = new String[fonts.size()];
+                    for (int index = 0; index < names.length; index++) names[index] = fonts.get(index).name;
+                    new MaterialAlertDialogBuilder(this).setTitle("选择字体")
+                            .setItems(names, (dialog, which) -> confirmFontImport(fonts.get(which).uri))
+                            .setNegativeButton("取消", null).show();
+                });
+            } catch (Exception error) {
+                handler.post(() -> {
+                    if (!isFinishing() && !isDestroyed()) SafeToast.show(this,
+                            "扫描失败，请检查目录授权或使用文件管理器打开字体", Toast.LENGTH_LONG);
+                });
+            }
+        });
     }
 
     private void openLocalLyricDirectoryPicker() {

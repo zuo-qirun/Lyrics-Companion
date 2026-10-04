@@ -97,6 +97,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
      * 函数里，是因为判定每 500ms 跑一次，计时器只能被推进一次。
      */
     private final long[] lyricUnavailableSinceElapsedMs = {-1L, -1L};
+    private final PlaybackHideGrace playbackHideGrace = new PlaybackHideGrace();
     private final String[] lyricUnavailableTrackKey = {"", ""};
     private boolean secondaryHiddenForPlayback;
     private String lastVisibilityDiagnostic = "";
@@ -1791,7 +1792,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 lyricUnavailableSinceElapsedMs[secondary ? 1 : 0],
                 AppPreferences.noLyricGraceMs(this, secondary));
         return OverlayPlaybackVisibility.shouldHide(
-                AppPreferences.hideOverlaysWhenNotPlaying(this), snapshot.playing,
+                playbackHideGrace.shouldHide(AppPreferences.hideOverlaysWhenNotPlaying(this),
+                        snapshot.playing, snapshot.active ? snapshot.title + "\u0000" + snapshot.artist : "",
+                        SystemClock.elapsedRealtime(), AppPreferences.pauseHideGraceMs(this)), false,
                 hideInPlayer, playerInForeground, appRuleSaysHide,
                 AppPreferences.hideWhenNoLyrics(this, secondary), noLyricHide);
     }

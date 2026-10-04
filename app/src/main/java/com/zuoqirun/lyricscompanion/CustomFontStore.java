@@ -38,6 +38,12 @@ final class CustomFontStore {
     static String importFont(Context context, Uri uri) throws IOException {
         String displayName = displayName(context, uri);
         String extension = extension(displayName);
+        String mime = context.getContentResolver().getType(uri);
+        DiagnosticLog.record(context, "Font", "selected mime=" + mime + " extension=" + extension
+                + " provider=" + uri.getAuthority());
+        if (mime != null && mime.startsWith("image/")) {
+            throw new IOException("选择器返回了图片，请改用扫描字体目录或在文件管理器中打开字体");
+        }
         if (!isSupportedExtension(extension)) {
             DiagnosticLog.record(context, "Font", "rejected extension=" + extension);
             throw new IOException("请选择 .ttf、.otf 或 .ttc 字体文件");

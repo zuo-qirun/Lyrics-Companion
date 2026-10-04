@@ -26,6 +26,11 @@ final class ClassicLayoutMath {
 
     private ClassicLayoutMath() { }
 
+    static float rowBaseline(float blockTop, float baseline, boolean metadata,
+                             float previewShift, float entryShift) {
+        return blockTop + baseline + (metadata ? 0f : previewShift + entryShift);
+    }
+
     static float titleSizePx(float density, float densityUnit, float titleScale,
                              boolean keepRequestedSize) {
         return 15f * (keepRequestedSize ? density : densityUnit) * titleScale;
