@@ -1,0 +1,50 @@
+name: 新功能或改进建议
+description: 想让伴侣多支持一些能力，或现有行为用着别扭——样式字号、歌词来源、多屏投屏、性能与体验都可以。
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提建议前先搜一下现有 Issues：同一功能的多个诉求可以合并成一条，已有讨论的请在原帖下补充。
+        另：如果你的诉求是「某个播放器 / 车机应用播了歌，但伴侣读不到歌名」，请改用「播放器适配」模板，那边需要的字段不一样。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及模块
+      description: 选一个最接近的，方便归类。
+      options:
+        - 歌词与匹配（词库、本地歌词、实时歌词）
+        - 样式与字号配色
+        - 悬浮窗行为（隐藏规则、触摸穿透、位置锁定）
+        - 多屏与投屏（副屏 / 仪表 / 顶部歌词条）
+        - 播放器与蓝牙通道
+        - 权限与诊断
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: 想要的效果
+      description: 现在是什么样、期望变成什么样；有具体场景（某款车机、某类歌曲、某种屏幕）请写出来。
+      placeholder: 例：经典样式的歌名字号调到最大后还是不变大，希望真正跟着设置放大。
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景与频率
+      description: 每天都会用到，还是偶尔用一次？在哪台设备 / 哪辆车上？
+  - type: input
+    id: device
+    attributes:
+      label: 设备 / 车机型号
+      description: 车机建议写「车型 + 年款 + 车机系统版本」，同一诉求在不同车机上可行性差别很大。
+      placeholder: 例：零跑 C11 · 2021 款；小米 14 · Android 14
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 截图 / 参考
+      description: 有截图、录屏或其它 App 的参考效果最好。含车牌、定位、账号信息的请先打码。

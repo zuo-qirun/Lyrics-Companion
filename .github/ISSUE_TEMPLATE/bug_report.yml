@@ -1,0 +1,98 @@
+name: 功能不正常（Bug 反馈）
+description: 歌词不显示、面板不跟随、权限失效、设置项不生效等——本来该能用，却没有按预期工作。
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先看一眼 [README 的「平台边界」](https://github.com/zuo-qirun/Lyrics-Companion#readme)：
+        「读不到歌词」多数不是伴侣的 bug，而是权限没给、或车机 ROM 本身不把歌名发布给系统。
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 使用环境
+      description: 选最接近的一项；同一问题在手机和车机上表现不同时，请分开提。
+      options:
+        - 安卓手机 / 平板
+        - 车机 · 车机自带应用
+        - 车机 · 第三方应用
+        - 副屏 / 仪表屏 / HUD
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 设备与系统版本
+      description: 手机填型号与 Android 版本；车机填「车型 + 年款 + 车机系统版本（设置 → 关于本机）」，车机务必写全型号。
+      placeholder: 例：小米 14 · Android 14；车机例：比亚迪 海豹 EV 2022 款 · DiLink 4.0 · 控制器 21.2.2
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: 伴侣版本
+      description: 设置 →「高级」（简洁模式为「维护」）→「应用更新」里的「当前版本」。测试版也照写（例：20261004-7c73ec8）。
+    validations:
+      required: true
+  - type: input
+    id: player
+    attributes:
+      label: 播放器
+      description: 应用名 + 版本；知道包名更好。车机原生播放器请注明「车机自带」。
+      placeholder: 例：酷狗音乐 11.2.0 · com.tencent.kugou
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开应用开始写，一步一行，写成别人能照着做的样子。
+      placeholder: |
+        1. 车机上打开播放器，播放任意歌曲
+        2. 回到桌面，等待 10 秒
+        3. 悬浮窗不出现
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际现象
+      description: 面板当时显示什么文字；在什么条件下出现；必现还是偶发（多久一次）。
+      placeholder: 例：面板一直显示「等待兼容的音乐播放器」，必现，换歌也一样。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: 伴侣「音乐状态与诊断」内容
+      description: |
+        路径：设置 →「歌词」分类 →「音乐状态与诊断」，长按那几行字全选复制，贴到这里。
+
+        **这一段是定位最快的信息，请务必附上**：它直接区分「没收到媒体会话」「有歌名没进度」「已识别但词库没命中」三种完全不同的成因。
+      placeholder: |
+        读取方式：
+        最近成功读取会话：
+        当前会话数量：
+        最近异常信息：
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 截图 / 录屏
+      description: |
+        三张最有用的：① 播放器播放页 ② 下拉通知栏 ③ 伴侣悬浮窗。
+        位置偏移、触摸点不动这类问题请附录屏（手指位置要拍进去）。含车牌、定位、账号信息的请先打码。
+      placeholder: 拖拽图片到这里
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: 提交前自查
+      options:
+        - label: 「通知使用权（通知读取）」与「悬浮窗」都已授权
+        - label: 已在现有 Issues 里搜过关键词，不是重复问题
+        - label: 截图 / 录屏已打码

@@ -1,0 +1,14 @@
+name: 其它（提问 / 致谢 / 其它）
+description: 不属于功能反馈、适配请求或功能建议的内容。
+body:
+  - type: markdown
+    attributes:
+      value: |
+        匿名反馈、提建议和查看他人反馈都可以在 App 内「社区与反馈」里完成，回复更快，也不用公开你的设备信息。
+  - type: textarea
+    id: content
+    attributes:
+      label: 内容
+      description: 想说什么都可以。
+    validations:
+      required: true

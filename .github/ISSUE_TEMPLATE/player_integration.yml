@@ -1,0 +1,95 @@
+name: 播放器适配（车机自带应用 / 本地播放读不到歌词）
+description: 某个播放器或车机自带应用在播歌，但伴侣读不到歌名、出不了歌词——需要判断该调设置、做兼容，还是属于车机平台边界。
+title: "[Feature] "
+labels:
+  - area:session
+body:
+  - type: markdown
+    attributes:
+      value: |
+        伴侣取歌名只有四条路径，能走通哪条决定要不要改代码：
+
+        1. Android 5.0+ 读系统标准 `MediaSession`（歌名 / 歌手 / 时长 / 进度）；
+        2. Android 4.4 读旧式 `RemoteControlClient`；
+        3. 两者都拿不到时，兜底解析播放器的**常驻媒体通知**；
+        4. 本地歌曲读同目录同名 `.lrc`，或已授权的歌词目录。
+
+        所以结论通常是三种之一：**权限或隐藏规则没对**（伴侣侧可能零改动）、**只在车机私有通道给元数据**（需要厂商私有 AIDL 适配，同东风）、**ROM 不给第三方读媒体信息**（属平台边界，同比亚迪 DiLink 媒体中心、吉利星愿 Flyme Auto）。下面几项就是为了区分这三种。
+  - type: input
+    id: device
+    attributes:
+      label: 车机信息
+      description: 车型 + 年款 + 车机系统版本（设置 → 关于本机）。手机用户填型号与 Android 版本。
+      placeholder: 例：零跑 C11 · 2021 款 · 车机版本 x.x.x · Android 10
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: 目标应用
+      description: 应用名 + 版本号 + 是车机自带还是自己装的 + 能否卸载。知道包名最好（设置里的「应用信息」，或甲壳虫 / adb 读取）。
+      placeholder: 例：车机自带「零听」· 可卸载：否 · 包名未知
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: 播放来源
+      options:
+        - 在线播放（车机流量 / WiFi）
+        - 本地文件
+        - U 盘
+        - 蓝牙
+        - 手机投屏（CarPlay 等）
+        - 几种都有
+    validations:
+      required: true
+  - type: textarea
+    id: metadata
+    attributes:
+      label: 播放时能看到哪些信息
+      description: ① 目标应用自己的播放页有没有歌名 / 歌手？② 下拉通知栏有没有媒体通知、通知里带不带歌名？③ 伴侣悬浮窗当时显示什么？
+      placeholder: |
+        播放页：有歌名和歌手
+        通知栏：有媒体通知，但通知里没有歌名
+        悬浮窗：显示「等待兼容的音乐播放器」
+    validations:
+      required: true
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: 伴侣「音乐状态与诊断」内容
+      description: |
+        路径：设置 →「歌词」分类 →「音乐状态与诊断」，长按全选复制后贴上来。
+
+        结论行写的是「未收到媒体会话」还是「有歌名但没有播放进度」，直接决定下一步查哪一层。
+      placeholder: |
+        读取方式：
+        最近成功读取会话：
+        当前会话数量：
+        最近异常信息：
+    validations:
+      required: true
+  - type: textarea
+    id: contrast
+    attributes:
+      label: 对照测试
+      description: |
+        同一台车机上，换一个播放器（车机自带的酷狗 / 网易云 / 喜马拉奇等，或手机投屏）放同一首歌，伴侣能出词吗？
+        能出 → 车机侧没问题，问题只在这个应用；完全不能 → 与该应用无关，是这台 ROM 的平台边界。
+  - type: textarea
+    id: adb
+    attributes:
+      label: adb 日志（可选）
+      description: 有甲壳虫 / Shizuku / adb 时很有用：播放状态下执行下面两条，把输出贴上来。
+      value: |
+        adb shell dumpsys media_session
+        adb logcat -s LyricsDisplay LyricsMediaSession LyricsMusicState
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: 提交前自查
+      options:
+        - label: 「通知使用权（通知读取）」与「悬浮窗」都已授权
+        - label: 已在现有 Issues 里搜过，不是重复请求
+        - label: 截图 / 录屏已打码
