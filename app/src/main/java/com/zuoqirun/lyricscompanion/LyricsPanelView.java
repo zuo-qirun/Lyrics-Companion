@@ -2333,8 +2333,8 @@ final class LyricsPanelView extends View {
             canvas.clipRect(0f, 0f, eraseFront, height);
             drawCompactCurrentLine(canvas, snapshot, density, lyricLeft, lyricWidth, baseline,
                     lyricSize, secondaryBaseline, secondaryLineSize, secondaryText,
-                    showTranslation, lyricColor(withAlpha(primaryText, 120)),
-                    lyricColor(primaryText), lyricColor(withAlpha(primaryText, 165)));
+                    showTranslation, compactSlotColor(false, withAlpha(primaryText, 120)),
+                    compactSlotColor(true, primaryText), lyricColor(withAlpha(primaryText, 165)));
             canvas.restoreToCount(reveal);
             drawDissolvingLine(canvas, leaving, lyricAnchor, baseline, lyricSize,
                     lyricColor(primaryText), lyricWidth, Typeface.BOLD, lyricAlign,
@@ -2342,8 +2342,8 @@ final class LyricsPanelView extends View {
         } else {
             drawCompactCurrentLine(canvas, snapshot, density, lyricLeft, lyricWidth, baseline,
                     lyricSize, secondaryBaseline, secondaryLineSize, secondaryText,
-                    showTranslation, lyricColor(withAlpha(primaryText, 120)),
-                    lyricColor(primaryText), lyricColor(withAlpha(primaryText, 165)));
+                    showTranslation, compactSlotColor(false, withAlpha(primaryText, 120)),
+                    compactSlotColor(true, primaryText), lyricColor(withAlpha(primaryText, 165)));
         }
         if (showBars) {
             drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
@@ -3565,6 +3565,19 @@ final class LyricsPanelView extends View {
         canvas.clipRect(left, baseline - size * 1.25f, left + width, baseline + size * 0.35f);
         drawScrollingTextChunk(canvas, text, value, 0, x, baseline, size, color);
         canvas.restoreToCount(save);
+    }
+
+    /** Explicit compact colors stay solid; automatic colors retain the original alpha contrast. */
+    private int compactSlotColor(boolean active, int fallback) {
+        int selected = AppPreferences.resolveThemedSlotColor(lyricsFollowTheme,
+                lyricEnvironmentUsesLightColors(), active ? currentLyricColor : inactiveLyricColor,
+                active ? currentLyricLightColor : inactiveLyricLightColor,
+                active ? currentLyricDarkColor : inactiveLyricDarkColor);
+        return resolveCompactSlotColor(selected, lyricColor(fallback));
+    }
+
+    static int resolveCompactSlotColor(int selected, int fallback) {
+        return selected == 0 ? fallback : selected | 0xFF000000;
     }
 
     private void drawScrollingTextChunk(Canvas canvas, String text, String original, int start,

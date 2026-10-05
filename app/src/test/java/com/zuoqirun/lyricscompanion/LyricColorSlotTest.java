@@ -6,6 +6,23 @@ import org.junit.Test;
 
 /** Covers the shared color-slot resolution and outline width rules used by every style. */
 public class LyricColorSlotTest {
+    @Test public void compactCustomSlotsProducePinkSungAndSolidWhiteUnsung() {
+        assertEquals(0xFFFF80AB, LyricsPanelView.resolveCompactSlotColor(0xFFFF80AB, 0xFF112233));
+        assertEquals(0xFFFFFFFF, LyricsPanelView.resolveCompactSlotColor(0xFFFFFFFF, 0x78112233));
+    }
+
+    @Test public void compactAutomaticSlotsKeepTheLegacyAlphaContrast() {
+        assertEquals(0x78112233, LyricsPanelView.resolveCompactSlotColor(0, 0x78112233));
+        assertEquals(0xFF112233, LyricsPanelView.resolveCompactSlotColor(0, 0xFF112233));
+    }
+
+    @Test public void compactSlotsFollowTheSelectedEnvironment() {
+        int light = AppPreferences.resolveThemedSlotColor(true, true, 0, 0xFFFF80AB, 0xFF80DEEA);
+        int dark = AppPreferences.resolveThemedSlotColor(true, false, 0, 0xFFFF80AB, 0xFF80DEEA);
+        assertEquals(0xFFFF80AB, LyricsPanelView.resolveCompactSlotColor(light, 0xFF112233));
+        assertEquals(0xFF80DEEA, LyricsPanelView.resolveCompactSlotColor(dark, 0xFF112233));
+    }
+
     @Test public void flatSlotAppliesWhenThemeFollowingOff() {
         assertEquals(0xFF112233, AppPreferences.resolveThemedSlotColor(
                 false, true, 0xFF112233, 0xFF000000, 0xFFFFFFFF));

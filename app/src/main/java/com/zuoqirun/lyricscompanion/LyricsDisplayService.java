@@ -101,6 +101,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private final String[] lyricUnavailableTrackKey = {"", ""};
     private boolean secondaryHiddenForPlayback;
     private String lastVisibilityDiagnostic = "";
+    private final int[] panelScreenPosition = new int[2];
+    private final int[] touchScreenPosition = new int[2];
+    private final String[] lastPlaybackPadDiagnostic = {"", ""};
     private boolean screenReceiverRegistered;
     private String lastNotificationSignature = "";
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
@@ -926,7 +929,29 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             removePlaybackPad(secondary);
             return;
         }
-        if (isPlaybackPadCurrent(secondary, bounds)) return;
+        panel.getLocationOnScreen(panelScreenPosition);
+        int padX = panelScreenPosition[0] + bounds.left;
+        int padY = panelScreenPosition[1] + bounds.top;
+        if (isPlaybackPadCurrent(secondary, bounds, padX, padY)) {
+            recordPlaybackPadGeometry(secondary, padX, padY);
+            return;
+        }
+        View existingPad = secondary ? secondaryPlaybackPad : mainPlaybackPad;
+        WindowManager.LayoutParams existingParams = secondary
+                ? secondaryPlaybackPadParams : mainPlaybackPadParams;
+        if (existingPad != null && existingPad.getParent() != null && existingParams != null) {
+            existingParams.width = bounds.width();
+            existingParams.height = bounds.height();
+            existingParams.x = padX;
+            existingParams.y = padY;
+            try {
+                manager.updateViewLayout(existingPad, existingParams);
+                recordPlaybackPadGeometry(secondary, padX, padY);
+                return;
+            } catch (Throwable error) {
+                Log.w(TAG, "Unable to realign playback pad", error);
+            }
+        }
         removePlaybackPad(secondary);
         Context context = secondary ? secondaryContext : this;
         View pad = new View(context);
@@ -937,16 +962,13 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                OverlayTouchGeometry.windowFlags(),
                 PixelFormat.TRANSLUCENT);
-        padParams.gravity = Gravity.TOP | Gravity.START;
-        Point screen = displaySize(secondary ? secondaryDisplay
-                : mainWindowManager.getDefaultDisplay());
-        padParams.x = clamp(panelParams.x + bounds.left, 0,
-                Math.max(0, screen.x - bounds.width()));
-        padParams.y = clamp(panelParams.y + bounds.top, 0,
-                Math.max(0, screen.y - bounds.height()));
+        padParams.gravity = Gravity.TOP | Gravity.LEFT;
+        // Keep even partially offscreen controls aligned; clamping only the touch window
+        // would move the hit region away from the glyphs again.
+        padParams.x = padX;
+        padParams.y = padY;
         final MediaControlAction[] pressed = new MediaControlAction[1];
         final boolean[] handledByLongPress = new boolean[1];
         final Handler padHandler = new Handler(Looper.getMainLooper());
@@ -960,8 +982,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             showOverlayQuickMenu(pad, secondary);
         };
         pad.setOnTouchListener((v, event) -> {
-            float localX = event.getX() + bounds.left;
-            float localY = event.getY() + bounds.top;
+            panel.getLocationOnScreen(panelScreenPosition);
+            v.getLocationOnScreen(touchScreenPosition);
+            float localX = OverlayTouchGeometry.panelCoordinate(event.getX(),
+                    touchScreenPosition[0], panelScreenPosition[0]);
+            float localY = OverlayTouchGeometry.panelCoordinate(event.getY(),
+                    touchScreenPosition[1], panelScreenPosition[1]);
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     pressed[0] = panel.playbackControlAt(localX, localY);
@@ -999,6 +1025,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 mainPlaybackPad = pad;
                 mainPlaybackPadParams = padParams;
             }
+            pad.post(() -> recordPlaybackPadGeometry(secondary, padParams.x, padParams.y));
         } catch (Throwable error) {
             Log.w(TAG, "Unable to add playback pad", error);
         }
@@ -1018,7 +1045,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         });
     }
 
-    private boolean isPlaybackPadCurrent(boolean secondary, android.graphics.Rect bounds) {
+    private boolean isPlaybackPadCurrent(boolean secondary, android.graphics.Rect bounds,
+                                         int x, int y) {
         View pad = secondary ? secondaryPlaybackPad : mainPlaybackPad;
         WindowManager.LayoutParams padParams = secondary
                 ? secondaryPlaybackPadParams : mainPlaybackPadParams;
@@ -1027,8 +1055,50 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             return false;
         }
         return padParams.width == bounds.width() && padParams.height == bounds.height()
-                && padParams.x == panelParams.x + bounds.left
-                && padParams.y == panelParams.y + bounds.top;
+                && padParams.x == x && padParams.y == y;
+    }
+
+    private void recordPlaybackPadGeometry(boolean secondary, int expectedX, int expectedY) {
+        View pad = secondary ? secondaryPlaybackPad : mainPlaybackPad;
+        if (pad == null || pad.getParent() == null || pad.getWidth() <= 0) return;
+        pad.getLocationOnScreen(touchScreenPosition);
+        String diagnostic = "playback pad " + (secondary ? "secondary" : "main")
+                + " expected=" + expectedX + "," + expectedY
+                + " actual=" + touchScreenPosition[0] + "," + touchScreenPosition[1];
+        int index = secondary ? 1 : 0;
+        if (!diagnostic.equals(lastPlaybackPadDiagnostic[index])) {
+            DiagnosticLog.record(this, "Overlay", diagnostic);
+            lastPlaybackPadDiagnostic[index] = diagnostic;
+        }
+    }
+
+    /** Window moves and system insets can change without changing the panel's view bounds. */
+    private void syncOverlayTouchWindows(boolean secondary) {
+        LyricsPanelView panel = secondary ? secondaryPanel : mainPanel;
+        WindowManager manager = secondary ? secondaryWindowManager : mainWindowManager;
+        WindowManager.LayoutParams panelParams = secondary ? secondaryParams : mainParams;
+        if (panel == null || panel.getParent() == null || panel.getWidth() <= 0
+                || manager == null || panelParams == null) return;
+        if ((panelParams.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0) return;
+        if (AppPreferences.overlayPositionLocked(this, secondary)
+                && !AppPreferences.overlayTouchThrough(this, secondary)
+                && AppPreferences.showPlaybackControls(this, secondary)) {
+            addPlaybackPad(secondary);
+        }
+        TextView handle = secondary ? secondaryUnlockHandle : mainUnlockHandle;
+        WindowManager.LayoutParams params = secondary ? secondaryUnlockParams : mainUnlockParams;
+        if (handle == null || handle.getParent() == null || params == null) return;
+        panel.getLocationOnScreen(panelScreenPosition);
+        Point screen = displaySize(secondary ? secondaryDisplay
+                : mainWindowManager.getDefaultDisplay());
+        int x = clamp(panelScreenPosition[0] + panel.getWidth() - params.width,
+                0, Math.max(0, screen.x - params.width));
+        int y = clamp(panelScreenPosition[1], 0, Math.max(0, screen.y - params.height));
+        if (params.x == x && params.y == y) return;
+        params.x = x;
+        params.y = y;
+        try { manager.updateViewLayout(handle, params); }
+        catch (Throwable error) { Log.w(TAG, "Unable to realign unlock handle", error); }
     }
 
     private void removePlaybackPad(boolean secondary) {
@@ -1119,10 +1189,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                         ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                         : WindowManager.LayoutParams.TYPE_PHONE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                OverlayTouchGeometry.windowFlags(),
                 PixelFormat.TRANSLUCENT);
-        handleParams.gravity = Gravity.TOP | Gravity.START;
+        handleParams.gravity = Gravity.TOP | Gravity.LEFT;
         handleParams.x = clamp(panelParams.x + panelParams.width - size, 0,
                 Math.max(0, displaySize(secondary ? secondaryDisplay
                         : mainWindowManager.getDefaultDisplay()).x - size));
@@ -1226,11 +1295,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(width, height, type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                OverlayTouchGeometry.windowFlags(),
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
         return params;
@@ -1833,6 +1898,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             DiagnosticLog.record(this, "Overlay", diagnostic);
             lastVisibilityDiagnostic = diagnostic;
         }
+        syncOverlayTouchWindows(false);
+        syncOverlayTouchWindows(true);
         if (hideMain == overlaysHiddenForPlayback && hideSecondary == secondaryHiddenForPlayback) return;
         overlaysHiddenForPlayback = hideMain;
         secondaryHiddenForPlayback = hideSecondary;
