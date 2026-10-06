@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const {FeedbackStore, OnlineTracker, normalizeDiagnostic, normalizeFeedback} = require("../community");
+const {FeedbackStore, DiagnosticStore, OnlineTracker, normalizeDiagnostic, normalizeFeedback} = require("../community");
 
 const first = "11111111-1111-4111-8111-111111111111";
 const second = "22222222-2222-4222-8222-222222222222";
@@ -35,6 +35,33 @@ test("online tracker deduplicates clients and expires stale heartbeats", () => {
   assert.equal(tracker.heartbeat(second, 110_000), 2);
   assert.equal(tracker.count(136_000), 1);
   assert.equal(tracker.count(141_000), 0);
+});
+
+test("version flags survive persistence and public feedback and diagnostic lists", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "lyrics-version-status-"));
+  try {
+    const version = {latestKnownVersion: "20261006-beta", latestKnownVersionCode: 1791234567,
+      versionStatusKnown: true, outdated: true, updateChannel: "beta", daysBehind: 31,
+      releasesBehind: 3, actualPackage: "com.android.gallery3d"};
+    const feedback = new FeedbackStore(path.join(directory, "feedback.jsonl"), 60000);
+    const submitted = feedback.submit(first, {message: "version status feedback", ...version}, 100000);
+    assert.equal(submitted.outdated, true);
+    const listed = feedback.list()[0];
+    assert.equal(listed.outdated, true);
+    assert.equal(listed.packageMatches, false);
+    assert.equal(listed.latestKnownVersion, "20261006-beta");
+    assert.equal(listed.replyTokenHash, undefined);
+    const diagnostics = new DiagnosticStore(path.join(directory, "diagnostics.jsonl"), 60000);
+    diagnostics.submit(first, {summary: "version status snapshot", details: "details", ...version}, 100000);
+    for (const summary of [false, true]) {
+      const report = diagnostics.list(20, {summary})[0];
+      assert.equal(report.outdated, true);
+      assert.equal(report.packageMatches, false);
+      assert.equal(report.updateChannel, "beta");
+    }
+  } finally {
+    fs.rmSync(directory, {recursive: true, force: true});
+  }
 });
 
 test("feedback is bounded, persisted and rate limited", () => {

@@ -190,7 +190,7 @@ class FeedbackStore extends RateLimitedStore {
 
   publicFeedback(entry) {
     return {id: entry.id, createdAt: entry.createdAt, message: entry.message,
-      contact: entry.contact, appVersion: entry.appVersion};
+      contact: entry.contact, appVersion: entry.appVersion, ...normalizeVersionStatus(entry)};
   }
 }
 
