@@ -441,6 +441,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addCard(root, cache);
 
         LinearLayout artwork = card("背景与封面");
+        if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
+            addToggle(artwork, "显示封面", AppPreferences.KEY_ISLAND_SHOW_COVER,
+                    AppPreferences.islandShowCover(this, secondary));
+            artwork.addView(text("关闭后不预留圆形封面区域，文字使用胶囊完整内宽；无封面时也遵守下方隐藏设置。",
+                    12, 0xFFD7E1EE, false));
+        }
         // 播放器不给封面时的行为（issue #50）。
         addChoice(artwork, "播放器不给封面时",
                 new String[]{"显示占位方块", "隐藏封面区域（版面内收）"},

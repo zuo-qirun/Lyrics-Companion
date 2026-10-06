@@ -190,6 +190,7 @@ final class LyricsPanelView extends View {
     private boolean classicKeepTitleSize;
     private String classicLongLineMode = "legacy";
     private String islandSecondRow = "legacy";
+    private boolean islandShowCover = true;
     private boolean liveLyricAnimation;
     private int liveLyricAnimationDuration = 300;
     private final LiveLyricTransition liveTransition = new LiveLyricTransition();
@@ -393,6 +394,7 @@ final class LyricsPanelView extends View {
         classicKeepTitleSize = AppPreferences.classicKeepTitleSize(getContext(), secondary);
         classicLongLineMode = AppPreferences.classicLongLineMode(getContext(), secondary);
         islandSecondRow = AppPreferences.islandSecondRow(getContext(), secondary);
+        islandShowCover = AppPreferences.islandShowCover(getContext(), secondary);
         liveLyricAnimation = AppPreferences.liveLyricAnimation(getContext(), secondary);
         liveLyricAnimationDuration = AppPreferences.liveLyricAnimationDuration(getContext(), secondary);
         coverFadePercent = AppPreferences.displayInt(getContext(), secondary,
@@ -1528,7 +1530,6 @@ final class LyricsPanelView extends View {
         float top = (height - capsuleHeight) * 0.5f;
         float side = IslandLayoutMath.sidePaddingPx(capsuleHeight);
         float coverSize = IslandLayoutMath.coverSizePx(capsuleHeight);
-        float gap = IslandLayoutMath.coverGapPx(capsuleHeight);
         float centerY = top + capsuleHeight * 0.5f;
 
         // 胶囊底：默认半透明深色玻璃；用户设了背景色 / 不透明度时按设置来。
@@ -1545,12 +1546,17 @@ final class LyricsPanelView extends View {
 
         float coverLeft = side;
         float coverTop = centerY - coverSize * 0.5f;
-        coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
-        drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverSize * 0.5f,
-                mix(refinedAccentColor(), Color.DKGRAY, 0.55f));
+        boolean showCover = IslandLayoutMath.showsCover(islandShowCover, frameAlbumArtMissing, hideCoverWithoutArt);
+        if (showCover) {
+            coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
+            drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverSize * 0.5f,
+                    mix(refinedAccentColor(), Color.DKGRAY, 0.55f));
+        } else {
+            clearCoverRect(coverLeft, coverTop);
+        }
 
-        float textLeft = coverLeft + coverSize + gap;
-        float textWidth = IslandLayoutMath.textWidthPx(width, capsuleHeight);
+        float textLeft = IslandLayoutMath.textLeftPx(capsuleHeight, showCover);
+        float textWidth = IslandLayoutMath.textWidthPx(width, capsuleHeight, showCover);
         boolean rowFits = IslandLayoutMath.showsTitleRow(capsuleHeight, textWidth, density);
         boolean legacy = "legacy".equals(islandSecondRow);
         boolean showTitle = legacy && rowFits && snapshot.active && !snapshot.title.isEmpty();

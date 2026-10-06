@@ -119,6 +119,7 @@ final class AppPreferences {
     static final String KEY_BACKGROUND_LIGHT_COLOR = "background_light_color";
     static final String KEY_BACKGROUND_DARK_COLOR = "background_dark_color";
     static final String KEY_ISLAND_SECOND_ROW = "island_second_row";
+    static final String KEY_ISLAND_SHOW_COVER = "island_show_cover";
     static final String KEY_PURE_SHOW_TITLE = "pure_show_title";
     static final String KEY_CLASSIC_KEEP_TITLE_SIZE = "classic_keep_title_size";
     static final String KEY_CLASSIC_LONG_LINE_MODE = "classic_long_line_mode";
@@ -455,7 +456,7 @@ final class AppPreferences {
                     KEY_SPECTRUM_HEIGHT_PERCENT, KEY_SPECTRUM_GAP_DP,
                     KEY_PANEL_SHADOW_PERCENT, KEY_STYLE_MASK_MODE, KEY_STYLE_BRIGHTNESS,
                     KEY_CONTENT_PADDING_PERCENT, KEY_LONG_LINE_MODE,
-                    KEY_ISLAND_SECOND_ROW, KEY_PURE_SHOW_TITLE, KEY_CLASSIC_KEEP_TITLE_SIZE,
+                    KEY_ISLAND_SECOND_ROW, KEY_ISLAND_SHOW_COVER, KEY_PURE_SHOW_TITLE, KEY_CLASSIC_KEEP_TITLE_SIZE,
                     KEY_CLASSIC_LONG_LINE_MODE, KEY_LIVE_LYRIC_ANIMATION,
                     KEY_LIVE_LYRIC_ANIMATION_DURATION, KEY_COVER_FADE_PERCENT,
                     KEY_COVER_FADE_LENGTH, KEY_COVER_FADE_BLUR, KEY_COVER_FADE_TOP,
@@ -1222,6 +1223,10 @@ final class AppPreferences {
         putDisplayInt(context, secondary,
                 light ? KEY_BACKGROUND_LIGHT_COLOR : KEY_BACKGROUND_DARK_COLOR,
                 color == 0 ? 0 : color | 0xFF000000);
+    }
+
+    static boolean islandShowCover(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_ISLAND_SHOW_COVER, true);
     }
 
     static String islandSecondRow(Context context, boolean secondary) {

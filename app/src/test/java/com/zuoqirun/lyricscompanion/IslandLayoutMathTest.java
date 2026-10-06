@@ -42,9 +42,36 @@ public class IslandLayoutMathTest {
         float width = 420f;
         float expected = width - IslandLayoutMath.sidePaddingPx(height) * 2f
                 - IslandLayoutMath.coverSizePx(height) - IslandLayoutMath.coverGapPx(height);
-        assertEquals(expected, IslandLayoutMath.textWidthPx(width, height), 0.0001f);
+        assertEquals(expected, IslandLayoutMath.textWidthPx(width, height, true), 0.0001f);
         // 极窄面板也不会算出 0 或负数
-        assertTrue(IslandLayoutMath.textWidthPx(40f, 72f) >= 1f);
+        assertTrue(IslandLayoutMath.textWidthPx(40f, 72f, true) >= 1f);
+    }
+
+    @Test public void hiddenCoverReclaimsItsWidthAndGapAndCentersTheTextRegion() {
+        for (float height : new float[]{40f, 60f, 144f}) {
+            float width = height * 6f;
+            float reclaimed = IslandLayoutMath.coverSizePx(height) + IslandLayoutMath.coverGapPx(height);
+            float left = IslandLayoutMath.textLeftPx(height, false);
+            float textWidth = IslandLayoutMath.textWidthPx(width, height, false);
+            assertEquals(IslandLayoutMath.sidePaddingPx(height), left, 0.0001f);
+            assertEquals(reclaimed, textWidth - IslandLayoutMath.textWidthPx(width, height, true), 0.0001f);
+            assertEquals(width * 0.5f, left + textWidth * 0.5f, 0.0001f);
+            assertEquals(IslandLayoutMath.sidePaddingPx(height), width - left - textWidth, 0.0001f);
+        }
+        assertTrue(IslandLayoutMath.textWidthPx(1f, 72f, false) >= 1f);
+    }
+
+    @Test public void coverToggleAndMissingArtPolicyControlTheSameReservedRegion() {
+        assertTrue(IslandLayoutMath.showsCover(true, false, false));
+        assertTrue(IslandLayoutMath.showsCover(true, false, true));
+        assertTrue(IslandLayoutMath.showsCover(true, true, false));
+        assertFalse(IslandLayoutMath.showsCover(true, true, true));
+        for (boolean missing : new boolean[]{false, true}) {
+            for (boolean hideMissing : new boolean[]{false, true}) {
+                assertFalse(IslandLayoutMath.showsCover(false, missing, hideMissing));
+            }
+        }
+        assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_ISLAND_SHOW_COVER));
     }
 
     @Test public void titleRowOnlyAppearsOnATallEnoughCapsule() {

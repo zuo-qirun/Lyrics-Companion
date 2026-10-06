@@ -48,10 +48,19 @@ final class IslandLayoutMath {
         return Math.max(0f, capsuleHeightPx * COVER_GAP_RATIO);
     }
 
-    /** 文字区可用宽度：胶囊宽度减去两侧内边距、封面与间距。 */
-    static float textWidthPx(float capsuleWidthPx, float capsuleHeightPx) {
-        float available = capsuleWidthPx - sidePaddingPx(capsuleHeightPx) * 2f
-                - coverSizePx(capsuleHeightPx) - coverGapPx(capsuleHeightPx);
+    static boolean showsCover(boolean enabled, boolean artMissing, boolean hideWithoutArt) {
+        return enabled && !(artMissing && hideWithoutArt);
+    }
+
+    static float textLeftPx(float capsuleHeightPx, boolean showCover) {
+        return sidePaddingPx(capsuleHeightPx) + (showCover
+                ? coverSizePx(capsuleHeightPx) + coverGapPx(capsuleHeightPx) : 0f);
+    }
+
+    /** Reserve cover and gap only when drawn; both modes retain the same right padding. */
+    static float textWidthPx(float capsuleWidthPx, float capsuleHeightPx, boolean showCover) {
+        float available = capsuleWidthPx - textLeftPx(capsuleHeightPx, showCover)
+                - sidePaddingPx(capsuleHeightPx);
         return Math.max(1f, available);
     }
 
