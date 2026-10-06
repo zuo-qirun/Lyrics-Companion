@@ -249,22 +249,39 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.refinedTextEffect(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_REFINED_TEXT_EFFECT, value));
-        addChoice(panel, "歌词特效", new String[]{"无特效（默认）", "霓虹呼吸", "流光扫线", "柔滚上移"},
-                new String[]{"none", "neon", "sweep", "cinema"},
-                AppPreferences.displayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"),
-                value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, value));
-        addSeek(panel, "特效强度", 0, 100,
+        LinearLayout effectParameters = new LinearLayout(this);
+        effectParameters.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout effectMotion = new LinearLayout(this);
+        effectMotion.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout effectSpeed = new LinearLayout(this);
+        effectSpeed.setOrientation(LinearLayout.VERTICAL);
+        String initialEffect = LyricEffectRules.normalize(AppPreferences.displayString(
+                this, secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
+        addChoice(panel, "歌词特效", LyricEffectCatalog.labels(false), LyricEffectCatalog.values(false),
+                initialEffect, value -> {
+                    AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, value);
+                    effectParameters.setVisibility("none".equals(value) ? View.GONE : View.VISIBLE);
+                    effectMotion.setVisibility(LyricEffectCatalog.find(value).animated ? View.VISIBLE : View.GONE);
+                    effectSpeed.setVisibility("karaoke".equals(value) ? View.GONE : View.VISIBLE);
+                });
+        addSeek(effectParameters, "特效强度", 0, 100,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, value));
-        addSeek(panel, "特效速度", 25, 300,
+        addSeek(effectSpeed, "特效速度", 25, 300,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, value));
-        addChoice(panel, "特效帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
+        effectMotion.addView(effectSpeed);
+        addChoice(effectMotion, "特效帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
                 new String[]{"0", "24", "30", "60"},
                 String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30)),
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS,
                         Integer.parseInt(value)));
-        panel.addView(text("按屏幕和样式独立保存。帧率限制本面板重绘；低帧率会同时降低逐字与背景动画的流畅度。顶部歌词条保持原来的文字渲染。", 12, 0xFF8392A8, false));
+        effectParameters.addView(effectMotion);
+        panel.addView(effectParameters);
+        effectParameters.setVisibility("none".equals(initialEffect) ? View.GONE : View.VISIBLE);
+        effectMotion.setVisibility(LyricEffectCatalog.find(initialEffect).animated ? View.VISIBLE : View.GONE);
+        effectSpeed.setVisibility("karaoke".equals(initialEffect) ? View.GONE : View.VISIBLE);
+        panel.addView(text("按屏幕和样式独立保存。卡拉 OK 无逐字数据时按句长估算，停顿与长音可能有偏差；磨砂为半透明底衬，悬空为模拟纵深。镜像压缩在原行下沿，避免占用下一句。低帧率限制面板重绘；关闭动画保留镜像与磨砂静态项。", 12, 0xFF8392A8, false));
         // 无逐字时间轴时估算逐字进度（issue #21）。
         addToggle(panel, "无逐字时间轴时按本句时长估算逐字进度", AppPreferences.KEY_ESTIMATED_WORD_KARAOKE,
                 AppPreferences.estimatedWordKaraoke(this, secondary), null);

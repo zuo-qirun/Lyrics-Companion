@@ -83,6 +83,15 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         layout.addView(layoutNote);
         addCard(root, layout);
 
+        LinearLayout staticEffects = card("静态文字特效");
+        addChoice(staticEffects, "顶部条文字特效", LyricEffectCatalog.labels(true),
+                LyricEffectCatalog.values(true), AppPreferences.KEY_TOP_LYRIC_EFFECT, "none");
+        addSeek(staticEffects, "特效强度", 0, 100,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH, 50), "%",
+                AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH);
+        staticEffects.addView(text("顶部条独立保存，仅提供静态镜像与磨砂底衬，不增加动画帧。", 12,
+                0xFF8392A8, false));
+        addCard(root, staticEffects);
         LinearLayout effects = card("歌词粒子与消散");
         // The strip is its own display object: the dissolve family below is stored separately
         // from the main screen, so tuning the main overlay no longer changes the strip.

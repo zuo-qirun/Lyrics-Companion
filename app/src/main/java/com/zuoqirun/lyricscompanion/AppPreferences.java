@@ -232,6 +232,8 @@ final class AppPreferences {
     /** The strip's own 下一句字号; unset means "follow the main screen" (issue #19). */
     static final String KEY_TOP_LYRIC_NEXT_FONT_SCALE = "top_lyric_next_font_scale";
     static final String KEY_TOP_LYRIC_REGION_PERCENT = "top_lyric_region_percent";
+    static final String KEY_TOP_LYRIC_EFFECT = "top_lyric_effect";
+    static final String KEY_TOP_LYRIC_EFFECT_STRENGTH = "top_lyric_effect_strength";
     static final String KEY_TOP_LYRIC_ROWS = "top_lyric_rows";
     static final String KEY_TOP_LYRIC_PLACEMENT = "top_lyric_placement";
     static final String KEY_TOP_LYRIC_ALIGN = "top_lyric_align";

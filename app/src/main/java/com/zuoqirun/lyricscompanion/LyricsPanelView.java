@@ -138,7 +138,7 @@ final class LyricsPanelView extends View {
     private int lyricEffectSpeed = 100;
     private int lyricEffectFps = 30;
     private long effectLineStart = Long.MIN_VALUE;
-    private long effectEntryStartedMs;
+    private long effectEntryStartedPositionMs = -1L;
     private boolean drawingCachedLyric;
     private final LyricTextEffectRenderer lyricTextEffects = new LyricTextEffectRenderer();
     /** 本帧播放器给没给封面：决定「无封面时」设置要不要生效（issue #50）。 */
@@ -419,16 +419,22 @@ final class LyricsPanelView extends View {
         refinedColorScheme = AppPreferences.refinedColorScheme(getContext(), secondary);
         refinedAccentVariant = AppPreferences.refinedAccentVariant(getContext(), secondary);
         refinedTextEffect = AppPreferences.refinedTextEffect(getContext(), secondary);
-        lyricEffect = compactTextOnly ? "none" : LyricEffectRules.normalize(AppPreferences.displayString(
+        lyricEffect = compactTextOnly ? LyricEffectRules.normalizeTop(AppPreferences.get(getContext())
+                .getString(AppPreferences.KEY_TOP_LYRIC_EFFECT, "none"))
+                : LyricEffectRules.normalize(AppPreferences.displayString(
                 getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
-        lyricEffectStrength = Math.max(0, Math.min(100, AppPreferences.displayInt(
-                getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50)));
+        lyricEffectStrength = Math.max(0, Math.min(100, compactTextOnly
+                ? AppPreferences.get(getContext()).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH, 50)
+                : AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50)));
         lyricEffectSpeed = Math.max(25, Math.min(300, AppPreferences.displayInt(
                 getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100)));
         lyricEffectFps = LyricEffectRules.fps(AppPreferences.displayInt(
                 getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30));
         lyricTextEffects.configure(lyricEffect, lyricEffectStrength, lyricEffectSpeed);
         effectLineStart = Long.MIN_VALUE;
+        effectEntryStartedPositionMs = -1L;
+        estimatedWordKaraoke = LyricEffectRules.estimatesWords(estimatedWordKaraoke,
+                lyricEffect, lyricEffectStrength, lyricEffectFps);
         refinedProgressBottom = AppPreferences.refinedProgressBottom(getContext(), secondary);
         refinedCoverHorizontal = AppPreferences.refinedCoverHorizontal(getContext(), secondary);
         refinedCoverVertical = AppPreferences.refinedCoverVertical(getContext(), secondary);
@@ -524,7 +530,7 @@ final class LyricsPanelView extends View {
         framePositionMs = snapshot.positionMs;
         framePlaying = snapshot.playing;
         if (effectLineStart != snapshot.lyrics.lineStartMs) {
-            effectEntryStartedMs = effectLineStart == Long.MIN_VALUE ? 0L : now;
+            effectEntryStartedPositionMs = effectLineStart == Long.MIN_VALUE ? -1L : framePositionMs;
             effectLineStart = snapshot.lyrics.lineStartMs;
         }
         frameAlbumArtMissing = snapshot.albumArt == null || snapshot.albumArt.isRecycled();
@@ -592,14 +598,8 @@ final class LyricsPanelView extends View {
         }
         drawPreviousLyricDust(canvas, now);
         drawMatchingIndicator(canvas, density, now);
-        long delay = nextFrameDelay(snapshot, now);
-        if (lyricEffectsEnabled() && framePlaying) {
-            boolean animating = !"cinema".equals(lyricEffect) || effectEntryStartedMs > 0L
-                    && LyricEffectRules.entry(now - effectEntryStartedMs, lyricEffectSpeed) > 0f;
-            long effectDelay = Math.round(1000f / lyricEffectFps);
-            if (animating) delay = Math.min(delay, effectDelay);
-            delay = Math.max(delay, effectDelay);
-        }
+        long delay = LyricEffectRules.frameDelay(lyricEffect, lyricEffectStrength, lyricEffectFps,
+                framePlaying, lyricEffectEntryAge(), lyricEffectSpeed, nextFrameDelay(snapshot, now));
         scheduleNextFrame(delay);
     }
 
@@ -2672,11 +2672,12 @@ final class LyricsPanelView extends View {
         }
         drawLyricText(canvas, text, drawX, y, requestedSize, baseColor);
         if (eraseSave >= 0) canvas.restoreToCount(eraseSave);
+        float estimatedWidth = snapshot.lyrics.wordTimed ? -1f : estimatedKaraokeWidth(text, snapshot);
         if (!snapshot.lyricAvailable || snapshot.lyrics.lyric.isEmpty()) {
             drawLyricOutline(canvas, text, drawX, y, requestedSize, activeColor, true);
             paint.setColor(activeColor);
             drawEffectText(canvas, text, drawX, y, paint);
-        } else if (!snapshot.lyrics.wordTimed) {
+        } else if (!snapshot.lyrics.wordTimed && estimatedWidth < 0f) {
             drawLyricOutline(canvas, text, drawX, y, requestedSize, activeColor, true);
             paint.setColor(activeColor);
             applyLyricTextEffect(requestedSize, activeColor, 255);
@@ -2684,7 +2685,7 @@ final class LyricsPanelView extends View {
             paint.clearShadowLayer();
         } else {
             LrcTimeline.At at = snapshot.lyrics;
-            float highlightedWidth = karaokeHighlightWidth(text, at);
+            float highlightedWidth = at.wordTimed ? karaokeHighlightWidth(text, at) : estimatedWidth;
             int highlightSave = canvas.save();
             canvas.clipRect(drawX + sungWidth, y - requestedSize * 1.25f,
                     drawX + Math.min(textWidth, highlightedWidth), y + requestedSize * 0.35f);
@@ -4390,8 +4391,9 @@ final class LyricsPanelView extends View {
             setTextPaintForValue(size, Typeface.BOLD, value);
             paint.setTextAlign(Paint.Align.LEFT);
             float textWidth = paint.measureText(text);
+            float estimated = estimatedKaraokeWidth(text, snapshot);
             float highlighted = snapshot.lyrics.wordTimed
-                    ? karaokeHighlightWidth(text, snapshot.lyrics) : textWidth;
+                    ? karaokeHighlightWidth(text, snapshot.lyrics) : estimated >= 0f ? estimated : textWidth;
             float drawLeft = left;
             if (textWidth > maxWidth && highlighted + lookAhead > maxWidth) {
                 drawLeft = getWidth() - highlighted - lookAhead;
@@ -4820,7 +4822,11 @@ final class LyricsPanelView extends View {
             LrcTimeline.At at = snapshot.lyrics;
             int completedEnd;
             KaraokeProgress.Boundary boundary;
-            if (!snapshot.lyricAvailable || at.lyric.isEmpty() || !at.wordTimed) {
+            float estimated = estimatedKaraokeFraction(snapshot);
+            if (snapshot.lyricAvailable && !at.lyric.isEmpty() && !at.wordTimed && estimated >= 0f) {
+                completedEnd = 0;
+                boundary = KaraokeProgress.boundary(value, Math.round(estimated * 1000f));
+            } else if (!snapshot.lyricAvailable || at.lyric.isEmpty() || !at.wordTimed) {
                 completedEnd = value.length();
                 boundary = KaraokeProgress.Boundary.EMPTY;
             } else {
@@ -5104,11 +5110,16 @@ final class LyricsPanelView extends View {
      */
     private float estimatedKaraokeWidth(String text, MusicSnapshot snapshot) {
         if (!estimatedWordKaraoke || text == null || text.isEmpty()) return -1f;
-        LrcTimeline.At at = snapshot.lyrics;
-        float fraction = KaraokeProgress.estimatedFraction(snapshot.positionMs + lyricOffsetMs,
-                at.lineStartMs, at.lineDurationMs);
+        float fraction = estimatedKaraokeFraction(snapshot);
         if (fraction < 0f) return -1f;
         return paint.measureText(text) * fraction;
+    }
+
+    private float estimatedKaraokeFraction(MusicSnapshot snapshot) {
+        if (!estimatedWordKaraoke) return -1f;
+        LrcTimeline.At at = snapshot.lyrics;
+        return KaraokeProgress.estimatedFraction(snapshot.positionMs + lyricOffsetMs,
+                at.lineStartMs, at.lineDurationMs);
     }
 
     private float karaokeHighlightWidth(String text, LrcTimeline.At at) {
@@ -5241,7 +5252,12 @@ final class LyricsPanelView extends View {
     }
 
     private boolean lyricEffectsEnabled() {
-        return !"none".equals(lyricEffect) && lyricEffectStrength > 0 && lyricEffectFps > 0;
+        return LyricEffectRules.enabled(lyricEffect, lyricEffectStrength, lyricEffectFps);
+    }
+
+    private long lyricEffectEntryAge() {
+        return effectEntryStartedPositionMs < 0L || framePositionMs < 0L ? -1L
+                : Math.max(0L, framePositionMs - effectEntryStartedPositionMs);
     }
 
     /** One fill/outline pass, retaining the caller's karaoke clipping and base/active colors. */
@@ -5250,9 +5266,8 @@ final class LyricsPanelView extends View {
             canvas.drawText(text, x, y, sourcePaint);
             return;
         }
-        float entry = framePlaying && effectEntryStartedMs > 0L ? LyricEffectRules.entry(
-                SystemClock.elapsedRealtime() - effectEntryStartedMs, lyricEffectSpeed) : 0f;
-        lyricTextEffects.draw(canvas, text, x, y, sourcePaint, framePositionMs, entry, getWidth());
+        lyricTextEffects.draw(canvas, text, x, y, sourcePaint, framePositionMs,
+                lyricEffectEntryAge(), getWidth());
     }
 
     private void drawLyricOutline(Canvas canvas, String text, float x, float y, float size,
