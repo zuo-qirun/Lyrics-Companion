@@ -5,8 +5,8 @@ import static org.junit.Assert.*;
 
 public class LyricEffectRulesTest {
     @Test public void catalogueHasFifteenEffectsAndConsistentUniqueSettingsValues() {
-        String[] values = LyricEffectCatalog.values(false);
-        String[] labels = LyricEffectCatalog.labels(false);
+        String[] values = LyricEffectCatalog.values();
+        String[] labels = LyricEffectCatalog.labels();
         assertEquals(16, values.length);
         assertEquals(values.length, labels.length);
         java.util.Set<String> unique = new java.util.HashSet<>();
@@ -17,16 +17,27 @@ public class LyricEffectRulesTest {
         }
     }
 
-    @Test public void topStripOnlyOffersIndependentStaticEffects() {
-        assertArrayEquals(new String[]{"none", "mirror", "frost"}, LyricEffectCatalog.values(true));
-        assertEquals("none", LyricEffectRules.normalizeTop("flame"));
-        assertEquals("none", LyricEffectRules.normalizeTop("unknown"));
+    @Test public void allSurfacesCanSelectAnimatedAndStaticEffects() {
+        for (String value : LyricEffectCatalog.values()) {
+            assertEquals(value, LyricEffectRules.normalize(value));
+            assertEquals(!"none".equals(value), LyricEffectRules.enabled(value, 50, 30));
+        }
         assertTrue(LyricEffectRules.enabled("mirror", 50, 0));
         assertTrue(LyricEffectRules.enabled("frost", 50, 0));
         assertFalse(LyricEffectRules.enabled("rainbow", 50, 0));
         assertFalse(LyricEffectRules.enabled("mirror", 0, 30));
         assertFalse(LyricEffectRules.enabled("none", 100, 60));
-        assertFalse(AppPreferences.isStyleScopedKey(AppPreferences.KEY_TOP_LYRIC_EFFECT));
+    }
+
+    @Test public void topStripEffectParametersStayIndependentOfDisplayStyles() {
+        String[] topKeys = {AppPreferences.KEY_TOP_LYRIC_EFFECT, AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH,
+                AppPreferences.KEY_TOP_LYRIC_EFFECT_SPEED, AppPreferences.KEY_TOP_LYRIC_EFFECT_FPS};
+        String[] displayKeys = {AppPreferences.KEY_LYRIC_EFFECT, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH,
+                AppPreferences.KEY_LYRIC_EFFECT_SPEED, AppPreferences.KEY_LYRIC_EFFECT_FPS};
+        for (String topKey : topKeys) {
+            assertFalse(AppPreferences.isStyleScopedKey(topKey));
+            for (String displayKey : displayKeys) assertNotEquals(topKey, displayKey);
+        }
     }
 
     @Test public void staticPausedAndDisabledEffectsNeverDemandExtraFrames() {

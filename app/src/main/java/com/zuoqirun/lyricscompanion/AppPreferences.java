@@ -234,6 +234,8 @@ final class AppPreferences {
     static final String KEY_TOP_LYRIC_REGION_PERCENT = "top_lyric_region_percent";
     static final String KEY_TOP_LYRIC_EFFECT = "top_lyric_effect";
     static final String KEY_TOP_LYRIC_EFFECT_STRENGTH = "top_lyric_effect_strength";
+    static final String KEY_TOP_LYRIC_EFFECT_SPEED = "top_lyric_effect_speed";
+    static final String KEY_TOP_LYRIC_EFFECT_FPS = "top_lyric_effect_fps";
     static final String KEY_TOP_LYRIC_ROWS = "top_lyric_rows";
     static final String KEY_TOP_LYRIC_PLACEMENT = "top_lyric_placement";
     static final String KEY_TOP_LYRIC_ALIGN = "top_lyric_align";

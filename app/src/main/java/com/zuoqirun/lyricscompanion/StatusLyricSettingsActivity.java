@@ -83,15 +83,38 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         layout.addView(layoutNote);
         addCard(root, layout);
 
-        LinearLayout staticEffects = card("静态文字特效");
-        addChoice(staticEffects, "顶部条文字特效", LyricEffectCatalog.labels(true),
-                LyricEffectCatalog.values(true), AppPreferences.KEY_TOP_LYRIC_EFFECT, "none");
-        addSeek(staticEffects, "特效强度", 0, 100,
+        LinearLayout textEffects = card("文字特效");
+        LinearLayout effectParameters = new LinearLayout(this);
+        effectParameters.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout effectMotion = new LinearLayout(this);
+        effectMotion.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout effectSpeed = new LinearLayout(this);
+        effectSpeed.setOrientation(LinearLayout.VERTICAL);
+        String initialEffect = LyricEffectRules.normalize(AppPreferences.get(this)
+                .getString(AppPreferences.KEY_TOP_LYRIC_EFFECT, "none"));
+        addChoiceValue(textEffects, "顶部条文字特效", LyricEffectCatalog.labels(),
+                LyricEffectCatalog.values(), initialEffect, value -> {
+                    AppPreferences.get(this).edit().putString(AppPreferences.KEY_TOP_LYRIC_EFFECT, value).apply();
+                    updateEffectParameters(value, effectParameters, effectMotion, effectSpeed);
+                });
+        addSeek(effectParameters, "特效强度", 0, 100,
                 AppPreferences.get(this).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH, 50), "%",
                 AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH);
-        staticEffects.addView(text("顶部条独立保存，仅提供静态镜像与磨砂底衬，不增加动画帧。", 12,
+        addSeek(effectSpeed, "特效速度", 25, 300,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_SPEED, 100), "%",
+                AppPreferences.KEY_TOP_LYRIC_EFFECT_SPEED);
+        effectMotion.addView(effectSpeed);
+        addChoiceValue(effectMotion, "特效帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
+                new String[]{"0", "24", "30", "60"},
+                String.valueOf(AppPreferences.get(this).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_FPS, 30)),
+                value -> AppPreferences.setTopLyricInt(this, AppPreferences.KEY_TOP_LYRIC_EFFECT_FPS,
+                        Integer.parseInt(value)));
+        effectParameters.addView(effectMotion);
+        textEffects.addView(effectParameters);
+        updateEffectParameters(initialEffect, effectParameters, effectMotion, effectSpeed);
+        textEffects.addView(text("15 项特效及参数只作用于顶部歌词条。卡拉 OK 无逐字数据时按句长估算，速度跟随播放；关闭动画停用动态项，保留镜像与磨砂。低帧率也会限制本条的逐字、粒子与律动重绘。", 12,
                 0xFF8392A8, false));
-        addCard(root, staticEffects);
+        addCard(root, textEffects);
         LinearLayout effects = card("歌词粒子与消散");
         // The strip is its own display object: the dissolve family below is stored separately
         // from the main screen, so tuning the main overlay no longer changes the strip.
@@ -214,10 +237,18 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
 
     private void addChoice(LinearLayout parent, String title, String[] labels, String[] values,
                            String key, String fallback) {
+        addChoiceValue(parent, title, labels, values, AppPreferences.get(this).getString(key, fallback),
+                value -> AppPreferences.get(this).edit().putString(key, value).apply());
+    }
+
+    private interface ChoiceChange { void accept(String value); }
+
+    /** Shared spinner handling keeps integer choices stored as integers, including FPS. */
+    private void addChoiceValue(LinearLayout parent, String title, String[] labels, String[] values,
+                                String initial, ChoiceChange onChange) {
         parent.addView(text(title, 14, 0xFFD7E1EE, true));
         Spinner spinner = new Spinner(this);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
-        String initial = AppPreferences.get(this).getString(key, fallback);
         for (int i = 0; i < values.length; i++) if (values[i].equals(initial)) {
             spinner.setSelection(i, false); break;
         }
@@ -227,14 +258,19 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
                                                   android.view.View view, int position, long id) {
                 if (values[position].equals(selected)) return;
                 selected = values[position];
-                AppPreferences.get(StatusLyricSettingsActivity.this).edit()
-                        .putString(key, values[position]).apply();
+                onChange.accept(selected);
                 updatePreview();
                 AppPreferences.changed(StatusLyricSettingsActivity.this);
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+    }
+
+    private static void updateEffectParameters(String value, View parameters, View motion, View speed) {
+        parameters.setVisibility("none".equals(value) ? View.GONE : View.VISIBLE);
+        motion.setVisibility(LyricEffectCatalog.find(value).animated ? View.VISIBLE : View.GONE);
+        speed.setVisibility("karaoke".equals(value) ? View.GONE : View.VISIBLE);
     }
 
     private void updatePreview() {

@@ -257,7 +257,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         effectSpeed.setOrientation(LinearLayout.VERTICAL);
         String initialEffect = LyricEffectRules.normalize(AppPreferences.displayString(
                 this, secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
-        addChoice(panel, "歌词特效", LyricEffectCatalog.labels(false), LyricEffectCatalog.values(false),
+        addChoice(panel, "歌词特效", LyricEffectCatalog.labels(), LyricEffectCatalog.values(),
                 initialEffect, value -> {
                     AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, value);
                     effectParameters.setVisibility("none".equals(value) ? View.GONE : View.VISIBLE);

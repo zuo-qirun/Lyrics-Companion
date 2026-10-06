@@ -137,8 +137,7 @@ final class LyricsPanelView extends View {
     private int lyricEffectStrength;
     private int lyricEffectSpeed = 100;
     private int lyricEffectFps = 30;
-    private long effectLineStart = Long.MIN_VALUE;
-    private long effectEntryStartedPositionMs = -1L;
+    private final LyricEffectTimeline lyricEffectTimeline = new LyricEffectTimeline();
     private boolean drawingCachedLyric;
     private final LyricTextEffectRenderer lyricTextEffects = new LyricTextEffectRenderer();
     /** 本帧播放器给没给封面：决定「无封面时」设置要不要生效（issue #50）。 */
@@ -419,20 +418,20 @@ final class LyricsPanelView extends View {
         refinedColorScheme = AppPreferences.refinedColorScheme(getContext(), secondary);
         refinedAccentVariant = AppPreferences.refinedAccentVariant(getContext(), secondary);
         refinedTextEffect = AppPreferences.refinedTextEffect(getContext(), secondary);
-        lyricEffect = compactTextOnly ? LyricEffectRules.normalizeTop(AppPreferences.get(getContext())
-                .getString(AppPreferences.KEY_TOP_LYRIC_EFFECT, "none"))
-                : LyricEffectRules.normalize(AppPreferences.displayString(
-                getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
+        lyricEffect = LyricEffectRules.normalize(compactTextOnly ? AppPreferences.get(getContext())
+                .getString(AppPreferences.KEY_TOP_LYRIC_EFFECT, "none")
+                : AppPreferences.displayString(getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
         lyricEffectStrength = Math.max(0, Math.min(100, compactTextOnly
                 ? AppPreferences.get(getContext()).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_STRENGTH, 50)
                 : AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50)));
-        lyricEffectSpeed = Math.max(25, Math.min(300, AppPreferences.displayInt(
-                getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100)));
-        lyricEffectFps = LyricEffectRules.fps(AppPreferences.displayInt(
-                getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30));
+        lyricEffectSpeed = Math.max(25, Math.min(300, compactTextOnly
+                ? AppPreferences.get(getContext()).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_SPEED, 100)
+                : AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100)));
+        lyricEffectFps = LyricEffectRules.fps(compactTextOnly
+                ? AppPreferences.get(getContext()).getInt(AppPreferences.KEY_TOP_LYRIC_EFFECT_FPS, 30)
+                : AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30));
         lyricTextEffects.configure(lyricEffect, lyricEffectStrength, lyricEffectSpeed);
-        effectLineStart = Long.MIN_VALUE;
-        effectEntryStartedPositionMs = -1L;
+        lyricEffectTimeline.reset();
         estimatedWordKaraoke = LyricEffectRules.estimatesWords(estimatedWordKaraoke,
                 lyricEffect, lyricEffectStrength, lyricEffectFps);
         refinedProgressBottom = AppPreferences.refinedProgressBottom(getContext(), secondary);
@@ -529,10 +528,8 @@ final class LyricsPanelView extends View {
         // 本帧的播放位置供碟片旋转使用（issue #22），并在同一处推进「正在匹配」的状态（issue #45）。
         framePositionMs = snapshot.positionMs;
         framePlaying = snapshot.playing;
-        if (effectLineStart != snapshot.lyrics.lineStartMs) {
-            effectEntryStartedPositionMs = effectLineStart == Long.MIN_VALUE ? -1L : framePositionMs;
-            effectLineStart = snapshot.lyrics.lineStartMs;
-        }
+        lyricEffectTimeline.update(snapshot.sourceName, snapshot.title, snapshot.artist,
+                snapshot.lyrics.lyric, snapshot.lyrics.lineStartMs, framePositionMs);
         frameAlbumArtMissing = snapshot.albumArt == null || snapshot.albumArt.isRecycled();
         updateMatchingState(snapshot, now);
         refreshScheduledTheme(now);
@@ -5256,8 +5253,7 @@ final class LyricsPanelView extends View {
     }
 
     private long lyricEffectEntryAge() {
-        return effectEntryStartedPositionMs < 0L || framePositionMs < 0L ? -1L
-                : Math.max(0L, framePositionMs - effectEntryStartedPositionMs);
+        return lyricEffectTimeline.age(framePositionMs);
     }
 
     /** One fill/outline pass, retaining the caller's karaoke clipping and base/active colors. */

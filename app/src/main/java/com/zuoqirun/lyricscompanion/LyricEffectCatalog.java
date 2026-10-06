@@ -42,19 +42,14 @@ final class LyricEffectCatalog {
         return Effect.NONE;
     }
 
-    static boolean topSupported(String value) {
-        Effect effect = find(value);
-        return effect == Effect.NONE || effect == Effect.MIRROR || effect == Effect.FROST;
-    }
+    static String[] labels() { return choices(true); }
+    static String[] values() { return choices(false); }
 
-    static String[] labels(boolean top) { return choices(top, true); }
-    static String[] values(boolean top) { return choices(top, false); }
-
-    private static String[] choices(boolean top, boolean labels) {
-        java.util.List<String> choices = new java.util.ArrayList<>();
-        for (Effect effect : ALL) {
-            if (!top || topSupported(effect.value)) choices.add(labels ? effect.label : effect.value);
+    private static String[] choices(boolean labels) {
+        String[] choices = new String[ALL.length];
+        for (int i = 0; i < ALL.length; i++) {
+            choices[i] = labels ? ALL[i].label : ALL[i].value;
         }
-        return choices.toArray(new String[0]);
+        return choices;
     }
 }

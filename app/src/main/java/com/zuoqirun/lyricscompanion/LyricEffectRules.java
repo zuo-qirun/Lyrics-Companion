@@ -8,10 +8,6 @@ final class LyricEffectRules {
         return LyricEffectCatalog.find(effect).value;
     }
 
-    static String normalizeTop(String effect) {
-        return LyricEffectCatalog.topSupported(effect) ? normalize(effect) : "none";
-    }
-
     static boolean enabled(String effect, int strength, int fps) {
         LyricEffectCatalog.Effect selected = LyricEffectCatalog.find(effect);
         return selected != LyricEffectCatalog.Effect.NONE && strength > 0
