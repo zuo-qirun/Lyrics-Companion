@@ -12,6 +12,7 @@ final class MediaDiagnosisRules {
     enum Verdict {
         /** 没有任何可用的媒体会话：播放器没把歌名发布给系统。 */
         NO_SESSION,
+        EMPTY_SESSION,
         /** 有歌名但没有播放进度：只能显示、不能滚动。 */
         TITLE_NO_PROGRESS,
         /** 歌词已就绪。 */
@@ -23,6 +24,13 @@ final class MediaDiagnosisRules {
     }
 
     private MediaDiagnosisRules() { }
+
+    static Verdict classify(boolean active, boolean titlePresent, boolean progressKnown,
+                            boolean lyricLoaded, boolean lyricAvailable,
+                            String lyricSourceName, int sessionCount) {
+        if ((!active || !titlePresent) && sessionCount > 0) return Verdict.EMPTY_SESSION;
+        return classify(active, titlePresent, progressKnown, lyricLoaded, lyricAvailable, lyricSourceName);
+    }
 
     static Verdict classify(boolean active, boolean titlePresent, boolean progressKnown,
                             boolean lyricLoaded, boolean lyricAvailable,
@@ -44,6 +52,8 @@ final class MediaDiagnosisRules {
                         : "已匹配：" + sourceName;
             case NO_SESSION:
                 return "未收到媒体会话：播放器没把歌名发布给系统（U 盘 / 部分车机自带播放器常见）";
+            case EMPTY_SESSION:
+                return "媒体会话存在但没有可用歌名：部分 CarPlay / 互联客户端不发布元数据。可尝试蓝牙 AVRCP 或车机自带播放器";
             case TITLE_NO_PROGRESS:
                 return "有歌名但没有播放进度：歌词只能整句显示，无法跟随滚动";
             case LOADING:

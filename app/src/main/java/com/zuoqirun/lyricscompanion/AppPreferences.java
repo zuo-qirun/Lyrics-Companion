@@ -31,6 +31,10 @@ final class AppPreferences {
     static final String KEY_PURE_SHOW_TRANSLATION = "pure_show_translation";
     static final String KEY_COMPONENT_LAYOUT = "component_layout";
     static final String KEY_TEXT_SCALE = "text_scale";
+    static final String KEY_LYRIC_EFFECT = "lyric_effect";
+    static final String KEY_LYRIC_EFFECT_STRENGTH = "lyric_effect_strength";
+    static final String KEY_LYRIC_EFFECT_SPEED = "lyric_effect_speed";
+    static final String KEY_LYRIC_EFFECT_FPS = "lyric_effect_fps";
     static final String KEY_TITLE_SCALE = "title_scale";
     /** 歌手字号（占歌名字号的百分比；-1 = 沿用样式原比例，issue #63）。 */
     static final String KEY_ARTIST_SCALE = "artist_scale";
@@ -228,6 +232,11 @@ final class AppPreferences {
     /** The strip's own 下一句字号; unset means "follow the main screen" (issue #19). */
     static final String KEY_TOP_LYRIC_NEXT_FONT_SCALE = "top_lyric_next_font_scale";
     static final String KEY_TOP_LYRIC_REGION_PERCENT = "top_lyric_region_percent";
+    static final String KEY_TOP_LYRIC_ROWS = "top_lyric_rows";
+    static final String KEY_TOP_LYRIC_PLACEMENT = "top_lyric_placement";
+    static final String KEY_TOP_LYRIC_ALIGN = "top_lyric_align";
+    static final String KEY_TOP_LYRIC_LEFT_MARGIN = "top_lyric_left_margin";
+    static final String KEY_TOP_LYRIC_RIGHT_MARGIN = "top_lyric_right_margin";
     static final String KEY_TOP_LYRIC_OFFSET_X_DP = "top_lyric_offset_x_dp";
     static final String KEY_TOP_LYRIC_OFFSET_Y_DP = "top_lyric_offset_y_dp";
     /** Settings-page scale; deliberately independent from lyric rendering scale. */
@@ -420,6 +429,8 @@ final class AppPreferences {
                     KEY_OPACITY, KEY_STYLE_COVER_SIZE, KEY_STYLE_BLUR, KEY_STYLE_DIM,
                     KEY_CORNER_RADIUS_PERCENT, KEY_LYRIC_ALIGN, KEY_CONTENT_ALIGN,
                     KEY_STYLE_LYRIC_LINES,
+                    KEY_LYRIC_EFFECT, KEY_LYRIC_EFFECT_STRENGTH, KEY_LYRIC_EFFECT_SPEED,
+                    KEY_LYRIC_EFFECT_FPS,
                     KEY_PREVIOUS_LYRIC_PARTICLES, KEY_PARTICLE_AMOUNT, KEY_WORD_DISSOLVE,
                     KEY_ESTIMATED_WORD_KARAOKE, KEY_MATCHING_ANIMATION,
                     KEY_MATCHING_ANIMATION_DELAY,
@@ -1967,8 +1978,7 @@ final class AppPreferences {
     }
 
     static int topLyricRegionPercent(Context context) {
-        return Math.max(45, Math.min(100,
-                get(context).getInt(KEY_TOP_LYRIC_REGION_PERCENT, 100)));
+        return TopLyricLayout.regionPercent(get(context).getInt(KEY_TOP_LYRIC_REGION_PERCENT, 100));
     }
 
     static int topLyricOffsetXDp(Context context) {

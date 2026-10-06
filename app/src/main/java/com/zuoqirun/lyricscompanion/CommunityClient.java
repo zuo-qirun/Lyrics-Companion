@@ -177,6 +177,12 @@ final class CommunityClient {
         JSONObject body = new JSONObject();
         body.put("clientId", clientId(context));
         body.put("appVersion", appVersion(context));
+        JSONObject version = VersionStatus.fields(context);
+        java.util.Iterator<String> keys = version.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            body.put(key, version.get(key));
+        }
         return body;
     }
 

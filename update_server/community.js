@@ -20,6 +20,7 @@ function normalizeFeedback(value) {
     message: String(source.message || "").trim().slice(0, 2000),
     contact: String(source.contact || "").trim().slice(0, 200),
     appVersion: String(source.appVersion || "").trim().slice(0, 80),
+    ...normalizeVersionStatus(source),
   };
 }
 
@@ -30,8 +31,32 @@ function normalizeDiagnostic(value) {
     summary: String(source.summary || "").trim().slice(0, 500),
     details: String(source.details || "").trim().slice(0, DIAGNOSTIC_DETAILS_LIMIT),
     appVersion: String(source.appVersion || "").trim().slice(0, 80),
+    ...normalizeVersionStatus(source),
     feedbackId: FEEDBACK_ID_PATTERN.test(String(source.feedbackId || "").trim())
       ? String(source.feedbackId).trim().toLowerCase() : "",
+  };
+}
+
+// These are the client's last checked channel/version, not a server verification of the APK.
+function normalizeVersionStatus(source) {
+  if (!("latestKnownVersion" in source) && !("actualPackage" in source)) return {};
+  const latestCode = Number(source.latestKnownVersionCode);
+  const known = source.versionStatusKnown === true && Number.isSafeInteger(latestCode) && latestCode > 0;
+  const bounded = (value, max) => Number.isInteger(value) && value >= -1 && value <= max ? value : -1;
+  const actualPackage = String(source.actualPackage || "").trim().slice(0, 200);
+  return {
+    updateChannel: source.updateChannel === "beta" ? "beta" : "stable",
+    latestKnownVersion: String(source.latestKnownVersion || "").trim().slice(0, 80),
+    latestKnownVersionCode: known ? latestCode : 0,
+    versionStatusKnown: known,
+    outdated: known && typeof source.outdated === "boolean" ? source.outdated : null,
+    daysBehind: bounded(source.daysBehind, 36500),
+    releasesBehind: bounded(source.releasesBehind, 10000),
+    versionCheckedAt: Number.isSafeInteger(source.versionCheckedAt) && source.versionCheckedAt > 0
+      ? source.versionCheckedAt : 0,
+    expectedPackage: "com.zuoqirun.lyricscompanion",
+    actualPackage,
+    packageMatches: actualPackage ? actualPackage === "com.zuoqirun.lyricscompanion" : null,
   };
 }
 

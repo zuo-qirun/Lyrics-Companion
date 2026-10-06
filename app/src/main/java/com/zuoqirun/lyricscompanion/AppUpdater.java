@@ -68,13 +68,32 @@ final class AppUpdater {
             } catch (Throwable ignored) { }
         }
         String historyUrl = resolveUrl(manifestUrl, manifest.optString("historyUrl", ""));
+        int releasesBehind = -1;
         if (!TextUtils.isEmpty(historyUrl)) {
             try {
                 JSONObject history = new JSONObject(readText(historyUrl));
+                org.json.JSONArray versions = history.optJSONArray("versions");
+                if (versions != null) {
+                    java.util.Set<Integer> codes = new java.util.HashSet<>();
+                    for (int index = 0; index < versions.length(); index++) {
+                        JSONObject entry = versions.optJSONObject(index);
+                        if (entry == null) continue;
+                        int code = entry.optInt("versionCode", 0);
+                        if (code != remoteVersionCode && !UpdateChannelRules.normalize(
+                                entry.optString("channel", "stable")).equals(UpdateChannelRules.normalize(
+                                manifest.optString("channel", "stable")))) continue;
+                        if (code > localVersionCode && code <= remoteVersionCode) codes.add(code);
+                    }
+                    releasesBehind = codes.size();
+                }
                 changelog = changelogBetween(localVersionCode, remoteVersionCode,
                         history.optJSONArray("versions"), changelog);
             } catch (Throwable ignored) { }
         }
+        VersionStatus.remember(context, manifest.optString("channel", "stable"),
+                UpdateChannelRules.hasUsableVersion(manifest.optBoolean("available", true),
+                        manifest.optBoolean("betaAvailable", true), remoteVersionCode),
+                remoteVersionCode, manifest.optString("versionName", ""), releasesBehind);
         return new UpdateInfo(localVersionCode, localVersionName(context),
                 remoteVersionCode, manifest.optString("versionName", ""),
                 apkUrl, manifest.optString("sha256", ""), manifest.optLong("size", -1L),
@@ -282,12 +301,12 @@ final class AppUpdater {
         catch (Exception ignored) { return value; }
     }
 
-    private static int localVersionCode(Context context) throws Exception {
+    static int localVersionCode(Context context) throws Exception {
         PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
         return Build.VERSION.SDK_INT >= 28 ? (int) info.getLongVersionCode() : info.versionCode;
     }
 
-    private static String localVersionName(Context context) throws Exception {
+    static String localVersionName(Context context) throws Exception {
         PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
         return info.versionName == null ? "" : info.versionName;
     }

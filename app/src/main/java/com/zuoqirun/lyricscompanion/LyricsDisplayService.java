@@ -86,6 +86,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private WindowManager.LayoutParams secondaryPlaybackPadParams;
     private LyricsPanelView statusLyricStrip;
     private WindowManager.LayoutParams statusLyricParams;
+    private boolean statusLyricSecondRow;
     /** One overlay per additional screen (slots 2+), so several can be shown at once. */
     private final List<ExtraOverlay> extraOverlays = new ArrayList<>();
     private WindowManager bottomSpectrumManager;
@@ -1592,6 +1593,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
     }
 
+    private boolean topStripSecondRow(MusicSnapshot snapshot) {
+        android.content.SharedPreferences prefs = AppPreferences.get(this);
+        boolean translation = AppPreferences.topLyricShowTranslation(this)
+                && !LyricTranslationRules.select(true, snapshot.lyrics.translatedLyric,
+                        snapshot.lyrics.romajiLyric).isEmpty();
+        return TopLyricLayout.secondRow(prefs.getString(AppPreferences.KEY_TOP_LYRIC_ROWS, "double"),
+                "status".equals(prefs.getString(AppPreferences.KEY_TOP_LYRIC_PLACEMENT, "legacy")),
+                translation || !snapshot.lyrics.nextLyric.isEmpty());
+    }
+
     /** A non-interactive, top-pinned lyric strip. Android keeps status-bar icons above it. */
     private void showStatusLyricStrip() {
         WindowManager manager = (WindowManager) getSystemService(WINDOW_SERVICE);
@@ -1599,19 +1610,28 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         int screenWidth = displaySize(manager.getDefaultDisplay()).x;
         if (screenWidth <= 0) return;
         int regionPercent = AppPreferences.topLyricRegionPercent(this);
-        int stripWidth = Math.max(dp(this, 160), screenWidth * regionPercent / 100);
+        android.content.SharedPreferences stripPreferences = AppPreferences.get(this);
+        int leftMargin = dp(this, Math.max(0, stripPreferences.getInt(
+                AppPreferences.KEY_TOP_LYRIC_LEFT_MARGIN, 0)));
+        int rightMargin = dp(this, Math.max(0, stripPreferences.getInt(
+                AppPreferences.KEY_TOP_LYRIC_RIGHT_MARGIN, 0)));
+        int stripWidth = TopLyricLayout.width(screenWidth, regionPercent, leftMargin, rightMargin);
         int topInset = statusBarHeightPx();
-        int contentHeight = AppPreferences.topLyricSpectrum(this) ? 66 : 44;
+        String placement = stripPreferences.getString(AppPreferences.KEY_TOP_LYRIC_PLACEMENT, "legacy");
+        boolean statusAligned = "status".equals(placement);
+        statusLyricSecondRow = topStripSecondRow(MusicStateStore.snapshot(0));
+        boolean singleRow = !statusLyricSecondRow;
+        int contentHeight = (singleRow ? 28 : 44) + (AppPreferences.topLyricSpectrum(this) ? 22 : 0);
         WindowManager.LayoutParams params = overlayParams(screenWidth,
-                topInset + dp(this, contentHeight));
+                statusAligned ? Math.max(dp(this, 20), topInset) : topInset + dp(this, contentHeight));
         boolean windowBlurActive = applyTopLyricBlur(params, manager);
         // Keep the transparent renderer in the status area. System icons remain on top and
         // the two lyric lines are centered through the remaining horizontal space.
         params.width = stripWidth;
-        int centeredX = (screenWidth - stripWidth) / 2;
-        params.x = clamp(centeredX + dp(this, AppPreferences.topLyricOffsetXDp(this)),
-                0, Math.max(0, screenWidth - stripWidth));
-        params.y = -Math.max(dp(this, 6), topInset * 2 / 3)
+        params.x = TopLyricLayout.x(screenWidth, stripWidth, leftMargin, rightMargin,
+                stripPreferences.getString(AppPreferences.KEY_TOP_LYRIC_ALIGN, "center"),
+                dp(this, AppPreferences.topLyricOffsetXDp(this)));
+        params.y = ("legacy".equals(placement) ? -Math.max(dp(this, 6), topInset * 2 / 3) : 0)
                 + dp(this, AppPreferences.topLyricOffsetYDp(this));
         // This strip is informational only: every tap falls through to the launcher/player.
         params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -1865,6 +1885,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void syncOverlayVisibility(MusicSnapshot snapshot) {
+        if (statusLyricStrip != null && statusLyricSecondRow != topStripSecondRow(snapshot)) {
+            showStatusLyricStrip();
+        }
         ForegroundAppDetector.Probe probe = ForegroundAppDetector.probe(this);
         String foreground = probe.packageName;
         if (!foreground.isEmpty()) {

@@ -8,6 +8,14 @@ import static org.junit.Assert.assertTrue;
 
 /** 「为什么没歌词」的判定（issue #62）：U 盘 / 视频场景要能一眼分清原因。 */
 public class MediaDiagnosisRulesTest {
+    @org.junit.Test public void emptySessionsDifferFromNoSessions() {
+        assertEquals(MediaDiagnosisRules.Verdict.EMPTY_SESSION,
+                MediaDiagnosisRules.classify(false, false, false, false, false, "", 2));
+        assertEquals(MediaDiagnosisRules.Verdict.NO_SESSION,
+                MediaDiagnosisRules.classify(false, false, false, false, false, "", 0));
+        assertEquals(MediaDiagnosisRules.Verdict.MATCHED,
+                MediaDiagnosisRules.classify(true, true, true, true, true, "词库", 2));
+    }
     @Test public void noSessionIsReportedAsNoMetadata() {
         assertEquals(MediaDiagnosisRules.Verdict.NO_SESSION, MediaDiagnosisRules.classify(
                 false, false, false, false, false, ""));

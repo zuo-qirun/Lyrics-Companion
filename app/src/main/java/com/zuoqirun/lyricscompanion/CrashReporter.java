@@ -108,6 +108,9 @@ final class CrashReporter {
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         return "app=" + appVersion(context)
                 + "\npackage=" + context.getPackageName()
+                + "\nexpectedPackage=" + VersionStatus.EXPECTED_PACKAGE
+                + "\npackageMatches=" + VersionStatus.EXPECTED_PACKAGE.equals(context.getPackageName())
+                + "\nversionStatus=" + VersionStatus.summary(context)
                 + "\nandroid=" + Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")"
                 + "\nsecurityPatch=" + (Build.VERSION.SDK_INT >= 23
                 ? safe(Build.VERSION.SECURITY_PATCH) : "unavailable")

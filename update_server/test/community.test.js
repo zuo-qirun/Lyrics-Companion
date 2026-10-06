@@ -10,6 +10,24 @@ const {FeedbackStore, OnlineTracker, normalizeDiagnostic, normalizeFeedback} = r
 const first = "11111111-1111-4111-8111-111111111111";
 const second = "22222222-2222-4222-8222-222222222222";
 
+test("version status keeps channel and unknown state and computes package match", () => {
+  const value = {latestKnownVersion: "20261006-a", latestKnownVersionCode: 1791234567,
+    versionStatusKnown: true, outdated: true, updateChannel: "beta", daysBehind: 31,
+    releasesBehind: 3, actualPackage: "com.android.gallery3d", packageMatches: true};
+  for (const normalize of [normalizeFeedback, normalizeDiagnostic]) {
+    const status = normalize(value);
+    assert.equal(status.outdated, true);
+    assert.equal(status.updateChannel, "beta");
+    assert.equal(status.packageMatches, false);
+    assert.equal(status.daysBehind, 31);
+    assert.equal(status.releasesBehind, 3);
+    assert.equal(normalize({...value, versionStatusKnown: false}).outdated, null);
+    assert.equal(normalize({...value, outdated: "false"}).outdated, null);
+    assert.equal(normalize({...value, daysBehind: Infinity}).daysBehind, -1);
+    assert.equal(normalize({...value, actualPackage: "com.zuoqirun.lyricscompanion"}).packageMatches, true);
+  }
+});
+
 test("online tracker deduplicates clients and expires stale heartbeats", () => {
   const tracker = new OnlineTracker(30_000);
   assert.equal(tracker.heartbeat(first, 100_000), 1);

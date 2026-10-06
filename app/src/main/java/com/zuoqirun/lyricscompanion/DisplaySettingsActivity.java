@@ -148,7 +148,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_CONTENT_ALIGN, value));
         panel.addView(text("拖到屏幕顶端后选「顶部」，歌词才会贴到面板上沿。", 12, 0xFFD7E1EE, false));
-        addChoice(panel, "歌词水平对齐（经典 / 紧凑 / 纯净）",
+        addChoice(panel, "歌词水平对齐（经典 / 紧凑 / 纯净 / 灵动岛）",
                 new String[]{"跟随样式（默认）", "居中", "居左"},
                 new String[]{"", "center", "left"},
                 AppPreferences.lyricAlign(this, secondary),
@@ -221,6 +221,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.showPlayerStatus(this, secondary));
         addToggle(panel, "显示进度条", AppPreferences.KEY_SHOW_PROGRESS,
                 AppPreferences.showProgress(this, secondary));
+        String translationStyle = AppPreferences.overlayStyle(this, secondary);
+        if ("default".equals(translationStyle) || "amll".equals(translationStyle)
+                || "pip".equals(translationStyle)) {
+            addToggle(panel, "显示歌词翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
+                    AppPreferences.refinedShowTranslation(this, secondary));
+        }
         addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
                 AppPreferences.smoothLyricScroll(this, secondary));
         addToggle(panel, "尾部拖长音重音", AppPreferences.KEY_TRAILING_ACCENT,
@@ -243,6 +249,22 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.refinedTextEffect(this, secondary),
                 value -> AppPreferences.putDisplayString(this, secondary,
                         AppPreferences.KEY_REFINED_TEXT_EFFECT, value));
+        addChoice(panel, "歌词特效", new String[]{"无特效（默认）", "霓虹呼吸", "流光扫线", "柔滚上移"},
+                new String[]{"none", "neon", "sweep", "cinema"},
+                AppPreferences.displayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"),
+                value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, value));
+        addSeek(panel, "特效强度", 0, 100,
+                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, value));
+        addSeek(panel, "特效速度", 25, 300,
+                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100), "%",
+                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, value));
+        addChoice(panel, "特效帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
+                new String[]{"0", "24", "30", "60"},
+                String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30)),
+                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS,
+                        Integer.parseInt(value)));
+        panel.addView(text("按屏幕和样式独立保存。帧率限制本面板重绘；低帧率会同时降低逐字与背景动画的流畅度。顶部歌词条保持原来的文字渲染。", 12, 0xFF8392A8, false));
         // 无逐字时间轴时估算逐字进度（issue #21）。
         addToggle(panel, "无逐字时间轴时按本句时长估算逐字进度", AppPreferences.KEY_ESTIMATED_WORD_KARAOKE,
                 AppPreferences.estimatedWordKaraoke(this, secondary), null);

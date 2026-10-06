@@ -716,7 +716,7 @@ public final class MainActivity extends AppCompatActivity {
         updateCard.addView(updateStatus);
         LinearLayout updateButtons = new LinearLayout(this);
         updateButtons.setOrientation(LinearLayout.HORIZONTAL);
-        MaterialButton checkUpdate = button("检查更新", true);
+        MaterialButton checkUpdate = button("检查 / 立即更新", true);
         checkUpdate.setOnClickListener(v -> checkForUpdates(true));
         updateButtons.addView(checkUpdate, weightedButton());
         MaterialButton versionHistory = button("历史版本", false);
@@ -2258,6 +2258,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void uploadDiagnosticSnapshot() {
+        if (VersionStatus.warnBeforeFeedback(this, this::uploadDiagnosticSnapshot)) return;
         String feedbackId = AppPreferences.lastFeedbackId(this);
         if (!feedbackId.isEmpty()) {
             new MaterialAlertDialogBuilder(this)
@@ -2865,6 +2866,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showFeedbackDialog() {
+        if (VersionStatus.warnBeforeFeedback(this, this::showFeedbackDialog)) return;
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(4), dp(4), dp(4), 0);
@@ -2979,8 +2981,7 @@ public final class MainActivity extends AppCompatActivity {
                         return;
                     }
                     if (info.hasUpdate()) {
-                        updateStatus.setText("发现" + (info.isBeta() ? "测试版" : "新版本")
-                                + " " + info.remoteVersionName);
+                        updateStatus.setText(localVersionText());
                         showUpdateDialog(info, requestedChannel);
                     } else if (UpdateChannelRules.localIsAhead(
                             info.localVersionCode, info.remoteVersionCode)) {
@@ -3156,7 +3157,8 @@ public final class MainActivity extends AppCompatActivity {
             long code = Build.VERSION.SDK_INT >= 28
                     ? info.getLongVersionCode() : info.versionCode;
             return "当前版本 " + info.versionName + " (" + code + ") · "
-                    + UpdateChannelRules.displayName(AppPreferences.updateChannel(this)) + "通道";
+                    + UpdateChannelRules.displayName(AppPreferences.updateChannel(this)) + "通道\n"
+                    + VersionStatus.summary(this);
         } catch (Throwable ignored) {
             return "当前版本未知";
         }

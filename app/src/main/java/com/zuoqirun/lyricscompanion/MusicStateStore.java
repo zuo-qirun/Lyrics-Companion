@@ -43,6 +43,9 @@ final class MusicStateStore {
     private static boolean reportedPositionUntrusted;
     private static long positionUpdatedAtElapsedMs;
     private static float playbackSpeed;
+    private static long lastExplicitPlayingElapsedMs = -1L;
+    private static long lastPositionEvidenceElapsedMs = -1L;
+    private static String playingReason = "no_playing_evidence";
     private static long trackGeneration;
     private static String trackKey = "";
     private static LrcTimeline timeline = LrcTimeline.EMPTY;
@@ -254,9 +257,21 @@ final class MusicStateStore {
             boolean reportedPositionChanged = !changed && rawPositionChanged;
             boolean sampledProgress = reportedPositionChanged
                     && newPosition > lastReportedPositionMs;
-            boolean newPlaying = isPositionAdvancing(newTitle, statePresent, stateValue,
-                    sampledProgress);
-            float effectiveSpeed = newPlaying ? (newSpeed > 0f ? newSpeed : 1f) : 0f;
+            if (!sameSource || !samePublisher || statePresent && (stateValue == MusicPlaybackData.STATE_PAUSED
+                    || stateValue == MusicPlaybackData.STATE_STOPPED
+                    || stateValue == MusicPlaybackData.STATE_ERROR)) lastExplicitPlayingElapsedMs = -1L;
+            playingReason = PlaybackClockRules.reason(newTitle, statePresent, stateValue,
+                    sampledProgress, sameSource && samePublisher, lastExplicitPlayingElapsedMs < 0L ? -1L
+                            : now - lastExplicitPlayingElapsedMs);
+            boolean newPlaying = PlaybackClockRules.advances(playingReason);
+            if ("explicit_playing".equals(playingReason)) lastExplicitPlayingElapsedMs = now;
+            if (statePresent && data.positionMs >= 0L && (rawPositionChanged
+                    || reportedPositionTime > positionUpdatedAtElapsedMs)) {
+                lastPositionEvidenceElapsedMs = now;
+            }
+            float effectiveSpeed = newPlaying ? (newSpeed > 0f ? newSpeed
+                    : "recent_explicit_playing".equals(playingReason) && playbackSpeed > 0f
+                    ? playbackSpeed : 1f) : 0f;
             long positionToStore = newPosition;
             long positionTimeToStore = reportedPositionTime > 0L
                     ? reportedPositionTime : now;
@@ -427,6 +442,9 @@ final class MusicStateStore {
             hadState = active || !TextUtils.isEmpty(title);
             active = false;
             playing = false;
+            lastExplicitPlayingElapsedMs = -1L;
+            lastPositionEvidenceElapsedMs = -1L;
+            playingReason = "no_playing_evidence";
             notificationProgressUnknown = false;
             source = "media";
             sourceName = "音乐播放器";
@@ -668,7 +686,9 @@ final class MusicStateStore {
 
     static String describe(Context context) {
         MusicSnapshot snapshot = snapshot(AppPreferences.lyricOffsetMs(context));
-        if (!snapshot.active) return "等待兼容的音乐播放器";
+        if (!snapshot.active) return "等待兼容的音乐播放器\n" + MediaDiagnosisRules.verdictText(
+                MusicNotificationListener.getLastSessionCount() > 0
+                        ? MediaDiagnosisRules.Verdict.EMPTY_SESSION : MediaDiagnosisRules.Verdict.NO_SESSION, "");
         String lyricState = snapshot.lyricAvailable ? "歌词已就绪"
                 : snapshot.lyricLoaded ? "未匹配到歌词" : "正在匹配歌词";
         if (snapshot.lyricAvailable && !snapshot.lyricSourceName.isEmpty()) {
@@ -684,7 +704,8 @@ final class MusicStateStore {
                 // 「为什么没有歌词」的一句话结论（issue #62）：U 盘 / 视频场景最常见的原因直接写出来。
                 + "\n" + MediaDiagnosisRules.verdictText(MediaDiagnosisRules.classify(
                 snapshot.active, !snapshot.title.isEmpty(), !unknownProgress,
-                snapshot.lyricLoaded, snapshot.lyricAvailable, snapshot.lyricSourceName),
+                snapshot.lyricLoaded, snapshot.lyricAvailable, snapshot.lyricSourceName,
+                MusicNotificationListener.getLastSessionCount()),
                 snapshot.lyricSourceName);
     }
 
@@ -706,6 +727,9 @@ final class MusicStateStore {
                     + "\nlastReportedPositionMs=" + lastReportedPositionMs
                     + "\npositionUpdateAgeMs=" + updatedAgeMs
                     + "\nplaybackSpeed=" + playbackSpeed
+                    + "\nplayingReason=" + playingReason
+                    + "\npositionAgeMs=" + (lastPositionEvidenceElapsedMs < 0L ? -1L
+                    : Math.max(0L, SystemClock.elapsedRealtime() - lastPositionEvidenceElapsedMs))
                     + "\nlyricLoadFinished=" + lyricLoadFinished
                     + "\nlyricLineCount=" + timeline.lineCount()
                     + "\nlyricLoadTaskActive=" + (lyricLoadTask != null
@@ -721,7 +745,7 @@ final class MusicStateStore {
                     MediaDiagnosisRules.classify(active, !TextUtils.isEmpty(title),
                             !notificationProgressUnknown, lyricLoadFinished,
                             !timeline.isEmpty() || isLiveLyricUsable(liveSessionLyric),
-                            lyricSourceName), lyricSourceName)
+                            lyricSourceName, MusicNotificationListener.getLastSessionCount()), lyricSourceName)
                     + "\nkuwoWordChannelBackoffMs=" + KuwoLyricClient.wordChannelBlockedForMs();
         }
     }
@@ -854,13 +878,8 @@ final class MusicStateStore {
 
     static boolean isPositionAdvancing(String sessionTitle, boolean statePresent,
                                        int stateValue, boolean sampledProgress) {
-        if (stateValue == MusicPlaybackData.STATE_PLAYING
-                || stateValue == MusicPlaybackData.STATE_FAST_FORWARDING
-                || stateValue == MusicPlaybackData.STATE_REWINDING) return true;
-        // A real PlaybackState object with STATE_NONE is a common car-player substitute for
-        // PLAYING. A missing PlaybackState is not enough evidence to start a clock at zero.
-        return sampledProgress || statePresent && stateValue == MusicPlaybackData.STATE_NONE
-                && sessionTitle != null && !sessionTitle.trim().isEmpty();
+        return PlaybackClockRules.advances(PlaybackClockRules.reason(sessionTitle,
+                statePresent, stateValue, sampledProgress, false, -1L));
     }
 
     static boolean hasMeaningfulPositionChange(long previousPosition, long newPosition) {

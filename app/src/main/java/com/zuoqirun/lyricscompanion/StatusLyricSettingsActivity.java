@@ -49,9 +49,21 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         LinearLayout layout = card("布局与字号");
         addSeek(layout, "歌词字号", 60, 200, AppPreferences.topLyricFontScale(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_FONT_SCALE);
-        addSeek(layout, "显示区域宽度", 45, 100, AppPreferences.topLyricRegionPercent(this), "%",
+        addSeek(layout, "显示区域宽度", TopLyricLayout.MIN_REGION_PERCENT, 100, AppPreferences.topLyricRegionPercent(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_REGION_PERCENT);
+        addChoice(layout, "垂直位置", new String[]{"沿用原位置", "屏幕贴顶", "系统状态栏同高（单行）"},
+                new String[]{"legacy", "top", "status"}, AppPreferences.KEY_TOP_LYRIC_PLACEMENT, "legacy");
+        addChoice(layout, "歌词行数", new String[]{"双行", "单行", "自动（有翻译或下一句时双行）"},
+                new String[]{"double", "single", "auto"}, AppPreferences.KEY_TOP_LYRIC_ROWS, "double");
+        addChoice(layout, "区域水平对齐", new String[]{"居中", "靠左", "靠右"},
+                new String[]{"center", "left", "right"}, AppPreferences.KEY_TOP_LYRIC_ALIGN, "center");
         int horizontalRange = AppPreferences.topLyricMaxOffsetDp(this);
+        addSeek(layout, "左侧留白", 0, horizontalRange,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_TOP_LYRIC_LEFT_MARGIN, 0), " dp",
+                AppPreferences.KEY_TOP_LYRIC_LEFT_MARGIN);
+        addSeek(layout, "右侧留白", 0, horizontalRange,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_TOP_LYRIC_RIGHT_MARGIN, 0), " dp",
+                AppPreferences.KEY_TOP_LYRIC_RIGHT_MARGIN);
         addSeek(layout, "水平偏移", -horizontalRange, horizontalRange,
                 AppPreferences.topLyricOffsetXDp(this), " dp",
                 AppPreferences.KEY_TOP_LYRIC_OFFSET_X_DP);
@@ -64,7 +76,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
                 AppPreferences.topLyricShowTranslation(this));
         addToggle(layout, "显示律动条", AppPreferences.KEY_TOP_LYRIC_SPECTRUM,
                 AppPreferences.topLyricSpectrum(this));
-        TextView layoutNote = text("横移范围按屏幕宽度计算；顶部条固定为紧凑双行、逐字高亮与跟随滚动。", 12,
+        TextView layoutNote = text("宽度可调到 10%，不再限制为 160dp；留白可避开车况与时钟。状态栏对齐使用系统报告的高度并显示单行；ROM 未报告高度时使用 20dp。顶部条为外挂悬浮窗，无法嵌入原车桌面或自动识别其图标。", 12,
                 0xFF8392A8, false);
         layoutNote.setLineSpacing(0f, 1.2f);
         layoutNote.setPadding(0, dp(8), 0, 0);
@@ -187,9 +199,16 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
     private void addBackgroundChoice(LinearLayout parent) {
         String[] labels = {"完全透明", "毛玻璃", "紧凑单行背景"};
         String[] values = {"transparent", "blur", "compact"};
+        addChoice(parent, "背景样式", labels, values, AppPreferences.KEY_TOP_LYRIC_BACKGROUND,
+                AppPreferences.topLyricBackground(this));
+    }
+
+    private void addChoice(LinearLayout parent, String title, String[] labels, String[] values,
+                           String key, String fallback) {
+        parent.addView(text(title, 14, 0xFFD7E1EE, true));
         Spinner spinner = new Spinner(this);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
-        String initial = AppPreferences.topLyricBackground(this);
+        String initial = AppPreferences.get(this).getString(key, fallback);
         for (int i = 0; i < values.length; i++) if (values[i].equals(initial)) {
             spinner.setSelection(i, false); break;
         }
@@ -200,7 +219,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
                 if (values[position].equals(selected)) return;
                 selected = values[position];
                 AppPreferences.get(StatusLyricSettingsActivity.this).edit()
-                        .putString(AppPreferences.KEY_TOP_LYRIC_BACKGROUND, values[position]).apply();
+                        .putString(key, values[position]).apply();
                 updatePreview();
                 AppPreferences.changed(StatusLyricSettingsActivity.this);
             }

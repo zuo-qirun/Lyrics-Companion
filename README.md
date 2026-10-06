@@ -108,4 +108,6 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 ## 许可证与来源
 
+播放器识别、CarPlay 空会话、零听适配所需诊断及升级后反馈的自查说明，见 [播放器兼容与反馈前自查](docs/PLAYER_COMPATIBILITY.md)。
+
 本项目以 [GNU General Public License v3.0](LICENSE) 开源发布。歌词解析和媒体状态代码基于同一作者的 `Amap-for-ESP32` 项目衍生，并由版权所有者授权在本项目中以 GPL-3.0 发布。副屏与摇杆来自同一作者的 [zuo-qirun/amap-companion](https://github.com/zuo-qirun/amap-companion) 设计；新增视觉风格参考 [Refined Now Playing](https://github.com/solstice23/refined-now-playing-netease)、[PiPWindow](https://github.com/Lukoning/PiPWindow) 与 [Apple Music-like Lyrics](https://github.com/amll-dev/applemusic-like-lyrics)，具体边界见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
