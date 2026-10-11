@@ -18,11 +18,20 @@ final class MusicSnapshot {
     final boolean lyricAvailable;
     final String lyricSourceName;
     final LrcTimeline.At lyrics;
+    final java.util.List<LrcTimeline.Line> timelineLines;
 
     MusicSnapshot(boolean active, boolean playing, String sourceName, String title, String artist,
                   Bitmap albumArt, long durationMs, long positionMs,
                   boolean lyricLoaded, boolean lyricAvailable,
                   String lyricSourceName, LrcTimeline.At lyrics) {
+        this(active, playing, sourceName, title, artist, albumArt, durationMs, positionMs,
+                lyricLoaded, lyricAvailable, lyricSourceName, lyrics, java.util.Collections.emptyList());
+    }
+
+    MusicSnapshot(boolean active, boolean playing, String sourceName, String title, String artist,
+                  Bitmap albumArt, long durationMs, long positionMs,
+                  boolean lyricLoaded, boolean lyricAvailable, String lyricSourceName,
+                  LrcTimeline.At lyrics, java.util.List<LrcTimeline.Line> timelineLines) {
         this.active = active;
         this.playing = playing;
         this.sourceName = sourceName;
@@ -35,5 +44,6 @@ final class MusicSnapshot {
         this.lyricAvailable = lyricAvailable;
         this.lyricSourceName = lyricSourceName;
         this.lyrics = lyrics;
+        this.timelineLines = timelineLines;
     }
 }

@@ -21,6 +21,15 @@ final class AppPreferences {
     static final String KEY_COMPACT_PANEL_HEIGHT_DP = "compact_panel_height_dp";
     static final String KEY_AMLL_PANEL_WIDTH_DP = "amll_panel_width_dp";
     static final String KEY_AMLL_PANEL_HEIGHT_DP = "amll_panel_height_dp";
+    static final String KEY_FOLIA_PANEL_WIDTH_DP = "folia_panel_width_dp";
+    static final String KEY_FOLIA_PANEL_HEIGHT_DP = "folia_panel_height_dp";
+    static final String KEY_FOLIA_FOCUS = "folia_focus";
+    static final String KEY_FOLIA_RADIUS = "folia_radius";
+    static final String KEY_FOLIA_TILT = "folia_tilt";
+    static final String KEY_FOLIA_AXIS = "folia_axis";
+    static final String KEY_FOLIA_TRACKING = "folia_tracking";
+    static final String KEY_FOLIA_FPS = "folia_fps";
+    static final String KEY_FOLIA_STRENGTH = "folia_strength";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
     static final String KEY_MAIN_OVERLAY_STYLE = "main_overlay_style";
     static final String KEY_SECONDARY_OVERLAY_STYLE = "secondary_overlay_style";
@@ -423,8 +432,8 @@ final class AppPreferences {
      * 可选歌词样式，与设置页的样式下拉一致（issue #39 的"应用到其它样式"用）。注意经典的 id 是
      * {@code default}，与 {@link #normalizeOverlayStyle(String)} 保持一致。
      */
-    static final String[] OVERLAY_STYLES = {"default", "refined", "amll", "compact", "pip", "pure",
-            "custom", "island"};
+    static final String[] OVERLAY_STYLES = FoliaModeCatalog.append(new String[]{
+            "default", "refined", "amll", "compact", "pip", "pure", "custom", "island"}, false);
 
     /**
      * 这些"共用显示参数"按 <b>屏 × 样式</b> 两级保存（issue #39）：字号、颜色与描边、背景不透明度、
@@ -440,6 +449,10 @@ final class AppPreferences {
                     KEY_OPACITY, KEY_STYLE_COVER_SIZE, KEY_STYLE_BLUR, KEY_STYLE_DIM,
                     KEY_CORNER_RADIUS_PERCENT, KEY_LYRIC_ALIGN, KEY_CONTENT_ALIGN,
                     KEY_STYLE_LYRIC_LINES,
+                    KEY_FOLIA_PANEL_WIDTH_DP, KEY_FOLIA_PANEL_HEIGHT_DP,
+                    KEY_FOLIA_FOCUS, KEY_FOLIA_RADIUS, KEY_FOLIA_TILT, KEY_FOLIA_AXIS,
+                    KEY_FOLIA_TRACKING, KEY_FOLIA_FPS, KEY_FOLIA_STRENGTH,
+                    KEY_REFINED_SHOW_TRANSLATION,
                     KEY_LYRIC_EFFECT, KEY_LYRIC_EFFECT_STRENGTH, KEY_LYRIC_EFFECT_SPEED,
                     KEY_LYRIC_EFFECT_FPS,
                     KEY_PREVIOUS_LYRIC_PARTICLES, KEY_PARTICLE_AMOUNT, KEY_WORD_DISSOLVE,
@@ -1405,6 +1418,7 @@ final class AppPreferences {
     }
 
     private static String normalizeOverlayStyle(String style) {
+        if (FoliaModeCatalog.isStyle(style)) return style;
         if ("default".equals(style) || "refined".equals(style)
                 || "compact".equals(style) || "pip".equals(style)
                 || "custom".equals(style) || "amll".equals(style) || "pure".equals(style)
@@ -2218,6 +2232,7 @@ final class AppPreferences {
     }
 
     private static int defaultPanelWidthDp(String style) {
+        if (FoliaModeCatalog.isStyle(style)) return 800;
         if ("refined".equals(style)) return 560;
         if ("compact".equals(style)) return 320;
         if ("amll".equals(style)) return 620;
@@ -2229,6 +2244,7 @@ final class AppPreferences {
     }
 
     private static int defaultPanelHeightDp(String style) {
+        if (FoliaModeCatalog.isStyle(style)) return 480;
         if ("refined".equals(style)) return 300;
         // This leaves room for the optional translation and the compact playback bars while
         // remaining a small horizontal overlay.
@@ -2242,12 +2258,14 @@ final class AppPreferences {
     }
 
     private static String panelWidthKey(String style) {
+        if (FoliaModeCatalog.isStyle(style)) return KEY_FOLIA_PANEL_WIDTH_DP;
         if ("compact".equals(style)) return KEY_COMPACT_PANEL_WIDTH_DP;
         if ("amll".equals(style)) return KEY_AMLL_PANEL_WIDTH_DP;
         return KEY_PANEL_WIDTH_DP;
     }
 
     private static String panelHeightKey(String style) {
+        if (FoliaModeCatalog.isStyle(style)) return KEY_FOLIA_PANEL_HEIGHT_DP;
         if ("compact".equals(style)) return KEY_COMPACT_PANEL_HEIGHT_DP;
         if ("amll".equals(style)) return KEY_AMLL_PANEL_HEIGHT_DP;
         return KEY_PANEL_HEIGHT_DP;

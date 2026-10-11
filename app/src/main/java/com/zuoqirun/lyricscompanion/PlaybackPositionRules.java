@@ -19,6 +19,29 @@ final class PlaybackPositionRules {
 
     private PlaybackPositionRules() { }
 
+    /** A natural end can advance between polls; 100ms equality misses the car's 657-728ms carry. */
+    static boolean staleOnTrackChange(boolean identityChanged, boolean hadPreviousTrack,
+                                      long previousReportedMs, long incomingMs,
+                                      long incomingDurationMs, boolean explicitlyPlaying,
+                                      long previousDurationMs, boolean previouslyUntrusted) {
+        if (!identityChanged || !hadPreviousTrack || incomingMs <= TRACK_START_TOLERANCE_MS) {
+            return false;
+        }
+        boolean advancingEnd = explicitlyPlaying && previousDurationMs > 0L
+                && previousReportedMs >= previousDurationMs - TRACK_START_TOLERANCE_MS
+                && Math.abs(incomingMs - previousReportedMs) <= TRACK_START_TOLERANCE_MS;
+        boolean unresolvedCarry = previouslyUntrusted && explicitlyPlaying
+                && !residualReleasedOnTrackChange(previousReportedMs, incomingMs);
+        return advancingEnd || unresolvedCarry || staleOnTrackChange(identityChanged,
+                hadPreviousTrack, previousReportedMs, incomingMs, incomingDurationMs,
+                explicitlyPlaying);
+    }
+
+    static boolean residualReleasedOnTrackChange(long rejectedMs, long incomingMs) {
+        return incomingMs <= TRACK_START_TOLERANCE_MS
+                || rejectedMs - incomingMs > TRACK_START_TOLERANCE_MS;
+    }
+
     /**
      * 切歌这一轮上报的位置是否明显是上一首的遗留值（应当忽略它、让新曲目从 0 开始）。
      *

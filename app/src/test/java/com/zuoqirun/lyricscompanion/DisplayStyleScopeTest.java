@@ -77,7 +77,14 @@ public class DisplayStyleScopeTest {
             String key = AppPreferences.styleScopedKey(AppPreferences.KEY_TEXT_SCALE, false, style);
             assertEquals("text_scale_main_" + style, key);
         }
-        // 经典 / Refined / AMLL / 紧凑 / 极简 / 纯净 / 自定义 / 灵动岛（issue #54）
-        assertEquals(8, AppPreferences.OVERLAY_STYLES.length);
+        // 保留原有八款，并给十四款 Folia 各自独立的参数空间。
+        assertEquals(8 + FoliaModeCatalog.VALUES.length, AppPreferences.OVERLAY_STYLES.length);
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        for (String mode : FoliaModeCatalog.VALUES) {
+            String style = "folia_" + mode;
+            assertTrue(keys.add(AppPreferences.styleScopedKey(AppPreferences.KEY_FOLIA_RADIUS, false, style)));
+            assertTrue(keys.add(AppPreferences.styleScopedKey(AppPreferences.KEY_FOLIA_RADIUS, true, style)));
+            assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_FOLIA_FPS));
+        }
     }
 }

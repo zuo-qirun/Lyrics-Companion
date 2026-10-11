@@ -242,8 +242,10 @@ final class MusicStateStore {
             }
             // 被判为残留的那份上报要等它"降下来"才恢复采信：车机切歌后可能还在继续推进上一首的位置，
             // 值一直在变、但都是旧曲目的，"值变了"本身不足以证明它已经是新曲目的位置（review 第六轮 P2）。
-            if (reportedPositionUntrusted
-                    && PlaybackPositionRules.residualReleased(lastReportedPositionMs, newPosition)) {
+            if (!sameSource || !samePublisher) reportedPositionUntrusted = false;
+            if (reportedPositionUntrusted && (changed
+                    ? PlaybackPositionRules.residualReleasedOnTrackChange(lastReportedPositionMs, newPosition)
+                    : PlaybackPositionRules.residualReleased(lastReportedPositionMs, newPosition))) {
                 reportedPositionUntrusted = false;
             }
             // 值变了、而且这份上报可信，才算"真的动了"：不可信的上报哪怕在变也不能夺走锚点。
@@ -290,9 +292,10 @@ final class MusicStateStore {
             boolean staleOnTrackChange = PlaybackPositionRules.staleOnTrackChange(
                     TrackIdentityRules.isDifferentTrackMetadata(title, newTitle, artist, newArtist,
                             storedCatalogId, incomingCatalogId),
-                    !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
+                    sameSource && samePublisher && !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
                     newDuration > 0L ? newDuration : -1L,
-                    statePresent && stateValue == MusicPlaybackData.STATE_PLAYING);
+                    statePresent && stateValue == MusicPlaybackData.STATE_PLAYING,
+                    durationMs, reportedPositionUntrusted);
             if (changed) {
                 DiagnosticLog.record(context, "Playback", "positionOnTrackChange reported="
                         + newPosition + " durationMs=" + newDuration + " previous="
@@ -584,7 +587,8 @@ final class MusicStateStore {
                 ? liveSessionLyricSourceName(source) : lyricSourceName;
         return new MusicSnapshot(active, playing, sourceName, title, artist, albumArt, durationMs,
                 position, lyricLoadFinished, catalogLyricAvailable || liveLyricAvailable,
-                displayedLyricSource, at);
+                displayedLyricSource, at, liveLyricAvailable ? java.util.Collections.emptyList()
+                        : timeline.renderLines());
     }
 
     /**

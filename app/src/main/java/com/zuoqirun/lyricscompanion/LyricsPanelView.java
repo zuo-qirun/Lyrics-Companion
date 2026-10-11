@@ -278,6 +278,8 @@ final class LyricsPanelView extends View {
     private long amllScrollAnimationStartedMs;
     private int amllScrollDirection;
     private Typeface customTypeface;
+    private final FoliaCanvasRenderer foliaRenderer = new FoliaCanvasRenderer();
+    private int foliaFps = 30;
     /** Avoid repeatedly entering vendor Typeface code when the requested face has not changed. */
     private Typeface appliedTextTypeface;
     private String compactMarqueeText = "";
@@ -485,6 +487,17 @@ final class LyricsPanelView extends View {
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext(), secondary);
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext(), secondary);
         customTypeface = CustomFontStore.load(getContext());
+        foliaFps = AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FPS, 30);
+        foliaRenderer.configure(FoliaModeCatalog.modeForStyle(overlayStyle), customTypeface, textScale,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50),
+                foliaFps,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_RADIUS, 100) / 100f,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FOCUS, 165) / 100f,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TILT, 45),
+                AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_AXIS, true),
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TRACKING, 0),
+                refinedShowTranslation, AppPreferences.spectrumEnabled(getContext(), secondary)
+                        && AppPreferences.compactUseRealSpectrum(getContext(), secondary));
         // 模糊歌词改走离屏位图（见 drawBlurredLine），面板本身不再需要软件渲染：以前 Refined / 紧凑
         // 打开「歌词模糊」、AMLL 一律把整块面板丢给 CPU，帧率再高也拉不回来（issue #59 后续）。
         setLayerType(LAYER_TYPE_NONE, null);
@@ -579,7 +592,17 @@ final class LyricsPanelView extends View {
                 wordDissolve && previousLyricParticles && playingLine.active,
                 playingLine.lyrics.wordTimed, now);
 
-        if ("amll".equals(overlayStyle)) {
+        if (FoliaModeCatalog.isStyle(overlayStyle)) {
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            drawRefinedBackground(canvas, snapshot.albumArt, refinedUsesLightColors(),
+                    refinedAccentColor(), snapshot.playing);
+            foliaRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
+                    lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
+                    inactiveLyricColor(0xFFB9BBC5));
+            drawProgress(canvas, 16f * density, getHeight() - 3f * density,
+                    getWidth() - 16f * density, 2f * density, snapshot,
+                    0x33888888, refinedAccentColor());
+        } else if ("amll".equals(overlayStyle)) {
             drawAmll(canvas, snapshot, density);
         } else if ("refined".equals(overlayStyle)) {
             drawRefined(canvas, snapshot, density);
@@ -607,7 +630,8 @@ final class LyricsPanelView extends View {
         if (browsingLyrics || browseUntilElapsedMs > now) {
             drawBrowseIndicator(canvas, snapshot, density);
         }
-        if (!"compact".equals(overlayStyle) && !"pure".equals(overlayStyle)
+        if (!FoliaModeCatalog.isStyle(overlayStyle)
+                && !"compact".equals(overlayStyle) && !"pure".equals(overlayStyle)
                 && AppPreferences.spectrumEnabled(getContext(), secondary)) {
             drawSharedSpectrum(canvas, snapshot, density);
         }
@@ -617,8 +641,9 @@ final class LyricsPanelView extends View {
         }
         drawPreviousLyricDust(canvas, now);
         drawMatchingIndicator(canvas, density, now);
-        long delay = LyricEffectRules.frameDelay(lyricEffect, lyricEffectStrength, lyricEffectFps,
-                framePlaying, lyricEffectEntryAge(), lyricEffectSpeed, nextFrameDelay(snapshot, now));
+        long delay = FoliaModeCatalog.isStyle(overlayStyle) ? nextFrameDelay(snapshot, now)
+                : LyricEffectRules.frameDelay(lyricEffect, lyricEffectStrength, lyricEffectFps,
+                        framePlaying, lyricEffectEntryAge(), lyricEffectSpeed, nextFrameDelay(snapshot, now));
         scheduleNextFrame(delay);
     }
 
@@ -633,7 +658,7 @@ final class LyricsPanelView extends View {
         }
         // 星空 / 流体这类按帧率跑的背景：固定延时落在两个刷新周期之间时，画面会在「差一帧」和
         // 「差两帧」之间来回跳，看起来就是一顿一顿。改由 Choreographer 按刷新周期对齐（issue #59）。
-        if (hasAnimatedRefinedBackground()) {
+        if (!FoliaModeCatalog.isStyle(overlayStyle) && hasAnimatedRefinedBackground()) {
             scheduleBackgroundFrame(delayMs);
             return;
         }
@@ -667,6 +692,10 @@ final class LyricsPanelView extends View {
     }
 
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
+        if (FoliaModeCatalog.isStyle(overlayStyle)) {
+            return FoliaRingMath.frameDelay(FoliaModeCatalog.modeForStyle(overlayStyle), foliaFps,
+                    snapshot.playing, foliaRenderer.transitioning());
+        }
         if (liveTransition.isAnimating(snapshot.playing)) return 16L;
         if (browsingLyrics || browseSettling) return 16L;
         if (compactSpectrumAnimating || metadataMarqueeAnimating) return 16L;
@@ -948,7 +977,8 @@ final class LyricsPanelView extends View {
     }
 
     private boolean usesRefinedVisualStyle() {
-        return "refined".equals(overlayStyle) || "compact".equals(overlayStyle);
+        return "refined".equals(overlayStyle) || "compact".equals(overlayStyle)
+                || FoliaModeCatalog.isStyle(overlayStyle);
     }
 
     @Override public boolean performClick() {
@@ -4601,6 +4631,7 @@ final class LyricsPanelView extends View {
     }
 
     @Override protected void onDetachedFromWindow() {
+        foliaRenderer.clear();
         // 排给动态背景的 vsync 回调必须撤掉，否则视图已经不在窗口上还会被唤醒一次。
         Choreographer.getInstance().removeFrameCallback(backgroundFrameCallback);
         backgroundFramePosted = false;

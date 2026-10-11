@@ -9,6 +9,7 @@ final class OverlayStyleInteraction {
      * 紧凑、纯净、以及灵动岛（一只小胶囊，整块都该能拖，issue #54）。
      */
     static boolean reservesSurfaceForWindowDrag(String style) {
-        return "compact".equals(style) || "pure".equals(style) || "island".equals(style);
+        return "compact".equals(style) || "pure".equals(style) || "island".equals(style)
+                || FoliaModeCatalog.isStyle(style);
     }
 }

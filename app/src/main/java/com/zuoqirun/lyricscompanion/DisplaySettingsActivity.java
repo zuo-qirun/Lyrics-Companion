@@ -92,6 +92,43 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 + "按钮只复制你改过的项。", 12, 0xFFD7E1EE, false));
         addCard(root, styleScope);
 
+        String selectedStyle = AppPreferences.overlayStyle(this, secondary);
+        boolean foliaStyle = FoliaModeCatalog.isStyle(selectedStyle);
+        if (foliaStyle) {
+            LinearLayout folia = card(FoliaModeCatalog.labelForStyle(selectedStyle) + " · 原生参数");
+            folia.addView(text("Folia 原生改编版，布局与光效可能与原版不同。逐字时间轴驱动；"
+                    + "无逐字数据时按本句时长估算，暂停会冻结运动。", 12, 0xFFD7E1EE, false));
+            addSeek(folia, "动画强度", 0, 100,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_STRENGTH, value));
+            addChoice(folia, "动画帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
+                    new String[]{"0", "24", "30", "60"},
+                    String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_FPS, 30)),
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_FPS,
+                            Integer.parseInt(value)));
+            addToggle(folia, "显示歌词翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
+                    AppPreferences.refinedShowTranslation(this, secondary));
+            if ("folia_claddagh".equals(selectedStyle)) {
+                addSeek(folia, "主歌词放大倍率", 100, 250,
+                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_FOCUS, 165), "%",
+                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_FOCUS, value));
+                addSeek(folia, "轨道半径", 40, 180,
+                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_RADIUS, 100), "%",
+                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_RADIUS, value));
+                addSeek(folia, "轨道倾斜度", 0, 90,
+                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_TILT, 45), "°",
+                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_TILT, value));
+                addSeek(folia, "额外字间距", 0, 30,
+                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_TRACKING, 0), " dp",
+                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_TRACKING, value));
+                addToggle(folia, "中间轴线", AppPreferences.KEY_FOLIA_AXIS,
+                        AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_AXIS, true));
+            }
+            folia.addView(text("每款 Folia 样式按屏幕独立保存尺寸、字号、颜色与动画参数。"
+                    + "建议在完整歌词页或较大的悬浮窗使用；真实节拍需要录音权限与 ROM 频谱支持。", 12, 0xFF8392A8, false));
+            addCard(root, folia);
+        }
+
         LinearLayout panel = card("悬浮窗尺寸与文字");
         Point screenDp = targetScreenSizeDp();
         int maximumWidth = Math.max(AppPreferences.minimumPanelWidthDp(this, secondary), screenDp.x);
@@ -115,134 +152,138 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_TEXT_SCALE, value));
-        addSeek(panel, "歌名与歌手字号", 60, 180,
-                AppPreferences.titleScale(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_TITLE_SCALE, value));
-        // 歌手字号（issue #63）：0% = 跟随各样式原本比例，100% = 与歌名同号。
-        addSeek(panel, "歌手字号（0 = 跟随样式）", 0, MetadataTypeScaleMath.MAX_PERCENT,
-                Math.max(0, AppPreferences.artistScale(this, secondary)), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_ARTIST_SCALE,
-                        value <= 0 ? MetadataTypeScaleMath.UNSET : value));
-        addSeek(panel, "下一句字号", 45, 160,
-                AppPreferences.nextLyricScale(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_NEXT_LYRIC_SCALE, value));
-        addSeek(panel, "下一句不透明度", 20, 100,
-                AppPreferences.nextLyricOpacity(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
-        addSeek(panel, "上一句字号（经典样式）", 45, 160,
-                AppPreferences.previousLyricScale(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_PREVIOUS_LYRIC_SCALE, value));
-        addSeek(panel, "上一句不透明度", 0, 100,
-                AppPreferences.previousLyricOpacity(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_PREVIOUS_LYRIC_OPACITY, value));
-        addChoice(panel, "内容垂直对齐（经典 / 纯净）",
-                new String[]{"跟随样式（默认）", "顶部", "居中", "底部"},
-                new String[]{"", "top", "center", "bottom"},
-                AppPreferences.contentAlign(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_CONTENT_ALIGN, value));
-        panel.addView(text("拖到屏幕顶端后选「顶部」，歌词才会贴到面板上沿。", 12, 0xFFD7E1EE, false));
-        addChoice(panel, "歌词水平对齐（经典 / 紧凑 / 纯净 / 灵动岛）",
-                new String[]{"跟随样式（默认）", "居中", "居左"},
-                new String[]{"", "center", "left"},
-                AppPreferences.lyricAlign(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_LYRIC_ALIGN, value));
-        // 内容留白（issue #49）：0% = 文字尽量贴边，100% = 样式原样。
-        addSeek(panel, "内容留白（0 = 贴边）", 0, ContentPaddingMath.MAX_PERCENT,
-                Math.max(0, AppPreferences.contentPaddingPercent(this, secondary)), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_CONTENT_PADDING_PERCENT,
-                        value <= 0 ? 0 : value));
-        // 长句显示方式（issue #47）：默认跑马灯；换行会吃掉相邻行位（顶部歌词条永远跑马灯）。
-        addChoice(panel, "长句显示方式（紧凑 / 纯净）",
-                new String[]{"横向跑马灯（默认）", "缩小字号", "换行"},
-                new String[]{LongLineLayout.MODE_MARQUEE, LongLineLayout.MODE_SHRINK,
-                        LongLineLayout.MODE_WRAP},
-                AppPreferences.longLineMode(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_LONG_LINE_MODE, value));
-        if ("default".equals(AppPreferences.overlayStyle(this, secondary))) {
-            addChoice(panel, "经典长句显示方式",
-                    new String[]{"跟随原样（默认）", "跑马灯（不缩放）", "缩小字号", "换行"},
-                    new String[]{"legacy", "marquee", "shrink", "wrap"},
-                    AppPreferences.classicLongLineMode(this, secondary),
+        if (!foliaStyle) {
+            addSeek(panel, "歌名与歌手字号", 60, 180,
+                    AppPreferences.titleScale(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_TITLE_SCALE, value));
+            // 歌手字号（issue #63）：0% = 跟随各样式原本比例，100% = 与歌名同号。
+            addSeek(panel, "歌手字号（0 = 跟随样式）", 0, MetadataTypeScaleMath.MAX_PERCENT,
+                    Math.max(0, AppPreferences.artistScale(this, secondary)), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_ARTIST_SCALE,
+                            value <= 0 ? MetadataTypeScaleMath.UNSET : value));
+            addSeek(panel, "下一句字号", 45, 160,
+                    AppPreferences.nextLyricScale(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_NEXT_LYRIC_SCALE, value));
+            addSeek(panel, "下一句不透明度", 20, 100,
+                    AppPreferences.nextLyricOpacity(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_NEXT_LYRIC_OPACITY, value));
+            addSeek(panel, "上一句字号（经典样式）", 45, 160,
+                    AppPreferences.previousLyricScale(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_PREVIOUS_LYRIC_SCALE, value));
+            addSeek(panel, "上一句不透明度", 0, 100,
+                    AppPreferences.previousLyricOpacity(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_PREVIOUS_LYRIC_OPACITY, value));
+            addChoice(panel, "内容垂直对齐（经典 / 纯净）",
+                    new String[]{"跟随样式（默认）", "顶部", "居中", "底部"},
+                    new String[]{"", "top", "center", "bottom"},
+                    AppPreferences.contentAlign(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary,
-                            AppPreferences.KEY_CLASSIC_LONG_LINE_MODE, value));
-            addToggle(panel, "经典歌名保持设定字号（长歌名跑马灯）",
-                    AppPreferences.KEY_CLASSIC_KEEP_TITLE_SIZE,
-                    AppPreferences.classicKeepTitleSize(this, secondary));
-            panel.addView(text("歌名按实际字号预留高度；空间不足时请增大面板高度或减少歌词行数。",
-                    12, 0xFFD7E1EE, false));
-        }
-        if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
-            addSeek(panel, "胶囊高度上限", 72, 240,
-                    AppPreferences.islandMaxHeight(this, secondary), " dp",
-                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_ISLAND_MAX_HEIGHT, value));
-            final View[][] rowDependents = new View[1][];
-            MaterialSwitch automaticRows = addToggle(panel, "双行高度随下一句字号自动分配",
-                    AppPreferences.KEY_ISLAND_AUTO_ROWS, AppPreferences.islandMainRowPercent(this, secondary) == 0,
-                    () -> setDependentVisibility(AppPreferences.islandMainRowPercent(this, secondary) != 0,
-                            rowDependents[0]));
-            rowDependents[0] = addSeekRow(panel, "双行主行占比", 35, 85,
-                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT, 65), "%",
-                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT, value));
-            setDependentVisibility(!automaticRows.isChecked(), rowDependents[0]);
-            addChoice(panel, "胶囊第二行内容",
-                    new String[]{"跟随原样（默认）", "歌名 / 歌手", "下一句歌词", "歌词翻译", "无"},
-                    new String[]{"legacy", "title", "next", "translation", "none"},
-                    AppPreferences.islandSecondRow(this, secondary),
+                            AppPreferences.KEY_CONTENT_ALIGN, value));
+            panel.addView(text("拖到屏幕顶端后选「顶部」，歌词才会贴到面板上沿。", 12, 0xFFD7E1EE, false));
+            addChoice(panel, "歌词水平对齐（经典 / 紧凑 / 纯净 / 灵动岛）",
+                    new String[]{"跟随样式（默认）", "居中", "居左"},
+                    new String[]{"", "center", "left"},
+                    AppPreferences.lyricAlign(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary,
-                            AppPreferences.KEY_ISLAND_SECOND_ROW, value));
-            panel.addView(text("高度受悬浮窗高度与上限共同限制；双行按行高分配，字号在行高内缩放。关闭自动分配后主行占比可设 35–85%；矮于 56dp 或过窄时退回单行。",
+                            AppPreferences.KEY_LYRIC_ALIGN, value));
+            // 内容留白（issue #49）：0% = 文字尽量贴边，100% = 样式原样。
+            addSeek(panel, "内容留白（0 = 贴边）", 0, ContentPaddingMath.MAX_PERCENT,
+                    Math.max(0, AppPreferences.contentPaddingPercent(this, secondary)), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_CONTENT_PADDING_PERCENT,
+                            value <= 0 ? 0 : value));
+            // 长句显示方式（issue #47）：默认跑马灯；换行会吃掉相邻行位（顶部歌词条永远跑马灯）。
+            addChoice(panel, "长句显示方式（紧凑 / 纯净）",
+                    new String[]{"横向跑马灯（默认）", "缩小字号", "换行"},
+                    new String[]{LongLineLayout.MODE_MARQUEE, LongLineLayout.MODE_SHRINK,
+                            LongLineLayout.MODE_WRAP},
+                    AppPreferences.longLineMode(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_LONG_LINE_MODE, value));
+            if ("default".equals(AppPreferences.overlayStyle(this, secondary))) {
+                addChoice(panel, "经典长句显示方式",
+                        new String[]{"跟随原样（默认）", "跑马灯（不缩放）", "缩小字号", "换行"},
+                        new String[]{"legacy", "marquee", "shrink", "wrap"},
+                        AppPreferences.classicLongLineMode(this, secondary),
+                        value -> AppPreferences.putDisplayString(this, secondary,
+                                AppPreferences.KEY_CLASSIC_LONG_LINE_MODE, value));
+                addToggle(panel, "经典歌名保持设定字号（长歌名跑马灯）",
+                        AppPreferences.KEY_CLASSIC_KEEP_TITLE_SIZE,
+                        AppPreferences.classicKeepTitleSize(this, secondary));
+                panel.addView(text("歌名按实际字号预留高度；空间不足时请增大面板高度或减少歌词行数。",
+                        12, 0xFFD7E1EE, false));
+            }
+            if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
+                addSeek(panel, "胶囊高度上限", 72, 240,
+                        AppPreferences.islandMaxHeight(this, secondary), " dp",
+                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_ISLAND_MAX_HEIGHT, value));
+                final View[][] rowDependents = new View[1][];
+                MaterialSwitch automaticRows = addToggle(panel, "双行高度随下一句字号自动分配",
+                        AppPreferences.KEY_ISLAND_AUTO_ROWS, AppPreferences.islandMainRowPercent(this, secondary) == 0,
+                        () -> setDependentVisibility(AppPreferences.islandMainRowPercent(this, secondary) != 0,
+                                rowDependents[0]));
+                rowDependents[0] = addSeekRow(panel, "双行主行占比", 35, 85,
+                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT, 65), "%",
+                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT, value));
+                setDependentVisibility(!automaticRows.isChecked(), rowDependents[0]);
+                addChoice(panel, "胶囊第二行内容",
+                        new String[]{"跟随原样（默认）", "歌名 / 歌手", "下一句歌词", "歌词翻译", "无"},
+                        new String[]{"legacy", "title", "next", "translation", "none"},
+                        AppPreferences.islandSecondRow(this, secondary),
+                        value -> AppPreferences.putDisplayString(this, secondary,
+                                AppPreferences.KEY_ISLAND_SECOND_ROW, value));
+                panel.addView(text("高度受悬浮窗高度与上限共同限制；双行按行高分配，字号在行高内缩放。关闭自动分配后主行占比可设 35–85%；矮于 56dp 或过窄时退回单行。",
+                        12, 0xFFD7E1EE, false));
+            }
+            addToggle(panel, "播放器实时歌词切句动画", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
+                    AppPreferences.liveLyricAnimation(this, secondary));
+            addSeek(panel, "实时歌词过渡时长", 0, 800,
+                    AppPreferences.liveLyricAnimationDuration(this, secondary), " ms",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, value));
+            panel.addView(text("实时歌词换句时淡入并轻微上移，不估算演唱或逐字时长；默认关闭，顶部歌词条不受影响。",
                     12, 0xFFD7E1EE, false));
+            // 粒子量 and 逐字歌词及时擦除 belong to the dissolve: they are only offered while it is
+            // switched on, and go away with it. The holder exists because the master toggle is built
+            // before the rows it controls.
+            final View[][] dependents = new View[1][];
+            MaterialSwitch dissolve = addToggle(panel, "本句结束粒子消散",
+                    AppPreferences.KEY_PREVIOUS_LYRIC_PARTICLES,
+                    AppPreferences.previousLyricParticles(this, secondary),
+                    () -> setDependentVisibility(
+                            AppPreferences.previousLyricParticles(this, secondary), dependents[0]));
+            View[] amountRow = addSeekRow(panel, "粒子量", 20, 300,
+                    AppPreferences.particleAmountPercent(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_PARTICLE_AMOUNT, value));
+            MaterialSwitch wordErase = addToggle(panel, "逐字歌词及时擦除",
+                    AppPreferences.KEY_WORD_DISSOLVE,
+                    AppPreferences.wordDissolve(this, secondary), null);
+            dependents[0] = new View[] { amountRow[0], amountRow[1], wordErase };
+            setDependentVisibility(dissolve.isChecked(), dependents[0]);
+            addToggle(panel, "显示播放器与歌词来源状态行", AppPreferences.KEY_SHOW_PLAYER_STATUS,
+                    AppPreferences.showPlayerStatus(this, secondary));
+            addToggle(panel, "显示进度条", AppPreferences.KEY_SHOW_PROGRESS,
+                    AppPreferences.showProgress(this, secondary));
+            String translationStyle = AppPreferences.overlayStyle(this, secondary);
+            if ("default".equals(translationStyle) || "amll".equals(translationStyle)
+                    || "pip".equals(translationStyle)) {
+                addToggle(panel, "显示歌词翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
+                        AppPreferences.refinedShowTranslation(this, secondary));
+            }
+            addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
+                    AppPreferences.smoothLyricScroll(this, secondary));
+            addToggle(panel, "尾部拖长音重音", AppPreferences.KEY_TRAILING_ACCENT,
+                    AppPreferences.trailingAccent(this, secondary));
         }
-        addToggle(panel, "播放器实时歌词切句动画", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
-                AppPreferences.liveLyricAnimation(this, secondary));
-        addSeek(panel, "实时歌词过渡时长", 0, 800,
-                AppPreferences.liveLyricAnimationDuration(this, secondary), " ms",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, value));
-        panel.addView(text("实时歌词换句时淡入并轻微上移，不估算演唱或逐字时长；默认关闭，顶部歌词条不受影响。",
-                12, 0xFFD7E1EE, false));
-        // 粒子量 and 逐字歌词及时擦除 belong to the dissolve: they are only offered while it is
-        // switched on, and go away with it. The holder exists because the master toggle is built
-        // before the rows it controls.
-        final View[][] dependents = new View[1][];
-        MaterialSwitch dissolve = addToggle(panel, "本句结束粒子消散",
-                AppPreferences.KEY_PREVIOUS_LYRIC_PARTICLES,
-                AppPreferences.previousLyricParticles(this, secondary),
-                () -> setDependentVisibility(
-                        AppPreferences.previousLyricParticles(this, secondary), dependents[0]));
-        View[] amountRow = addSeekRow(panel, "粒子量", 20, 300,
-                AppPreferences.particleAmountPercent(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_PARTICLE_AMOUNT, value));
-        MaterialSwitch wordErase = addToggle(panel, "逐字歌词及时擦除",
-                AppPreferences.KEY_WORD_DISSOLVE,
-                AppPreferences.wordDissolve(this, secondary), null);
-        dependents[0] = new View[] { amountRow[0], amountRow[1], wordErase };
-        setDependentVisibility(dissolve.isChecked(), dependents[0]);
-        addToggle(panel, "显示播放器与歌词来源状态行", AppPreferences.KEY_SHOW_PLAYER_STATUS,
-                AppPreferences.showPlayerStatus(this, secondary));
-        addToggle(panel, "显示进度条", AppPreferences.KEY_SHOW_PROGRESS,
+        if (foliaStyle) addToggle(panel, "显示进度条", AppPreferences.KEY_SHOW_PROGRESS,
                 AppPreferences.showProgress(this, secondary));
-        String translationStyle = AppPreferences.overlayStyle(this, secondary);
-        if ("default".equals(translationStyle) || "amll".equals(translationStyle)
-                || "pip".equals(translationStyle)) {
-            addToggle(panel, "显示歌词翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
-                    AppPreferences.refinedShowTranslation(this, secondary));
-        }
-        addToggle(panel, "平滑滚动换句", AppPreferences.KEY_SMOOTH_LYRIC_SCROLL,
-                AppPreferences.smoothLyricScroll(this, secondary));
-        addToggle(panel, "尾部拖长音重音", AppPreferences.KEY_TRAILING_ACCENT,
-                AppPreferences.trailingAccent(this, secondary));
         MaterialSwitch lockToggle = addToggle(panel, "锁定位置并穿透（保留播放控制按键）",
                 AppPreferences.KEY_OVERLAY_POSITION_LOCKED,
                 AppPreferences.overlayPositionLocked(this, secondary), null);
@@ -250,54 +291,56 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 + "与「锁定并触摸穿透」二选一；Android 12 起穿透会让歌词略暗。",
                 12, 0xFF8392A8, false));
         addTouchThroughToggle(panel, lockToggle);
-        addSeek(panel, "歌词显示行数", 1, 7,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STYLE_LYRIC_LINES, value));
-        // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
-        addChoice(panel, "文字效果（全部样式）",
-                new String[]{"无（各样式原样）", "文字阴影", "文字辉光"},
-                new String[]{"none", "shadow", "glow"},
-                AppPreferences.refinedTextEffect(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_REFINED_TEXT_EFFECT, value));
-        LinearLayout effectParameters = new LinearLayout(this);
-        effectParameters.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout effectMotion = new LinearLayout(this);
-        effectMotion.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout effectSpeed = new LinearLayout(this);
-        effectSpeed.setOrientation(LinearLayout.VERTICAL);
-        String initialEffect = LyricEffectRules.normalize(AppPreferences.displayString(
-                this, secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
-        addChoice(panel, "歌词特效", LyricEffectCatalog.labels(), LyricEffectCatalog.values(),
-                initialEffect, value -> {
-                    AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, value);
-                    effectParameters.setVisibility("none".equals(value) ? View.GONE : View.VISIBLE);
-                    effectMotion.setVisibility(LyricEffectCatalog.find(value).animated ? View.VISIBLE : View.GONE);
-                    effectSpeed.setVisibility("karaoke".equals(value) ? View.GONE : View.VISIBLE);
-                });
-        addSeek(effectParameters, "特效强度", 0, 100,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, value));
-        addSeek(effectSpeed, "特效速度", 25, 300,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, value));
-        effectMotion.addView(effectSpeed);
-        addChoice(effectMotion, "特效帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
-                new String[]{"0", "24", "30", "60"},
-                String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30)),
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS,
-                        Integer.parseInt(value)));
-        effectParameters.addView(effectMotion);
-        panel.addView(effectParameters);
-        effectParameters.setVisibility("none".equals(initialEffect) ? View.GONE : View.VISIBLE);
-        effectMotion.setVisibility(LyricEffectCatalog.find(initialEffect).animated ? View.VISIBLE : View.GONE);
-        effectSpeed.setVisibility("karaoke".equals(initialEffect) ? View.GONE : View.VISIBLE);
-        panel.addView(text("按屏幕和样式独立保存。卡拉 OK 无逐字数据时按句长估算，停顿与长音可能有偏差；磨砂为半透明底衬，悬空为模拟纵深。镜像压缩在原行下沿，避免占用下一句。低帧率限制面板重绘；关闭动画保留镜像与磨砂静态项。", 12, 0xFF8392A8, false));
-        // 无逐字时间轴时估算逐字进度（issue #21）。
-        addToggle(panel, "无逐字时间轴时按本句时长估算逐字进度", AppPreferences.KEY_ESTIMATED_WORD_KARAOKE,
-                AppPreferences.estimatedWordKaraoke(this, secondary), null);
-        panel.addView(text("普通 .lrc 按本句已播放比例逐字推进；长音与停顿会有偏差，默认关闭。", 12, 0xFFD7E1EE, false));
+        if (!foliaStyle) {
+            addSeek(panel, "歌词显示行数", 1, 7,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STYLE_LYRIC_LINES, value));
+            // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
+            addChoice(panel, "文字效果（全部样式）",
+                    new String[]{"无（各样式原样）", "文字阴影", "文字辉光"},
+                    new String[]{"none", "shadow", "glow"},
+                    AppPreferences.refinedTextEffect(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_REFINED_TEXT_EFFECT, value));
+            LinearLayout effectParameters = new LinearLayout(this);
+            effectParameters.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout effectMotion = new LinearLayout(this);
+            effectMotion.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout effectSpeed = new LinearLayout(this);
+            effectSpeed.setOrientation(LinearLayout.VERTICAL);
+            String initialEffect = LyricEffectRules.normalize(AppPreferences.displayString(
+                    this, secondary, AppPreferences.KEY_LYRIC_EFFECT, "none"));
+            addChoice(panel, "歌词特效", LyricEffectCatalog.labels(), LyricEffectCatalog.values(),
+                    initialEffect, value -> {
+                        AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_LYRIC_EFFECT, value);
+                        effectParameters.setVisibility("none".equals(value) ? View.GONE : View.VISIBLE);
+                        effectMotion.setVisibility(LyricEffectCatalog.find(value).animated ? View.VISIBLE : View.GONE);
+                        effectSpeed.setVisibility("karaoke".equals(value) ? View.GONE : View.VISIBLE);
+                    });
+            addSeek(effectParameters, "特效强度", 0, 100,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, 50), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_STRENGTH, value));
+            addSeek(effectSpeed, "特效速度", 25, 300,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, 100), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_SPEED, value));
+            effectMotion.addView(effectSpeed);
+            addChoice(effectMotion, "特效帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
+                    new String[]{"0", "24", "30", "60"},
+                    String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS, 30)),
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_LYRIC_EFFECT_FPS,
+                            Integer.parseInt(value)));
+            effectParameters.addView(effectMotion);
+            panel.addView(effectParameters);
+            effectParameters.setVisibility("none".equals(initialEffect) ? View.GONE : View.VISIBLE);
+            effectMotion.setVisibility(LyricEffectCatalog.find(initialEffect).animated ? View.VISIBLE : View.GONE);
+            effectSpeed.setVisibility("karaoke".equals(initialEffect) ? View.GONE : View.VISIBLE);
+            panel.addView(text("按屏幕和样式独立保存。卡拉 OK 无逐字数据时按句长估算，停顿与长音可能有偏差；磨砂为半透明底衬，悬空为模拟纵深。镜像压缩在原行下沿，避免占用下一句。低帧率限制面板重绘；关闭动画保留镜像与磨砂静态项。", 12, 0xFF8392A8, false));
+            // 无逐字时间轴时估算逐字进度（issue #21）。
+            addToggle(panel, "无逐字时间轴时按本句时长估算逐字进度", AppPreferences.KEY_ESTIMATED_WORD_KARAOKE,
+                    AppPreferences.estimatedWordKaraoke(this, secondary), null);
+            panel.addView(text("普通 .lrc 按本句已播放比例逐字推进；长音与停顿会有偏差，默认关闭。", 12, 0xFFD7E1EE, false));
+        }
         // 「正在匹配歌词」的呈现方式（issue #45）。
         final View[][] matchingDependents = new View[1][];
         MaterialSwitch matching = addToggle(panel, "匹配歌词时显示动画",
@@ -326,33 +369,41 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addCard(root, panel);
 
         LinearLayout spectrum = card("律动与频谱");
-        addToggle(spectrum, "在当前歌词模式显示律动", AppPreferences.KEY_SPECTRUM_ENABLED,
+        addToggle(spectrum, foliaStyle ? "跟随真实频谱" : "在当前歌词模式显示律动", AppPreferences.KEY_SPECTRUM_ENABLED,
                 AppPreferences.spectrumEnabled(this, secondary));
-        addToggle(spectrum, "使用真实音频频谱（关闭为虚拟律动）",
-                AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
-                AppPreferences.compactUseRealSpectrum(this, secondary));
-        addChoice(spectrum, "频谱样式",
-                new String[]{"经典柱状", "中心镜像", "胶囊律动", "点阵跳动", "连续波形"},
-                new String[]{"bars", "mirror", "capsule", "dots", "wave"},
-                AppPreferences.spectrumStyle(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_SPECTRUM_STYLE, value));
-        addChoice(spectrum, "频谱颜色",
-                new String[]{"跟随歌词", "自定义单色", "HSL 彩虹", "跟随封面"},
-                new String[]{"lyric", "custom", "rainbow", "artwork"},
-                AppPreferences.spectrumColorMode(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_SPECTRUM_COLOR_MODE, value));
-        // 律动/频谱条的大小（issue #57）：0% = 沿用原来的 14–42dp / 面板高 15%。
-        addSeek(spectrum, "律动高度（0 = 跟随样式）", 0, SpectrumLayoutMath.MAX_HEIGHT_PERCENT,
-                Math.max(0, AppPreferences.spectrumHeightPercent(this, secondary)), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_SPECTRUM_HEIGHT_PERCENT,
-                        value <= 0 ? SpectrumLayoutMath.UNSET : value));
-        addSeek(spectrum, "律动与底边留白", 0, SpectrumLayoutMath.MAX_GAP_DP,
-                AppPreferences.spectrumGapDp(this, secondary), " dp",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_SPECTRUM_GAP_DP, value));
+        if (!foliaStyle) {
+            addToggle(spectrum, "使用真实音频频谱（关闭为虚拟律动）",
+                    AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
+                    AppPreferences.compactUseRealSpectrum(this, secondary));
+            addChoice(spectrum, "频谱样式",
+                    new String[]{"经典柱状", "中心镜像", "胶囊律动", "点阵跳动", "连续波形"},
+                    new String[]{"bars", "mirror", "capsule", "dots", "wave"},
+                    AppPreferences.spectrumStyle(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_SPECTRUM_STYLE, value));
+            addChoice(spectrum, "频谱颜色",
+                    new String[]{"跟随歌词", "自定义单色", "HSL 彩虹", "跟随封面"},
+                    new String[]{"lyric", "custom", "rainbow", "artwork"},
+                    AppPreferences.spectrumColorMode(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_SPECTRUM_COLOR_MODE, value));
+            // 律动/频谱条的大小（issue #57）：0% = 沿用原来的 14–42dp / 面板高 15%。
+            addSeek(spectrum, "律动高度（0 = 跟随样式）", 0, SpectrumLayoutMath.MAX_HEIGHT_PERCENT,
+                    Math.max(0, AppPreferences.spectrumHeightPercent(this, secondary)), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_SPECTRUM_HEIGHT_PERCENT,
+                            value <= 0 ? SpectrumLayoutMath.UNSET : value));
+            addSeek(spectrum, "律动与底边留白", 0, SpectrumLayoutMath.MAX_GAP_DP,
+                    AppPreferences.spectrumGapDp(this, secondary), " dp",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_SPECTRUM_GAP_DP, value));
+        }
+        if (foliaStyle) {
+            addToggle(spectrum, "启用真实音频采集", AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
+                    AppPreferences.compactUseRealSpectrum(this, secondary));
+            spectrum.addView(text("回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时保留原轨道，不生成虚拟节拍。",
+                    12, 0xFF8392A8, false));
+        }
         addCard(root, spectrum);
 
         if (!secondary) {
@@ -633,6 +684,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     }
 
     private static String styleName(String style) {
+        if (FoliaModeCatalog.isStyle(style)) return FoliaModeCatalog.labelForStyle(style);
         if ("default".equals(style)) return "经典";
         if ("refined".equals(style)) return "Refined";
         if ("amll".equals(style)) return "AMLL";

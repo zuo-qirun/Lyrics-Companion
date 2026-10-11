@@ -12,6 +12,27 @@ import org.junit.Test;
  * the music is playing. Both used to freeze the lyric on one line until the user pressed pause.
  */
 public class PlaybackPositionRulesTest {
+    @Test public void naturalCarTrackSwitchCarriesAnAdvancingOldEnd() {
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(true, true,
+                202845, 203573, 228000, true, 205000, true));
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(true, true,
+                182797, 183454, 241000, true, 185000, false));
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(true, true,
+                221220, 221928, 224000, true, 224000, false));
+        assertFalse(PlaybackPositionRules.residualReleasedOnTrackChange(205000, 203573));
+        assertTrue(PlaybackPositionRules.residualReleasedOnTrackChange(205000, 190));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(true, true,
+                182797, 183454, 241000, false, 185000, false));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(true, false,
+                182797, 183454, 241000, true, 185000, false));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(false, true,
+                182797, 183454, 241000, true, 185000, true));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(true, true,
+                182797, 417, 241000, true, 185000, true));
+        // A late join/seek well away from the old end remains valid.
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(true, true,
+                120000, 160000, 241000, true, 185000, false));
+    }
     @Test public void playingTrackSwitchAtExactlyDurationRejectsEndAnchor() {
         assertTrue(PlaybackPositionRules.staleOnTrackChange(
                 true, true, 123_000L, 283_000L, 283_000L, true));

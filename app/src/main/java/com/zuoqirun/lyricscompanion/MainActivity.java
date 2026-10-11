@@ -1235,8 +1235,10 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = text(title, 14, 0xFFD7E1EE, true);
         label.setPadding(0, dp(14), 0, dp(6));
         parent.addView(label);
-        String[] labels = {"Refined Now Playing", "Apple Music-like Lyrics", "歌词伴侣经典样式", "紧凑歌词", "PiPWindow", "纯净歌词", "灵动岛（胶囊）"};
-        String[] values = {"refined", "amll", "default", "compact", "pip", "pure", "island"};
+        String[] labels = FoliaModeCatalog.append(new String[]{"Refined Now Playing", "Apple Music-like Lyrics",
+                "歌词伴侣经典样式", "紧凑歌词", "PiPWindow", "纯净歌词", "灵动岛（胶囊）"}, true);
+        String[] values = FoliaModeCatalog.append(new String[]{"refined", "amll", "default", "compact",
+                "pip", "pure", "island"}, false);
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         String saved = AppPreferences.overlayStyle(styleContext, secondary);

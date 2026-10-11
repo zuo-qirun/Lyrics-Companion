@@ -245,6 +245,9 @@ final class LrcTimeline {
         return lines.size();
     }
 
+    /** Immutable render input; kept in the same snapshot as the playback clock. */
+    List<Line> renderLines() { return lines; }
+
     int qualityScore() {
         int score = 0;
         for (Line line : lines) {
@@ -583,7 +586,7 @@ final class LrcTimeline {
         }
     }
 
-    private static final class Word {
+    static final class Word {
         final long startMs;
         final long durationMs;
         final String text;
