@@ -59,6 +59,10 @@ public class FoliaRingMathTest {
         assertEquals(17, FoliaRingMath.frameDelay("claddagh", 60, true, false));
         assertEquals(33, FoliaRingMath.frameDelay("claddagh", 30, true, false));
         assertEquals(42, FoliaRingMath.frameDelay("claddagh", 24, true, false));
+        assertEquals(12000, FoliaRingMath.sceneTime("claddagh", 30, 12000));
+        assertEquals(0, FoliaRingMath.sceneTime("claddagh", 0, 12000));
+        assertEquals(0, FoliaRingMath.sceneTime("still", 60, 12000));
+        assertEquals(0, FoliaRingMath.sceneTime("claddagh", 30, -500));
         assertEquals(0, FoliaRingMath.spring(0), 1e-9);
         assertEquals(1, FoliaRingMath.spring(3), 1e-8);
     }

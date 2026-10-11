@@ -71,6 +71,7 @@ final class FoliaCanvasRenderer {
         this.axis = axis;
         this.tracking = tracking;
         this.animate = fps > 0 && FoliaModeCatalog.animated(normalized);
+        if (!this.animate) bass = 0;
         this.showTranslation = showTranslation;
         this.audioReactive = audioReactive;
     }
@@ -141,7 +142,7 @@ final class FoliaCanvasRenderer {
             for (int i = 0; i < Math.min(6, audio.levels.length); i++) targetBass += audio.levels[i];
             targetBass /= Math.min(6, audio.levels.length);
         }
-        if (snapshot.playing) bass += (targetBass - bass) * 0.18f;
+        if (snapshot.playing && animate) bass += (targetBass - bass) * 0.18f;
         if (sourceLines.isEmpty()) {
             label(canvas, snapshot.lyrics.lyric.isEmpty() ? snapshot.active ? "正在匹配歌词" : "等待播放"
                     : snapshot.lyrics.lyric, width / 2, height / 2,
@@ -264,7 +265,8 @@ final class FoliaCanvasRenderer {
                 float highlight = Math.min(1, sung * 15);
                 int color = mix(primary, accent, highlight);
                 float opacity = (float) pose.opacity * (0.55f + 0.45f * highlight);
-                float flash = sung > 0 && sung < 0.4f ? (float) Math.pow(1 - sung / 0.4, 2) * 0.65f : 0;
+                float flash = animate && sung > 0 && sung < 0.4f
+                        ? (float) Math.pow(1 - sung / 0.4, 2) * 0.65f : 0;
                 float glow = (float) (24 * Math.pow(pose.focus, 2) * (1 + flash));
                 int save = canvas.save();
                 canvas.translate(width / 2 + (float) pose.x, height / 2 + (float) pose.y);
@@ -361,12 +363,14 @@ final class FoliaCanvasRenderer {
         canvas.scale(scale, scale);
         for (int i = 0; i < line.timeline.glyphs.length; i++) {
             float progress = (float) line.timeline.progress(i, time);
-            float entry = reveal ? (float) FoliaRingMath.clamp((time - line.timeline.starts[i] + 180) / 360.0, 0, 1) : 1;
+            float entry = reveal && animate
+                    ? (float) FoliaRingMath.clamp((time - line.timeline.starts[i] + 180) / 360.0, 0, 1) : 1;
             int glyphSave = canvas.save();
             canvas.translate(line.offsets[i] + line.widths[i] / 2 - line.total / 2,
                     animate ? (1 - entry) * 18 : 0);
             glyph(canvas, line, i, mix(primary, accent, Math.min(1, progress * 15)),
-                    opacity * (0.22f + 0.78f * entry), 0, progress > 0 && progress < 1 ? 8 * strength : 0);
+                    opacity * (0.22f + 0.78f * entry), 0,
+                    animate && progress > 0 && progress < 1 ? 8 * strength : 0);
             canvas.restoreToCount(glyphSave);
         }
         canvas.restoreToCount(save);
@@ -421,7 +425,8 @@ final class FoliaCanvasRenderer {
             }
             for (int g = first; g < end; g++) {
                 float progress = (float) line.timeline.progress(g, time);
-                float entry = (float) FoliaRingMath.clamp((time - line.timeline.starts[g] + 180) / 360.0, 0, 1);
+                float entry = animate
+                        ? (float) FoliaRingMath.clamp((time - line.timeline.starts[g] + 180) / 360.0, 0, 1) : 1;
                 float energy = animate ? (float) Math.sin(time / 1000.0 * 1.4 + g * 0.7) * strength : 0;
                 float x = line.offsets[g] - line.offsets[first] + line.widths[g] / 2 - rowWidth / 2;
                 float y = tilted ? (g % 2 == 0 ? -1 : 1) * size * 0.1f : mind ? energy * 10 : energy * 4;
@@ -430,7 +435,8 @@ final class FoliaCanvasRenderer {
                 if (!cloud && !mind && !tilted && animate) canvas.rotate(energy * 4);
                 if (mind) canvas.scale(0.94f + 0.06f * entry + bass * 0.08f, 0.94f + 0.06f * entry);
                 glyph(canvas, line, g, mix(primary, accent, Math.min(1, progress * 15)),
-                        0.22f + entry * 0.78f, 0, progress > 0 && progress < 1 ? 18 * strength : 0);
+                        0.22f + entry * 0.78f, 0,
+                        animate && progress > 0 && progress < 1 ? 18 * strength : 0);
                 canvas.restoreToCount(glyphSave);
             }
             canvas.restoreToCount(save);
@@ -590,7 +596,8 @@ final class FoliaCanvasRenderer {
         canvas.scale(fit, fit);
         for (int g = 0; g < line.timeline.glyphs.length; g++) {
             float progress = (float) line.timeline.progress(g, time);
-            float entry = (float) FoliaRingMath.clamp((time - line.timeline.starts[g] + 120) / 240.0, 0, 1);
+            float entry = animate
+                    ? (float) FoliaRingMath.clamp((time - line.timeline.starts[g] + 120) / 240.0, 0, 1) : 1;
             int glyphSave = canvas.save();
             canvas.translate(line.offsets[g] + line.widths[g] / 2 - line.total / 2,
                     animate ? (1 - entry) * 50 * (g % 2 == 0 ? 1 : -1) : 0);
@@ -614,7 +621,8 @@ final class FoliaCanvasRenderer {
         for (int g = 0; g < line.timeline.glyphs.length; g++) {
             float p = (float) line.timeline.progress(g, time);
             float age = (time - line.timeline.starts[g]) / 1000f;
-            float glow = p > 0 ? 20 * (float) Math.exp(-Math.max(0, age - 0.5f) * 0.35) : 0;
+            float glow = p > 0 ? animate
+                    ? 20 * (float) Math.exp(-Math.max(0, age - 0.5f) * 0.35) : 20 : 0;
             int glyphSave = canvas.save();
             canvas.translate(line.offsets[g] + line.widths[g] / 2 - line.total / 2, 0);
             glyph(canvas, line, g, p > 0 ? accent : primary, p > 0 ? 1 : 0.22f, 0, glow);

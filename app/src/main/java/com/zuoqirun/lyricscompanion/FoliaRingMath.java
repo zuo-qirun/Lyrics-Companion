@@ -112,4 +112,8 @@ final class FoliaRingMath {
         if (!FoliaModeCatalog.animated(mode) || fps <= 0 || !playing) return 400;
         return Math.round(1000f / (fps == 60 ? 60 : fps == 24 ? 24 : 30));
     }
+
+    static long sceneTime(String mode, int fps, long lyricTime) {
+        return fps > 0 && FoliaModeCatalog.animated(mode) ? Math.max(0, lyricTime) : 0;
+    }
 }

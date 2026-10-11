@@ -38,6 +38,17 @@ final class AudioSpectrumSource {
                 && AppPreferences.compactUseRealSpectrum(context, false)
                 || AppPreferences.bottomSpectrum(context)
                 && AppPreferences.compactUseRealSpectrum(context, false);
+        // A Folia-only extra screen also owns its audio option; it must not depend on
+        // a main/secondary overlay asking for capture on its behalf.
+        Context application = context.getApplicationContext();
+        java.util.List<DisplaySlotRegistry.Entry> extras = DisplaySlotRegistry.entries(application);
+        for (int index = 0; !requested && index < extras.size(); index++) {
+            if (!extras.get(index).enabled) continue;
+            Context display = new DisplaySlotContext(application, DisplaySlotRegistry.slotFor(index));
+            requested = FoliaModeCatalog.isStyle(AppPreferences.overlayStyle(display, true))
+                    && AppPreferences.spectrumEnabled(display, true)
+                    && AppPreferences.compactUseRealSpectrum(display, true);
+        }
         if (!requested) {
             stop("待命");
             return;

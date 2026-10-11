@@ -3841,8 +3841,11 @@ final class LyricsPanelView extends View {
                     light ? 0.78f : 0.72f));
             canvas.drawRect(panelRect, paint);
         } else if ("gradient".equals(type)) {
-            float phase = refinedDynamicGradient && playing
-                    ? (SystemClock.elapsedRealtime() % 120_000L) / 120_000f : 0.125f;
+            boolean folia = FoliaModeCatalog.isStyle(overlayStyle);
+            long sceneClock = folia ? FoliaRingMath.sceneTime(FoliaModeCatalog.modeForStyle(overlayStyle),
+                    foliaFps, framePositionMs + lyricOffsetMs) : SystemClock.elapsedRealtime();
+            float phase = refinedDynamicGradient && (playing || folia)
+                    ? (sceneClock % 120_000L) / 120_000f : 0.125f;
             float endX = getWidth() * (0.2f + phase * 0.8f);
             float endY = getHeight() * (1f - phase * 0.6f);
             paint.setShader(new LinearGradient(0f, getHeight(), endX, endY,
@@ -3855,8 +3858,11 @@ final class LyricsPanelView extends View {
                 drawBitmapCrop(canvas, blurredPreview(art), panelRect, 105,
                         backgroundBrightnessFilter());
             }
-            float phase = refinedStaticFluid || !playing ? 0.23f
-                    : (SystemClock.elapsedRealtime() % 150_000L) / 150_000f;
+            boolean folia = FoliaModeCatalog.isStyle(overlayStyle);
+            long sceneClock = folia ? FoliaRingMath.sceneTime(FoliaModeCatalog.modeForStyle(overlayStyle),
+                    foliaFps, framePositionMs + lyricOffsetMs) : SystemClock.elapsedRealtime();
+            float phase = refinedStaticFluid || !playing && !folia ? 0.23f
+                    : (sceneClock % 150_000L) / 150_000f;
             float radiusValue = Math.max(getWidth(), getHeight()) * 0.72f;
             for (int index = 0; index < 4; index++) {
                 double angle = phase * Math.PI * 2d + index * Math.PI / 2d;
@@ -3944,7 +3950,9 @@ final class LyricsPanelView extends View {
         float width = getWidth();
         float height = getHeight();
         float density = getResources().getDisplayMetrics().density;
-        long elapsed = starfieldStill ? 0L : SystemClock.elapsedRealtime();
+        long elapsed = starfieldStill ? 0L : FoliaModeCatalog.isStyle(overlayStyle)
+                ? FoliaRingMath.sceneTime(FoliaModeCatalog.modeForStyle(overlayStyle), foliaFps,
+                        framePositionMs + lyricOffsetMs) : SystemClock.elapsedRealtime();
         float driftX = StarfieldField.driftX(elapsed, starfieldSpeedPercent, starfieldStill);
         float driftY = StarfieldField.driftY(elapsed, starfieldSpeedPercent, starfieldStill);
         float sizeScale = starfieldSizePercent / 100f;
