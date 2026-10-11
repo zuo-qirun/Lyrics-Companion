@@ -8,6 +8,48 @@ import static org.junit.Assert.assertTrue;
 
 /** 灵动岛（胶囊）样式的几何（issue #54）。 */
 public class IslandLayoutMathTest {
+    @Test public void tallerCapsulesAreOptInAndNeverExceedThePanel() {
+        assertEquals(72f, IslandLayoutMath.capsuleHeightPx(144f, 1f), 0.001f);
+        assertEquals(144f, IslandLayoutMath.capsuleHeightPx(144f, 1f, 200f), 0.001f);
+        assertEquals(200f, IslandLayoutMath.capsuleHeightPx(300f, 1f, 200f), 0.001f);
+        assertEquals(400f, IslandLayoutMath.capsuleHeightPx(500f, 2f, 200f), 0.001f);
+        assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_ISLAND_MAX_HEIGHT));
+        assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT));
+        assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_ISLAND_BACKGROUND));
+    }
+
+    @Test public void reducingSecondRowReclaimsSpaceForTheMainLyric() {
+        IslandLayoutMath.Rows rows = new IslandLayoutMath.Rows();
+        IslandLayoutMath.packRows(rows, 72f, 1f, 1f, 0, -1f, 0.25f);
+        float main = rows.mainSize;
+        IslandLayoutMath.packRows(rows, 72f, 1f, 0.45f, 0, -1f, 0.25f);
+        assertTrue(rows.mainSize > main);
+        assertTrue(rows.secondSize < rows.mainSize);
+        float normal = rows.mainSize;
+        IslandLayoutMath.packRows(rows, 72f, 0.75f, 0.45f, 0, -1f, 0.25f);
+        assertTrue(rows.mainSize < normal);
+    }
+
+    @Test public void customRowAllocationHonoursFontBoundsAcrossSizesAndScales() {
+        IslandLayoutMath.Rows rows = new IslandLayoutMath.Rows();
+        for (float height : new float[]{56f, 72f, 144f, 240f}) {
+            for (int percent : new int[]{0, 35, 65, 85}) {
+                for (float scale : new float[]{0.75f, 1f, 2.2f}) {
+                    for (float next : new float[]{0.45f, 0.7f, 1.6f}) {
+                        float ascent = -1.20f, descent = 0.4f;
+                        IslandLayoutMath.packRows(rows, height, scale, next, percent, ascent, descent);
+                        assertTrue(rows.mainBaseline + ascent * rows.mainSize >= rows.mainTop - 0.001f);
+                        assertTrue(rows.mainBaseline + descent * rows.mainSize <= rows.mainBottom + 0.001f);
+                        assertTrue(rows.secondBaseline + ascent * rows.secondSize >= rows.secondTop - 0.001f);
+                        assertTrue(rows.secondBaseline + descent * rows.secondSize <= rows.secondBottom + 0.001f);
+                        assertTrue(rows.mainBottom < rows.secondTop);
+                        assertTrue(rows.secondBottom < height);
+                    }
+                }
+            }
+        }
+    }
+
     @Test public void capsuleHeightHonoursTheFloorAndTheCap() {
         // 面板比 40dp 还矮：就用面板高度（不放不下也要能用）
         assertEquals(30f, IslandLayoutMath.capsuleHeightPx(30f, 1f), 0.0001f);

@@ -191,6 +191,17 @@ final class LyricsPanelView extends View {
     private String classicLongLineMode = "legacy";
     private String islandSecondRow = "legacy";
     private boolean islandShowCover = true;
+    private int islandMaxHeight = 72;
+    private int islandMainRowPercent;
+    private String islandBackground = "solid";
+    private final IslandLayoutMath.Rows islandRows = new IslandLayoutMath.Rows();
+    private final Paint.FontMetrics islandMetrics = new Paint.FontMetrics();
+    private LinearGradient islandGradient;
+    private float islandGradientTop = -1f, islandGradientBottom = -1f;
+    private int islandGradientStart, islandGradientEnd;
+    private boolean currentLyricArtwork, inactiveLyricArtwork;
+    private int coverLyricBase, coverLyricBackground;
+    private int coverLyricCurrent, coverLyricInactive;
     private boolean liveLyricAnimation;
     private int liveLyricAnimationDuration = 300;
     private final LiveLyricTransition liveTransition = new LiveLyricTransition();
@@ -395,6 +406,11 @@ final class LyricsPanelView extends View {
         classicLongLineMode = AppPreferences.classicLongLineMode(getContext(), secondary);
         islandSecondRow = AppPreferences.islandSecondRow(getContext(), secondary);
         islandShowCover = AppPreferences.islandShowCover(getContext(), secondary);
+        islandMaxHeight = AppPreferences.islandMaxHeight(getContext(), secondary);
+        islandMainRowPercent = AppPreferences.islandMainRowPercent(getContext(), secondary);
+        islandBackground = AppPreferences.islandBackground(getContext(), secondary);
+        currentLyricArtwork = !compactTextOnly && AppPreferences.lyricFollowsArtwork(getContext(), secondary, true);
+        inactiveLyricArtwork = !compactTextOnly && AppPreferences.lyricFollowsArtwork(getContext(), secondary, false);
         liveLyricAnimation = AppPreferences.liveLyricAnimation(getContext(), secondary);
         liveLyricAnimationDuration = AppPreferences.liveLyricAnimationDuration(getContext(), secondary);
         coverFadePercent = AppPreferences.displayInt(getContext(), secondary,
@@ -535,6 +551,10 @@ final class LyricsPanelView extends View {
         frameAlbumArtMissing = snapshot.albumArt == null || snapshot.albumArt.isRecycled();
         updateMatchingState(snapshot, now);
         refreshScheduledTheme(now);
+        if (currentLyricArtwork || inactiveLyricArtwork || "island".equals(overlayStyle)) {
+            updatePalette(snapshot.albumArt);
+            updateCoverLyricColors();
+        }
 
         // The dissolve timeline has to be advanced before the layouts draw: they ask it, glyph
         // by glyph, how much of the previous line is still there this frame.
@@ -1525,7 +1545,7 @@ final class LyricsPanelView extends View {
     private void drawIsland(Canvas canvas, MusicSnapshot snapshot, float density) {
         float width = getWidth();
         float height = getHeight();
-        float capsuleHeight = IslandLayoutMath.capsuleHeightPx(height, density);
+        float capsuleHeight = Math.min(width, IslandLayoutMath.capsuleHeightPx(height, density, islandMaxHeight));
         float radius = IslandLayoutMath.capsuleRadiusPx(capsuleHeight);
         float top = (height - capsuleHeight) * 0.5f;
         float side = IslandLayoutMath.sidePaddingPx(capsuleHeight);
@@ -1536,12 +1556,35 @@ final class LyricsPanelView extends View {
         int configured = configuredBackgroundColor();
         int capsuleColor = configured != 0 ? withAlpha(configured, Math.round(opacity * 2.55f))
                 : withAlpha(0xFF1A2130, CoverFadeLayout.capsuleAlpha(snapshot.active, opacity));
+        if ("artwork".equals(islandBackground) && !frameAlbumArtMissing) {
+            capsuleColor = withAlpha(mix(palette[0], Color.BLACK, 0.55f), Math.round(opacity * 2.55f));
+        }
         if (capsuleColor != 0) {
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(capsuleColor);
+            if ("gradient".equals(islandBackground)) {
+                int base = configured != 0 ? configured
+                        : lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF1A2130;
+                int start = withAlpha(mix(base, Color.WHITE, 0.10f), Math.round(opacity * 2.55f));
+                int end = withAlpha(mix(base, Color.BLACK, 0.16f), Math.round(opacity * 2.55f));
+                if (islandGradient == null || islandGradientTop != top
+                        || islandGradientBottom != top + capsuleHeight
+                        || islandGradientStart != start || islandGradientEnd != end) {
+                    islandGradientTop = top;
+                    islandGradientBottom = top + capsuleHeight;
+                    islandGradientStart = start;
+                    islandGradientEnd = end;
+                    islandGradient = new LinearGradient(0f, top, 0f, top + capsuleHeight,
+                            start, end, Shader.TileMode.CLAMP);
+                }
+                // Paint alpha also multiplies shader alpha; the stops already contain opacity.
+                paint.setColor(Color.WHITE);
+                paint.setShader(islandGradient);
+            }
             workRect.set(0f, top, width, top + capsuleHeight);
             canvas.drawRoundRect(workRect, radius, radius, paint);
+            paint.setShader(null);
         }
 
         float coverLeft = side;
@@ -1578,10 +1621,21 @@ final class LyricsPanelView extends View {
         }
         drawingMetadata = false;
         if (secondRow) {
-            lyricSize = Math.min(lyricSize, capsuleHeight / (2.2f + nextLyricScale));
+            setTextPaintForValue(100f, Typeface.BOLD, currentText(snapshot));
+            paint.getFontMetrics(islandMetrics);
+            float ascent = islandMetrics.top, descent = islandMetrics.bottom;
+            setTextPaintForValue(100f, Typeface.BOLD, secondText);
+            paint.getFontMetrics(islandMetrics);
+            IslandLayoutMath.packRows(islandRows, capsuleHeight, textScale, nextLyricScale,
+                    islandMainRowPercent, Math.min(ascent, islandMetrics.top) / 100f,
+                    Math.max(descent, islandMetrics.bottom) / 100f);
+            lyricSize = islandRows.mainSize;
         }
-        float lyricBaseline = secondRow ? centerY - lyricSize * 0.14f
+        float lyricBaseline = secondRow ? top + islandRows.mainBaseline
                 : showTitle ? centerY + lyricSize * 0.42f : centerY + lyricSize * 0.34f;
+        int mainSave = canvas.save();
+        if (secondRow) canvas.clipRect(textLeft, top + islandRows.mainTop,
+                textLeft + textWidth, top + islandRows.mainBottom);
         if (snapshot.lyrics.interlude) {
             float dotRadius = lyricSize * 0.22f;
             drawInterludeDots(canvas, snapshot, textLeft, lyricBaseline - lyricSize * 0.85f,
@@ -1591,16 +1645,21 @@ final class LyricsPanelView extends View {
             drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot), textLeft,
                     lyricBaseline, lyricSize, textWidth, density,
                     inactiveLyricColor(0x99FFFFFF), currentLyricColor(0xFFFFFFFF),
-                    secondRow ? lyricSize * 1.22f : capsuleHeight);
+                    secondRow ? islandRows.mainBottom - islandRows.mainTop : capsuleHeight);
         }
+        canvas.restoreToCount(mainSave);
         if (secondRow) {
             drawingMetadata = "title".equals(islandSecondRow);
             try {
+                int secondSave = canvas.save();
+                canvas.clipRect(textLeft, top + islandRows.secondTop, textLeft + textWidth,
+                        top + islandRows.secondBottom);
                 drawScrollingText(canvas, secondText, textLeft,
-                        lyricBaseline + lyricSize * (0.3f + nextLyricScale),
-                        lyricSize * nextLyricScale, textWidth,
-                        withAlpha(lyricColor(0xFFFFFFFF), Math.round(nextLyricOpacity * 2.55f)),
+                        top + islandRows.secondBaseline,
+                        islandRows.secondSize, textWidth,
+                        withAlpha(inactiveLyricColor(0xFFFFFFFF), Math.round(nextLyricOpacity * 2.55f)),
                         longLineMode, density, lyricTextAlign(Paint.Align.LEFT), 1);
+                canvas.restoreToCount(secondSave);
             } finally {
                 drawingMetadata = false;
             }
@@ -3385,12 +3444,19 @@ final class LyricsPanelView extends View {
         return selected == 0 ? fallback : withAlpha(selected, Color.alpha(fallback));
     }
 
+    private int artworkSlotColor(boolean current, int fallback) {
+        if (frameAlbumArtMissing || !(current ? currentLyricArtwork : inactiveLyricArtwork)) return fallback;
+        return withAlpha(current ? coverLyricCurrent : coverLyricInactive, Color.alpha(fallback));
+    }
+
     private int currentLyricColor(int fallback) {
+        if (currentLyricArtwork && !frameAlbumArtMissing) return withAlpha(coverLyricCurrent, Color.alpha(fallback));
         return slotLyricColor(currentLyricColor, currentLyricLightColor,
                 currentLyricDarkColor, fallback);
     }
 
     private int inactiveLyricColor(int fallback) {
+        if (inactiveLyricArtwork && !frameAlbumArtMissing) return withAlpha(coverLyricInactive, Color.alpha(fallback));
         return slotLyricColor(inactiveLyricColor, inactiveLyricLightColor,
                 inactiveLyricDarkColor, fallback);
     }
@@ -3614,6 +3680,9 @@ final class LyricsPanelView extends View {
 
     /** Explicit compact colors stay solid; automatic colors retain the original alpha contrast. */
     private int compactSlotColor(boolean active, int fallback) {
+        if (!frameAlbumArtMissing && (active ? currentLyricArtwork : inactiveLyricArtwork)) {
+            return active ? coverLyricCurrent : coverLyricInactive;
+        }
         int selected = AppPreferences.resolveThemedSlotColor(lyricsFollowTheme,
                 lyricEnvironmentUsesLightColors(), active ? currentLyricColor : inactiveLyricColor,
                 active ? currentLyricLightColor : inactiveLyricLightColor,
@@ -4743,6 +4812,7 @@ final class LyricsPanelView extends View {
     private float drawWrappedKaraoke(Canvas canvas, MusicSnapshot snapshot, String value,
                                       float x, float top, float size, float maxWidth,
                                       int activeColor, int maxLines) {
+        activeColor = artworkSlotColor(true, activeColor);
         int liveSave = beginLiveLyricTransition(canvas);
         try {
             if (value == null || value.isEmpty()) return 0f;
@@ -4778,7 +4848,8 @@ final class LyricsPanelView extends View {
                             baseline + size * 0.30f);
                 }
                 drawTrailingGlowInChunk(canvas, at, chunk, x, baseline, size, activeColor);
-                drawLyricText(canvas, chunk.text, x, baseline, size, withAlpha(activeColor, 105));
+                drawLyricText(canvas, chunk.text, x, baseline, size,
+                        artworkSlotColor(false, withAlpha(activeColor, 105)));
                 float activeWidth;
                 if (at != null) {
                     activeWidth = karaokeHighlightWidth(chunk, at);
@@ -4856,7 +4927,8 @@ final class LyricsPanelView extends View {
                             baseline + size * 0.30f);
                 }
                 drawTrailingGlowInChunk(canvas, at, chunk, x, baseline, size, activeColor);
-                drawLyricText(canvas, chunk.text, x, baseline, size, withAlpha(activeColor, 76));
+                drawLyricText(canvas, chunk.text, x, baseline, size,
+                        artworkSlotColor(false, withAlpha(activeColor, 76)));
                 drawAmllHighlightRange(canvas, chunk, x, baseline, size,
                         0, completedEnd, completedEnd, 0f,
                         activeColor, 235, 0f, false);
@@ -4973,6 +5045,8 @@ final class LyricsPanelView extends View {
     private void drawKaraoke(Canvas canvas, MusicSnapshot snapshot, String value, float anchorX,
                               float y, float requestedSize, float maxWidth, Paint.Align align,
                               int baseColor, int activeColor) {
+        activeColor = artworkSlotColor(true, activeColor);
+        baseColor = artworkSlotColor(false, baseColor);
         int liveSave = beginLiveLyricTransition(canvas);
         try {
             if (value == null || value.isEmpty()) return;
@@ -5118,6 +5192,20 @@ final class LyricsPanelView extends View {
         return paint.measureText(text) * fraction;
     }
 
+    private void updateCoverLyricColors() {
+        if (frameAlbumArtMissing) return;
+        int background = configuredBackgroundColor();
+        if ("island".equals(overlayStyle) && "artwork".equals(islandBackground)) {
+            background = mix(palette[0], Color.BLACK, 0.55f);
+        }
+        if (background == 0) background = lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF1A2130;
+        if (coverLyricBase == palette[0] && coverLyricBackground == background) return;
+        coverLyricBase = palette[0];
+        coverLyricBackground = background;
+        coverLyricCurrent = CoverLyricColorRules.color(palette[0], background, true);
+        coverLyricInactive = CoverLyricColorRules.color(palette[0], background, false);
+    }
+
     private float estimatedKaraokeFraction(MusicSnapshot snapshot) {
         if (!estimatedWordKaraoke) return -1f;
         LrcTimeline.At at = snapshot.lyrics;
@@ -5207,7 +5295,8 @@ final class LyricsPanelView extends View {
      * setting; panel metadata is never stroked.
      */
     private boolean shouldOutlineLyric(boolean current) {
-        return current ? currentLyricOutline : inactiveLyricOutline;
+        return (current ? currentLyricOutline : inactiveLyricOutline)
+                || !frameAlbumArtMissing && (current ? currentLyricArtwork : inactiveLyricArtwork);
     }
 
     /**
@@ -5231,14 +5320,16 @@ final class LyricsPanelView extends View {
 
     /** Auto outline color contrasts against the glyph so either environment stays readable. */
     private int outlineStrokeColor(int textColor, boolean current) {
-        int color = current ? currentLyricOutlineColor : inactiveLyricOutlineColor;
+        boolean automatic = !frameAlbumArtMissing && (current ? currentLyricArtwork : inactiveLyricArtwork)
+                && !(current ? currentLyricOutline : inactiveLyricOutline);
+        int color = automatic ? 0 : current ? currentLyricOutlineColor : inactiveLyricOutlineColor;
         if (color == 0) {
             double luminance = (0.299 * Color.red(textColor)
                     + 0.587 * Color.green(textColor) + 0.114 * Color.blue(textColor))
                     * (Color.alpha(textColor) / 255.0);
             color = luminance >= 128.0 ? 0xFF000000 : 0xFFFFFFFF;
         }
-        int percent = current ? currentLyricOutlineAlphaPercent : inactiveLyricOutlineAlphaPercent;
+        int percent = automatic ? 88 : current ? currentLyricOutlineAlphaPercent : inactiveLyricOutlineAlphaPercent;
         int alpha = Math.round(255f * Math.max(0, Math.min(100, percent)) / 100f);
         return withAlpha(color | 0xFF000000, alpha);
     }

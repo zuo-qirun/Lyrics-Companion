@@ -161,6 +161,10 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
     }
 
     private void addDisplayColors(LinearLayout parent, boolean secondary) {
+        addLyricColorMode(parent, secondary, true);
+        addLyricColorMode(parent, secondary, false);
+        parent.addView(text("跟随封面复用缓存取色；已唱用当前色、未唱用非当前色，并自动加对比描边。无封面沿用固定配色。",
+                12, 0xFF8392A8, false));
         addColor(parent, "歌词颜色", "自动时由当前歌词样式决定。",
                 AppPreferences.lyricColor(this, secondary), 0xFFFFCA66,
                 color -> AppPreferences.setLyricColor(this, secondary, color));
@@ -209,6 +213,30 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         addColor(parent, "频谱与律动颜色", "自动时跟随歌词颜色。",
                 AppPreferences.compactSpectrumColor(this, secondary), 0xFFFFCA66,
                 color -> AppPreferences.setCompactSpectrumColor(this, secondary, color));
+    }
+
+    private void addLyricColorMode(LinearLayout parent, boolean secondary, boolean current) {
+        TextView label = text((current ? "当前" : "非当前") + "歌词配色来源", 14, 0xFFD7E1EE, true);
+        label.setPadding(0, dp(12), 0, dp(4));
+        parent.addView(label);
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this,
+                new String[]{"自动 / 自定义（使用下方颜色）", "跟随歌曲封面"}));
+        int initial = AppPreferences.lyricFollowsArtwork(this, secondary, current) ? 1 : 0;
+        spinner.setSelection(initial, false);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            int selected = initial;
+            @Override public void onItemSelected(AdapterView<?> owner, View view, int position, long id) {
+                if (selected == position) return;
+                selected = position;
+                AppPreferences.putDisplayString(ColorSettingsActivity.this, secondary, current
+                        ? AppPreferences.KEY_CURRENT_LYRIC_COLOR_MODE : AppPreferences.KEY_INACTIVE_LYRIC_COLOR_MODE,
+                        position == 1 ? "artwork" : "fixed");
+                changed();
+            }
+            @Override public void onNothingSelected(AdapterView<?> owner) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
     }
 
     private void addStatusColors(LinearLayout parent) {

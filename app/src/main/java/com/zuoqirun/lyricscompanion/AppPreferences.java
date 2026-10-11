@@ -120,6 +120,12 @@ final class AppPreferences {
     static final String KEY_BACKGROUND_DARK_COLOR = "background_dark_color";
     static final String KEY_ISLAND_SECOND_ROW = "island_second_row";
     static final String KEY_ISLAND_SHOW_COVER = "island_show_cover";
+    static final String KEY_ISLAND_MAX_HEIGHT = "island_max_height";
+    static final String KEY_ISLAND_MAIN_ROW_PERCENT = "island_main_row_percent";
+    static final String KEY_ISLAND_AUTO_ROWS = "island_auto_rows";
+    static final String KEY_ISLAND_BACKGROUND = "island_background";
+    static final String KEY_CURRENT_LYRIC_COLOR_MODE = "current_lyric_color_mode";
+    static final String KEY_INACTIVE_LYRIC_COLOR_MODE = "inactive_lyric_color_mode";
     static final String KEY_PURE_SHOW_TITLE = "pure_show_title";
     static final String KEY_CLASSIC_KEEP_TITLE_SIZE = "classic_keep_title_size";
     static final String KEY_CLASSIC_LONG_LINE_MODE = "classic_long_line_mode";
@@ -456,7 +462,10 @@ final class AppPreferences {
                     KEY_SPECTRUM_HEIGHT_PERCENT, KEY_SPECTRUM_GAP_DP,
                     KEY_PANEL_SHADOW_PERCENT, KEY_STYLE_MASK_MODE, KEY_STYLE_BRIGHTNESS,
                     KEY_CONTENT_PADDING_PERCENT, KEY_LONG_LINE_MODE,
-                    KEY_ISLAND_SECOND_ROW, KEY_ISLAND_SHOW_COVER, KEY_PURE_SHOW_TITLE, KEY_CLASSIC_KEEP_TITLE_SIZE,
+                    KEY_ISLAND_SECOND_ROW, KEY_ISLAND_SHOW_COVER, KEY_ISLAND_MAX_HEIGHT,
+                    KEY_ISLAND_MAIN_ROW_PERCENT, KEY_ISLAND_AUTO_ROWS, KEY_ISLAND_BACKGROUND,
+                    KEY_CURRENT_LYRIC_COLOR_MODE, KEY_INACTIVE_LYRIC_COLOR_MODE,
+                    KEY_PURE_SHOW_TITLE, KEY_CLASSIC_KEEP_TITLE_SIZE,
                     KEY_CLASSIC_LONG_LINE_MODE, KEY_LIVE_LYRIC_ANIMATION,
                     KEY_LIVE_LYRIC_ANIMATION_DURATION, KEY_COVER_FADE_PERCENT,
                     KEY_COVER_FADE_LENGTH, KEY_COVER_FADE_BLUR, KEY_COVER_FADE_TOP,
@@ -1227,6 +1236,25 @@ final class AppPreferences {
 
     static boolean islandShowCover(Context context, boolean secondary) {
         return displayBoolean(context, secondary, KEY_ISLAND_SHOW_COVER, true);
+    }
+
+    static int islandMaxHeight(Context context, boolean secondary) {
+        return Math.max(72, Math.min(240, displayInt(context, secondary, KEY_ISLAND_MAX_HEIGHT, 72)));
+    }
+
+    static int islandMainRowPercent(Context context, boolean secondary) {
+        if (displayBoolean(context, secondary, KEY_ISLAND_AUTO_ROWS, true)) return 0;
+        return Math.max(35, Math.min(85, displayInt(context, secondary, KEY_ISLAND_MAIN_ROW_PERCENT, 65)));
+    }
+
+    static String islandBackground(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_ISLAND_BACKGROUND, "solid");
+        return "artwork".equals(value) || "gradient".equals(value) ? value : "solid";
+    }
+
+    static boolean lyricFollowsArtwork(Context context, boolean secondary, boolean current) {
+        return "artwork".equals(displayString(context, secondary, current
+                ? KEY_CURRENT_LYRIC_COLOR_MODE : KEY_INACTIVE_LYRIC_COLOR_MODE, "fixed"));
     }
 
     static String islandSecondRow(Context context, boolean secondary) {

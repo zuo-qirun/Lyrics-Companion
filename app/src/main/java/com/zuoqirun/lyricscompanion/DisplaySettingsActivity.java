@@ -182,13 +182,25 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     12, 0xFFD7E1EE, false));
         }
         if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
+            addSeek(panel, "胶囊高度上限", 72, 240,
+                    AppPreferences.islandMaxHeight(this, secondary), " dp",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_ISLAND_MAX_HEIGHT, value));
+            final View[][] rowDependents = new View[1][];
+            MaterialSwitch automaticRows = addToggle(panel, "双行高度随下一句字号自动分配",
+                    AppPreferences.KEY_ISLAND_AUTO_ROWS, AppPreferences.islandMainRowPercent(this, secondary) == 0,
+                    () -> setDependentVisibility(AppPreferences.islandMainRowPercent(this, secondary) != 0,
+                            rowDependents[0]));
+            rowDependents[0] = addSeekRow(panel, "双行主行占比", 35, 85,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT, 65), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT, value));
+            setDependentVisibility(!automaticRows.isChecked(), rowDependents[0]);
             addChoice(panel, "胶囊第二行内容",
                     new String[]{"跟随原样（默认）", "歌名 / 歌手", "下一句歌词", "歌词翻译", "无"},
                     new String[]{"legacy", "title", "next", "translation", "none"},
                     AppPreferences.islandSecondRow(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary,
                             AppPreferences.KEY_ISLAND_SECOND_ROW, value));
-            panel.addView(text("高度不足 56dp 或文字区过窄时退回单行；第二行跟随下一句字号与不透明度。",
+            panel.addView(text("高度受悬浮窗高度与上限共同限制；双行按行高分配，字号在行高内缩放。关闭自动分配后主行占比可设 35–85%；矮于 56dp 或过窄时退回单行。",
                     12, 0xFFD7E1EE, false));
         }
         addToggle(panel, "播放器实时歌词切句动画", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
@@ -441,7 +453,14 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addCard(root, cache);
 
         LinearLayout artwork = card("背景与封面");
-        if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
+        boolean island = "island".equals(AppPreferences.overlayStyle(this, secondary));
+        if (island) {
+            addChoice(artwork, "胶囊背景类型",
+                    new String[]{"纯色（原样）", "封面主色", "日夜底色渐变"},
+                    new String[]{"solid", "artwork", "gradient"}, AppPreferences.islandBackground(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_ISLAND_BACKGROUND, value));
+            artwork.addView(text("三种静态背景均跟随不透明度，0 为透明；无封面时回退纯色。胶囊不使用模糊、遮罩、渐隐或星空参数，圆角为高度一半。",
+                    12, 0xFFD7E1EE, false));
             addToggle(artwork, "显示封面", AppPreferences.KEY_ISLAND_SHOW_COVER,
                     AppPreferences.islandShowCover(this, secondary));
             artwork.addView(text("关闭后不预留圆形封面区域，文字使用胶囊完整内宽；无封面时也遵守下方隐藏设置。",
@@ -457,33 +476,35 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addSeek(artwork, "背景不透明度", 0, 100,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_OPACITY, 88), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_OPACITY, value));
-        addSeek(artwork, "封面大小", 60, 150,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_COVER_SIZE, 100), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STYLE_COVER_SIZE, value));
-        addSeek(artwork, "封面背景柔化", 0, 128,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_BLUR, 128), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_BLUR, value));
-        addSeek(artwork, "封面背景遮罩", 0, 80,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, 38), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, value));
-        // 遮罩 0 = 不压暗（issue #58）；「完全不画遮罩」档用于「遮罩调 0 还是压暗」的老样式。
-        addChoice(artwork, "遮罩方式",
-                new String[]{"按样式（默认）", "不画遮罩"},
-                new String[]{ArtworkBackgroundMath.MODE_AUTO, ArtworkBackgroundMath.MODE_OFF},
-                AppPreferences.styleMaskMode(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_STYLE_MASK_MODE, value));
-        addSeek(artwork, "背景亮度", -ArtworkBackgroundMath.MAX_BRIGHTNESS,
-                ArtworkBackgroundMath.MAX_BRIGHTNESS,
-                AppPreferences.styleBrightness(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STYLE_BRIGHTNESS, value));
-        // 面板圆角（issue #37）：0 = 直角矩形，可以把面板当成一整块实心色板。
-        addSeek(artwork, "面板圆角（0 = 直角）", 0, 50, displayedCornerPercent(), "%",                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_CORNER_RADIUS_PERCENT, value));
-        artwork.addView(text("0% 为直角；配合「背景不透明度」100% 可整块盖住后面的界面。", 12,
-                0xFFD7E1EE, false));
+        if (!island) {
+            addSeek(artwork, "封面大小", 60, 150,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_COVER_SIZE, 100), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STYLE_COVER_SIZE, value));
+            addSeek(artwork, "封面背景柔化", 0, 128,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_BLUR, 128), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_BLUR, value));
+            addSeek(artwork, "封面背景遮罩", 0, 80,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, 38), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_STYLE_DIM, value));
+            // 遮罩 0 = 不压暗（issue #58）；「完全不画遮罩」档用于「遮罩调 0 还是压暗」的老样式。
+            addChoice(artwork, "遮罩方式",
+                    new String[]{"按样式（默认）", "不画遮罩"},
+                    new String[]{ArtworkBackgroundMath.MODE_AUTO, ArtworkBackgroundMath.MODE_OFF},
+                    AppPreferences.styleMaskMode(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_STYLE_MASK_MODE, value));
+            addSeek(artwork, "背景亮度", -ArtworkBackgroundMath.MAX_BRIGHTNESS,
+                    ArtworkBackgroundMath.MAX_BRIGHTNESS,
+                    AppPreferences.styleBrightness(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STYLE_BRIGHTNESS, value));
+            // 面板圆角（issue #37）：0 = 直角矩形，可以把面板当成一整块实心色板。
+            addSeek(artwork, "面板圆角（0 = 直角）", 0, 50, displayedCornerPercent(), "%",                value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_CORNER_RADIUS_PERCENT, value));
+            artwork.addView(text("0% 为直角；配合「背景不透明度」100% 可整块盖住后面的界面。", 12,
+                    0xFFD7E1EE, false));
+        }
         // 面板边缘阴影（issue #56）：0 = 关掉，滑到最右最强；滑杆最左是「各样式原样」。
         addSeek(artwork, "面板阴影", 0, PanelShadowMath.MAX_PERCENT,
                 Math.max(0, AppPreferences.panelShadowPercent(this, secondary)), "%",
@@ -491,10 +512,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         AppPreferences.KEY_PANEL_SHADOW_PERCENT,
                         value <= 0 ? PanelShadowMath.UNSET : value));
         // 圆形封面（紧凑 / AMLL，issue #22）+ 碟片旋转。
-        addToggle(artwork, "圆形封面（紧凑 / AMLL）", AppPreferences.KEY_ROUND_COVER,
-                AppPreferences.roundCover(this, secondary), null);
-        artwork.addView(text("圆形封面只对紧凑与 AMLL 生效（Refined 关掉「方形专辑封面」即圆形）。", 12,
-                0xFFD7E1EE, false));
+        if (!island) {
+            addToggle(artwork, "圆形封面（紧凑 / AMLL）", AppPreferences.KEY_ROUND_COVER,
+                    AppPreferences.roundCover(this, secondary), null);
+            artwork.addView(text("圆形封面只对紧凑与 AMLL 生效（Refined 关掉「方形专辑封面」即圆形）。", 12,
+                    0xFFD7E1EE, false));
+        }
         final View[][] coverDependents = new View[1][];
         MaterialSwitch coverSpin = addToggle(artwork, "圆形封面碟片旋转",
                 AppPreferences.KEY_COVER_ROTATION,
@@ -509,50 +532,52 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         setDependentVisibility(coverSpin.isChecked(), coverDependents[0]);
         artwork.addView(text("仅对圆形封面生效：按播放进度旋转，暂停即停；旋转期间约 60 fps，费电。", 12,
                 0xFFD7E1EE, false));
-        // 动态星空背景 + 发光歌词（issue #59）：背景类型里的「星空」档与它的四个参数。
-        addChoice(artwork, "背景类型（Refined / 紧凑）",
-                new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘", "封面渐隐"},
-                new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield", "cover_fade"},
-                AppPreferences.refinedBackgroundType(this, secondary),
-                value -> AppPreferences.putDisplayString(this, secondary,
-                        AppPreferences.KEY_REFINED_BACKGROUND_TYPE, value));
-        addSeek(artwork, "渐隐封面占比", 40, 70,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, 55), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, value));
-        addSeek(artwork, "封面渐隐长度", 0, 40,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_LENGTH, 20), "% 面板高度",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_LENGTH, value));
-        addSeek(artwork, "渐隐封面模糊（0 = 清晰）", 0, 100,
-                AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_BLUR, 0), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_BLUR, value));
-        addToggle(artwork, "渐隐封面顶部对齐（关闭为居中裁切）", AppPreferences.KEY_COVER_FADE_TOP,
-                AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_COVER_FADE_TOP, true));
-        addChoice(artwork, "封面渐隐底色",
-                new String[]{"日夜底色（在颜色页分别设置）", "封面主色"}, new String[]{"theme", "artwork"},
-                AppPreferences.displayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, "theme"),
-                value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, value));
-        artwork.addView(text("封面渐隐沿用背景不透明度、亮度与遮罩；无封面时只显示底色。胶囊深色背景也跟随不透明度，0 即透明。",
-                12, 0xFFD7E1EE, false));
-        addSeek(artwork, "星空密度", 10, 200,
-                AppPreferences.starfieldDensityPercent(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STARFIELD_DENSITY, value));
-        addSeek(artwork, "星空流速", 0, 200,
-                AppPreferences.starfieldSpeedPercent(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STARFIELD_SPEED, value));
-        addSeek(artwork, "星点大小", 30, 250,
-                AppPreferences.starfieldSizePercent(this, secondary), "%",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STARFIELD_SIZE, value));
-        addSeek(artwork, "星空帧率", StarfieldField.MIN_FPS, StarfieldField.MAX_FPS,
-                AppPreferences.starfieldFps(this, secondary), " fps",
-                value -> AppPreferences.putDisplayInt(this, secondary,
-                        AppPreferences.KEY_STARFIELD_FPS, value));
-        addToggle(artwork, "星空跟随封面取色", AppPreferences.KEY_STARFIELD_FOLLOW_COVER,
-                AppPreferences.starfieldFollowCover(this, secondary), null);
-        addToggle(artwork, "星空静止（省电档）", AppPreferences.KEY_STARFIELD_STILL,
-                AppPreferences.starfieldStill(this, secondary), null);
+        if (!island) {
+            // 动态星空背景 + 发光歌词（issue #59）：背景类型里的「星空」档与它的四个参数。
+            addChoice(artwork, "背景类型（Refined / 紧凑）",
+                    new String[]{"流体", "模糊", "渐变", "纯色", "无", "星空 / 星尘", "封面渐隐"},
+                    new String[]{"fluid", "blur", "gradient", "solid", "none", "starfield", "cover_fade"},
+                    AppPreferences.refinedBackgroundType(this, secondary),
+                    value -> AppPreferences.putDisplayString(this, secondary,
+                            AppPreferences.KEY_REFINED_BACKGROUND_TYPE, value));
+            addSeek(artwork, "渐隐封面占比", 40, 70,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, 55), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, value));
+            addSeek(artwork, "封面渐隐长度", 0, 40,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_LENGTH, 20), "% 面板高度",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_LENGTH, value));
+            addSeek(artwork, "渐隐封面模糊（0 = 清晰）", 0, 100,
+                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_BLUR, 0), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_BLUR, value));
+            addToggle(artwork, "渐隐封面顶部对齐（关闭为居中裁切）", AppPreferences.KEY_COVER_FADE_TOP,
+                    AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_COVER_FADE_TOP, true));
+            addChoice(artwork, "封面渐隐底色",
+                    new String[]{"日夜底色（在颜色页分别设置）", "封面主色"}, new String[]{"theme", "artwork"},
+                    AppPreferences.displayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, "theme"),
+                    value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, value));
+            artwork.addView(text("封面渐隐沿用背景不透明度、亮度与遮罩；无封面时只显示底色。胶囊深色背景也跟随不透明度，0 即透明。",
+                    12, 0xFFD7E1EE, false));
+            addSeek(artwork, "星空密度", 10, 200,
+                    AppPreferences.starfieldDensityPercent(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STARFIELD_DENSITY, value));
+            addSeek(artwork, "星空流速", 0, 200,
+                    AppPreferences.starfieldSpeedPercent(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STARFIELD_SPEED, value));
+            addSeek(artwork, "星点大小", 30, 250,
+                    AppPreferences.starfieldSizePercent(this, secondary), "%",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STARFIELD_SIZE, value));
+            addSeek(artwork, "星空帧率", StarfieldField.MIN_FPS, StarfieldField.MAX_FPS,
+                    AppPreferences.starfieldFps(this, secondary), " fps",
+                    value -> AppPreferences.putDisplayInt(this, secondary,
+                            AppPreferences.KEY_STARFIELD_FPS, value));
+            addToggle(artwork, "星空跟随封面取色", AppPreferences.KEY_STARFIELD_FOLLOW_COVER,
+                    AppPreferences.starfieldFollowCover(this, secondary), null);
+            addToggle(artwork, "星空静止（省电档）", AppPreferences.KEY_STARFIELD_STILL,
+                    AppPreferences.starfieldStill(this, secondary), null);
+        }
         addCard(root, artwork);
 
         setContentView(scroll);

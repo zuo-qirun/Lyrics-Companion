@@ -24,11 +24,41 @@ final class IslandLayoutMath {
 
     /** 胶囊高度（像素）：面板高度夹在 40–72dp 之间；面板比下限还矮就用面板高度。 */
     static float capsuleHeightPx(float panelHeightPx, float density) {
+        return capsuleHeightPx(panelHeightPx, density, MAX_HEIGHT_DP);
+    }
+
+    static float capsuleHeightPx(float panelHeightPx, float density, float maximumDp) {
         float unit = Math.max(0.01f, density);
         float minimum = MIN_HEIGHT_DP * unit;
-        float maximum = MAX_HEIGHT_DP * unit;
+        float maximum = Math.max(MAX_HEIGHT_DP, Math.min(240f, maximumDp)) * unit;
         if (panelHeightPx <= minimum) return Math.max(1f, panelHeightPx);
         return Math.min(maximum, panelHeightPx);
+    }
+
+    /** Mutable per-view result; baseline and clips use the actual typeface metrics. */
+    static final class Rows {
+        float mainSize, secondSize, mainBaseline, secondBaseline;
+        float mainTop, mainBottom, secondTop, secondBottom;
+    }
+
+    static void packRows(Rows rows, float height, float textScale, float secondScale,
+                         int mainPercent, float ascent, float descent) {
+        float inset = height * 0.08f;
+        float gap = height * 0.04f;
+        float available = Math.max(1f, height - 2f * inset - gap);
+        float ratio = mainPercent <= 0 ? 1f / (1f + Math.max(0.1f, secondScale))
+                : Math.max(35, Math.min(85, mainPercent)) / 100f;
+        float metrics = Math.max(0.1f, descent - ascent);
+        rows.mainTop = inset;
+        rows.mainBottom = inset + available * ratio;
+        rows.secondTop = rows.mainBottom + gap;
+        rows.secondBottom = height - inset;
+        float requested = height * 0.60f * ratio * Math.max(0.1f, textScale);
+        rows.mainSize = Math.min(requested, (rows.mainBottom - rows.mainTop) / metrics);
+        rows.secondSize = Math.min(requested * Math.max(0.1f, secondScale),
+                (rows.secondBottom - rows.secondTop) / metrics);
+        rows.mainBaseline = (rows.mainTop + rows.mainBottom - (ascent + descent) * rows.mainSize) / 2f;
+        rows.secondBaseline = (rows.secondTop + rows.secondBottom - (ascent + descent) * rows.secondSize) / 2f;
     }
 
     /** 胶囊角半径：取高度一半，两端就是半圆。 */
