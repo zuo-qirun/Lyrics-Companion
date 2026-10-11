@@ -93,8 +93,8 @@ public final class MainActivity extends AppCompatActivity {
             "https://github.com/Lukoning/PiPWindow";
     private static final String AMLL_REPOSITORY_URL =
             "https://github.com/amll-dev/applemusic-like-lyrics";
-    private static final String THIRD_PARTY_NOTICES_URL =
-            SOURCE_REPOSITORY_URL + "/blob/main/THIRD_PARTY_NOTICES.md";
+    private static final String FOLIA_REPOSITORY_URL =
+            "https://github.com/chthollyphile/folia-major";
     private static final ExecutorService UPDATE_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final long LISTENER_HEALTH_MAX_AGE_MS = 3_000L;
     private static final long LISTENER_INITIAL_RECONNECT_DELAY_MS = 2_500L;
@@ -126,6 +126,8 @@ public final class MainActivity extends AppCompatActivity {
     private MaterialButton secondaryRefinedSettingsButton;
     private MaterialButton mainCompactSettingsButton;
     private MaterialButton secondaryCompactSettingsButton;
+    private MaterialButton mainFoliaSettingsButton;
+    private MaterialButton secondaryFoliaSettingsButton;
     private Spinner displaySpinner;
     private LyricsPanelView previewPanel;
     private TextView globalFontSummary;
@@ -695,6 +697,15 @@ public final class MainActivity extends AppCompatActivity {
                 new Intent(this, CompactSettingsActivity.class)
                         .putExtra(CompactSettingsActivity.EXTRA_SECONDARY, true)));
         styleCard.addView(secondaryCompactSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
+        mainFoliaSettingsButton = button("主屏 Folia 详细设置", false);
+        mainFoliaSettingsButton.setOnClickListener(v -> startActivity(
+                new Intent(this, FoliaSettingsActivity.class)));
+        styleCard.addView(mainFoliaSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
+        secondaryFoliaSettingsButton = button("副屏 Folia 详细设置", false);
+        secondaryFoliaSettingsButton.setOnClickListener(v -> startActivity(
+                new Intent(this, FoliaSettingsActivity.class)
+                        .putExtra(FoliaSettingsActivity.EXTRA_SECONDARY, true)));
+        styleCard.addView(secondaryFoliaSettingsButton, new LinearLayout.LayoutParams(-1, dp(50)));
         updateRefinedSettingsVisibility();
         addDisplaySettingsLaunchers(styleCard);
 
@@ -735,7 +746,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout openSourceCard = card();
         openSourceCard.addView(sectionLabel("开源与致谢"));
         TextView openSourceSummary = text(
-                "基于 GPL-3.0 开源；Refined、AMLL 与 PiPWindow 样式参考对应开源项目。",
+                "基于 GPL-3.0 开源；Refined、AMLL、PiPWindow 与 Folia 样式参考或改编自对应开源项目。",
                 13, 0xFFD8E1EE, false);
         openSourceSummary.setLineSpacing(0f, 1.2f);
         openSourceSummary.setPadding(0, dp(9), 0, dp(10));
@@ -761,8 +772,13 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams amllParams = new LinearLayout.LayoutParams(-1, dp(48));
         amllParams.topMargin = dp(6);
         openSourceCard.addView(amllRepository, amllParams);
+        MaterialButton foliaRepository = button("Folia · AGPL-3.0", false);
+        foliaRepository.setOnClickListener(v -> openUrl(FOLIA_REPOSITORY_URL));
+        LinearLayout.LayoutParams foliaParams = new LinearLayout.LayoutParams(-1, dp(48));
+        foliaParams.topMargin = dp(6);
+        openSourceCard.addView(foliaRepository, foliaParams);
         MaterialButton notices = button("第三方开源声明", false);
-        notices.setOnClickListener(v -> openUrl(THIRD_PARTY_NOTICES_URL));
+        notices.setOnClickListener(v -> openUrl(thirdPartyNoticesUrl()));
         LinearLayout.LayoutParams noticesParams = new LinearLayout.LayoutParams(-1, dp(48));
         noticesParams.topMargin = dp(6);
         openSourceCard.addView(notices, noticesParams);
@@ -1270,6 +1286,16 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void updateRefinedSettingsVisibility() {
+        if (mainFoliaSettingsButton != null) {
+            mainFoliaSettingsButton.setVisibility(FoliaModeCatalog.settingsVisible(
+                    DisplaySlotRegistry.MAIN_SLOT, AppPreferences.overlayStyle(this, false))
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (secondaryFoliaSettingsButton != null) {
+            secondaryFoliaSettingsButton.setVisibility(FoliaModeCatalog.settingsVisible(
+                    DisplaySlotRegistry.SECONDARY_SLOT, AppPreferences.overlayStyle(this, true))
+                    ? View.VISIBLE : View.GONE);
+        }
         if (mainRefinedSettingsButton != null) {
             mainRefinedSettingsButton.setVisibility("refined".equals(AppPreferences.overlayStyle(this, false))
                     ? View.VISIBLE : View.GONE);
@@ -1477,6 +1503,7 @@ public final class MainActivity extends AppCompatActivity {
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
         bindingUi = false;
+        updateRefinedSettingsVisibility();
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
@@ -3150,6 +3177,15 @@ public final class MainActivity extends AppCompatActivity {
                     }));
             runOnUiThread(() -> updateBusy = false);
         });
+    }
+
+    private String thirdPartyNoticesUrl() {
+        String sourceRef = "main";
+        try {
+            sourceRef = VersionAgeRules.sourceRef(getPackageManager()
+                    .getPackageInfo(getPackageName(), 0).versionName);
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { }
+        return SOURCE_REPOSITORY_URL + "/blob/" + sourceRef + "/THIRD_PARTY_NOTICES.md";
     }
 
     private String localVersionText() {

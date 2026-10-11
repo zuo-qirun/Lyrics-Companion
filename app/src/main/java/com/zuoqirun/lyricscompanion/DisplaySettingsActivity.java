@@ -94,41 +94,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
         String selectedStyle = AppPreferences.overlayStyle(this, secondary);
         boolean foliaStyle = FoliaModeCatalog.isStyle(selectedStyle);
-        if (foliaStyle) {
-            LinearLayout folia = card(FoliaModeCatalog.labelForStyle(selectedStyle) + " · 原生参数");
-            folia.addView(text("Folia 原生改编版，布局与光效可能与原版不同。逐字时间轴驱动；"
-                    + "无逐字数据时按本句时长估算，暂停会冻结运动。", 12, 0xFFD7E1EE, false));
-            addSeek(folia, "动画强度", 0, 100,
-                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50), "%",
-                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_STRENGTH, value));
-            addChoice(folia, "动画帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
-                    new String[]{"0", "24", "30", "60"},
-                    String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_FPS, 30)),
-                    value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_FPS,
-                            Integer.parseInt(value)));
-            addToggle(folia, "显示歌词翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
-                    AppPreferences.refinedShowTranslation(this, secondary));
-            if ("folia_claddagh".equals(selectedStyle)) {
-                addSeek(folia, "主歌词放大倍率", 100, 250,
-                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_FOCUS, 165), "%",
-                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_FOCUS, value));
-                addSeek(folia, "轨道半径", 40, 180,
-                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_RADIUS, 100), "%",
-                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_RADIUS, value));
-                addSeek(folia, "轨道倾斜度", 0, 90,
-                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_TILT, 45), "°",
-                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_TILT, value));
-                addSeek(folia, "额外字间距", 0, 30,
-                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_TRACKING, 0), " dp",
-                        value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_TRACKING, value));
-                addToggle(folia, "中间轴线", AppPreferences.KEY_FOLIA_AXIS,
-                        AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_AXIS, true));
-            }
-            folia.addView(text("每款 Folia 样式按屏幕独立保存尺寸、字号、颜色与动画参数。"
-                    + "建议在完整歌词页或较大的悬浮窗使用；真实节拍需要录音权限与 ROM 频谱支持。", 12, 0xFF8392A8, false));
-            addCard(root, folia);
-        }
-
         LinearLayout panel = card("悬浮窗尺寸与文字");
         Point screenDp = targetScreenSizeDp();
         int maximumWidth = Math.max(AppPreferences.minimumPanelWidthDp(this, secondary), screenDp.x);

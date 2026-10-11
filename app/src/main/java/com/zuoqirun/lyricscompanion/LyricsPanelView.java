@@ -280,6 +280,7 @@ final class LyricsPanelView extends View {
     private Typeface customTypeface;
     private final FoliaCanvasRenderer foliaRenderer = new FoliaCanvasRenderer();
     private int foliaFps = 30;
+    private String foliaMode = "claddagh";
     /** Avoid repeatedly entering vendor Typeface code when the requested face has not changed. */
     private Typeface appliedTextTypeface;
     private String compactMarqueeText = "";
@@ -488,7 +489,8 @@ final class LyricsPanelView extends View {
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext(), secondary);
         customTypeface = CustomFontStore.load(getContext());
         foliaFps = AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FPS, 30);
-        foliaRenderer.configure(FoliaModeCatalog.modeForStyle(overlayStyle), customTypeface, textScale,
+        foliaMode = AppPreferences.foliaMode(getContext(), secondary);
+        foliaRenderer.configure(foliaMode, customTypeface, textScale,
                 AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50),
                 foliaFps,
                 AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_RADIUS, 100) / 100f,
@@ -693,7 +695,7 @@ final class LyricsPanelView extends View {
 
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
         if (FoliaModeCatalog.isStyle(overlayStyle)) {
-            return FoliaRingMath.frameDelay(FoliaModeCatalog.modeForStyle(overlayStyle), foliaFps,
+            return FoliaRingMath.frameDelay(foliaMode, foliaFps,
                     snapshot.playing, foliaRenderer.transitioning());
         }
         if (liveTransition.isAnimating(snapshot.playing)) return 16L;
@@ -3842,7 +3844,7 @@ final class LyricsPanelView extends View {
             canvas.drawRect(panelRect, paint);
         } else if ("gradient".equals(type)) {
             boolean folia = FoliaModeCatalog.isStyle(overlayStyle);
-            long sceneClock = folia ? FoliaRingMath.sceneTime(FoliaModeCatalog.modeForStyle(overlayStyle),
+            long sceneClock = folia ? FoliaRingMath.sceneTime(foliaMode,
                     foliaFps, framePositionMs + lyricOffsetMs) : SystemClock.elapsedRealtime();
             float phase = refinedDynamicGradient && (playing || folia)
                     ? (sceneClock % 120_000L) / 120_000f : 0.125f;
@@ -3859,7 +3861,7 @@ final class LyricsPanelView extends View {
                         backgroundBrightnessFilter());
             }
             boolean folia = FoliaModeCatalog.isStyle(overlayStyle);
-            long sceneClock = folia ? FoliaRingMath.sceneTime(FoliaModeCatalog.modeForStyle(overlayStyle),
+            long sceneClock = folia ? FoliaRingMath.sceneTime(foliaMode,
                     foliaFps, framePositionMs + lyricOffsetMs) : SystemClock.elapsedRealtime();
             float phase = refinedStaticFluid || !playing && !folia ? 0.23f
                     : (sceneClock % 150_000L) / 150_000f;
@@ -3951,7 +3953,7 @@ final class LyricsPanelView extends View {
         float height = getHeight();
         float density = getResources().getDisplayMetrics().density;
         long elapsed = starfieldStill ? 0L : FoliaModeCatalog.isStyle(overlayStyle)
-                ? FoliaRingMath.sceneTime(FoliaModeCatalog.modeForStyle(overlayStyle), foliaFps,
+                ? FoliaRingMath.sceneTime(foliaMode, foliaFps,
                         framePositionMs + lyricOffsetMs) : SystemClock.elapsedRealtime();
         float driftX = StarfieldField.driftX(elapsed, starfieldSpeedPercent, starfieldStill);
         float driftY = StarfieldField.driftY(elapsed, starfieldSpeedPercent, starfieldStill);

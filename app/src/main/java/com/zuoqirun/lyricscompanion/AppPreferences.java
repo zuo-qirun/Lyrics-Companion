@@ -30,6 +30,7 @@ final class AppPreferences {
     static final String KEY_FOLIA_TRACKING = "folia_tracking";
     static final String KEY_FOLIA_FPS = "folia_fps";
     static final String KEY_FOLIA_STRENGTH = "folia_strength";
+    static final String KEY_FOLIA_MODE = "folia_mode";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
     static final String KEY_MAIN_OVERLAY_STYLE = "main_overlay_style";
     static final String KEY_SECONDARY_OVERLAY_STYLE = "secondary_overlay_style";
@@ -451,7 +452,7 @@ final class AppPreferences {
                     KEY_STYLE_LYRIC_LINES,
                     KEY_FOLIA_PANEL_WIDTH_DP, KEY_FOLIA_PANEL_HEIGHT_DP,
                     KEY_FOLIA_FOCUS, KEY_FOLIA_RADIUS, KEY_FOLIA_TILT, KEY_FOLIA_AXIS,
-                    KEY_FOLIA_TRACKING, KEY_FOLIA_FPS, KEY_FOLIA_STRENGTH,
+                    KEY_FOLIA_TRACKING, KEY_FOLIA_FPS, KEY_FOLIA_STRENGTH, KEY_FOLIA_MODE,
                     KEY_REFINED_SHOW_TRANSLATION,
                     KEY_LYRIC_EFFECT, KEY_LYRIC_EFFECT_STRENGTH, KEY_LYRIC_EFFECT_SPEED,
                     KEY_LYRIC_EFFECT_FPS,
@@ -1401,24 +1402,38 @@ final class AppPreferences {
     static String overlayStyle(Context context, boolean secondary) {
         SharedPreferences slot = displaySlotStore(context, secondary);
         String key = secondary ? KEY_SECONDARY_OVERLAY_STYLE : KEY_MAIN_OVERLAY_STYLE;
-        if (slot.contains(key)) return normalizeOverlayStyle(slot.getString(key, "refined"));
         // A brand new extra screen starts from whatever the secondary already looks like, then
         // diverges as soon as it is adjusted.
         SharedPreferences shared = get(context);
         String fallback = shared.contains(KEY_OVERLAY_STYLE)
                 ? shared.getString(KEY_OVERLAY_STYLE, "refined")
                 : secondary ? "compact" : "refined";
-        return normalizeOverlayStyle(shared.getString(key, fallback));
+        String selected = slot.contains(key) ? slot.getString(key, "refined")
+                : shared.getString(key, fallback);
+        if (FoliaModeCatalog.isLegacyStyle(selected)) {
+            SharedPreferences.Editor editor = slot.edit();
+            for (java.util.Map.Entry<String, Object> update : FoliaStyleMigration.plan(
+                    slot.getAll(), shared.getAll(), STYLE_SCOPED_KEYS, secondary, selected, key).entrySet()) {
+                putPreference(editor, update.getKey(), update.getValue());
+            }
+            editor.apply();
+        }
+        return normalizeOverlayStyle(selected);
+    }
+
+    static String foliaMode(Context context, boolean secondary) {
+        return FoliaModeCatalog.normalize(displayString(context, secondary, KEY_FOLIA_MODE, "claddagh"));
     }
 
     static void setOverlayStyle(Context context, boolean secondary, String style) {
+        overlayStyle(context, secondary); // Preserve the selected legacy variant before switching away.
         displaySlotStore(context, secondary).edit()
                 .putString(secondary ? KEY_SECONDARY_OVERLAY_STYLE
                         : KEY_MAIN_OVERLAY_STYLE, normalizeOverlayStyle(style)).apply();
     }
 
     private static String normalizeOverlayStyle(String style) {
-        if (FoliaModeCatalog.isStyle(style)) return style;
+        if (FoliaModeCatalog.isStyle(style)) return "folia";
         if ("default".equals(style) || "refined".equals(style)
                 || "compact".equals(style) || "pip".equals(style)
                 || "custom".equals(style) || "amll".equals(style) || "pure".equals(style)

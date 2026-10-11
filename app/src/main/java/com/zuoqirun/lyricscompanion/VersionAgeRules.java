@@ -9,6 +9,11 @@ import java.util.TimeZone;
 final class VersionAgeRules {
     private VersionAgeRules() { }
 
+    static String sourceRef(String versionName) {
+        return versionName != null && versionName.matches("[0-9]{8}-[0-9a-f]{7}")
+                ? versionName.substring(9) : "main";
+    }
+
     static int daysBehind(String local, String latest) {
         long localDate = date(local);
         long latestDate = date(latest);

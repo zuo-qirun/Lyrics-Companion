@@ -50,6 +50,21 @@ The Apple Music-like Lyrics style is an independent Android Canvas implementatio
 The reference project is licensed under AGPL-3.0. Project names and screenshots remain the
 property of their respective authors.
 
+## Folia
+
+The Folia lyric style is a native Android Canvas adaptation of
+[chthollyphile/folia-major](https://github.com/chthollyphile/folia-major),
+reference revision `92792519ce4b72d540e69f3634aa408810c6e0f6` (Folia 0.7.17).
+Copyright chthollyphile and Folia contributors. Licensed under AGPL-3.0-only.
+
+`FoliaRingMath`, `FoliaGlyphTimeline` and `FoliaCanvasRenderer` adapt the ring geometry,
+word timeline and native scene compositions. The fourteen effects are grouped under one
+Folia style. WebGL shaders, complete procedural scenes, semantic segmentation and 3D
+postprocessing are not bundled; native layouts and light effects differ from upstream.
+See [the detailed attribution](third_party/folia/NOTICE.md) and
+[the full license](third_party/folia/LICENSE). The license is also packaged in the APK
+at `assets/licenses/Folia-AGPL-3.0.txt`.
+
 ## NetEase Cloud Music service
 
 Track search and lyric responses are obtained from public NetEase Cloud Music web endpoints. NetEase names, services, content and trademarks remain the property of their respective owners. Availability is not guaranteed.

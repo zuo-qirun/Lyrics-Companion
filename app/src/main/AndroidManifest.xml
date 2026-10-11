@@ -87,6 +87,9 @@
             android:name=".CompactSettingsActivity"
             android:exported="false" />
         <activity
+            android:name=".FoliaSettingsActivity"
+            android:exported="false" />
+        <activity
             android:name=".QuickDisplaySettingsActivity"
             android:exported="false" />
         <activity

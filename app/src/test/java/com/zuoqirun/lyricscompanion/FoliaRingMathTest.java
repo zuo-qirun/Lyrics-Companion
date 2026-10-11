@@ -87,7 +87,7 @@ public class FoliaRingMathTest {
         assertEquals(0.5, glyphs.progress(0, 2000), 1e-9);
     }
 
-    @Test public void everyModeHasItsOwnPersistedStyleId() {
+    @Test public void allModesAreSelectableInsideOneStyleAndLegacyIdsRemainReadable() {
         assertEquals(14, FoliaModeCatalog.VALUES.length);
         assertEquals(14, new java.util.HashSet<>(Arrays.asList(FoliaModeCatalog.VALUES)).size());
         for (String mode : FoliaModeCatalog.VALUES) {
@@ -97,10 +97,23 @@ public class FoliaRingMathTest {
                     AppPreferences.styleScopedKey(AppPreferences.KEY_FOLIA_FOCUS, true, "folia_" + mode));
         }
         assertFalse(FoliaModeCatalog.isStyle("folia_unknown"));
+        assertTrue(FoliaModeCatalog.isStyle("folia"));
+        assertFalse(FoliaModeCatalog.isLegacyStyle("folia"));
+        assertArrayEquals(new String[]{"default", "folia"},
+                FoliaModeCatalog.append(new String[]{"default"}, false));
         assertFalse(FoliaModeCatalog.isStyle("refined"));
         assertEquals("claddagh", FoliaModeCatalog.normalize("unknown"));
         assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_FOLIA_PANEL_WIDTH_DP));
         assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_FOLIA_FPS));
         assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_FOLIA_RADIUS));
+    }
+
+    @Test public void settingsShortcutOnlyAppearsForSelectedMainOrSecondaryFolia() {
+        assertTrue(FoliaModeCatalog.settingsVisible(0, "folia"));
+        assertTrue(FoliaModeCatalog.settingsVisible(1, "folia"));
+        assertFalse(FoliaModeCatalog.settingsVisible(0, "compact"));
+        assertFalse(FoliaModeCatalog.settingsVisible(1, "refined"));
+        assertFalse(FoliaModeCatalog.settingsVisible(2, "folia"));
+        assertFalse(FoliaModeCatalog.settingsVisible(-1, "folia"));
     }
 }

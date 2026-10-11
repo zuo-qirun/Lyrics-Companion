@@ -4,6 +4,12 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class VersionAgeRulesTest {
+    @Test public void noticesFollowTheInstalledReleaseSourceAndUnknownVersionsUseMain() {
+        assertEquals("a195204", VersionAgeRules.sourceRef("20261011-a195204"));
+        assertEquals("main", VersionAgeRules.sourceRef("0.1.0"));
+        assertEquals("main", VersionAgeRules.sourceRef(null));
+        assertEquals("main", VersionAgeRules.sourceRef("20261011-../../beta"));
+    }
     @Test public void datesHandleYearAndLeapDayWithoutTreatingCodesAsVersionCounts() {
         assertEquals(30, VersionAgeRules.daysBehind("20260906-abcd", "20261006-efgh"));
         assertEquals(1, VersionAgeRules.daysBehind("20240228-a", "20240229-b"));

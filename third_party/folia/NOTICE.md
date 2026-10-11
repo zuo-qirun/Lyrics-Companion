@@ -29,5 +29,6 @@ fonts, audio normalization, glow and random layouts differ. No pixel identity
 or performance improvement over the upstream renderer is claimed.
 
 This scope follows the maintainer's choice of native Canvas with accepted pixel
-differences. The original 14 mode names and ids are retained, while these
-differences must also be disclosed in the beta release notes.
+differences. The original 14 mode names and ids are retained as effect choices
+inside one Folia style, with main/secondary display settings. These differences
+must also be disclosed in the beta release notes.
