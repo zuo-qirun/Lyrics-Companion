@@ -58,6 +58,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static volatile boolean legacyRebindInProgress;
     private static volatile MusicNotificationListener activeInstance;
     private static volatile String activePlayerPackageName = "";
+    private static volatile boolean serviceOnlyTitle;
 
     private final MusicSessionReader.Callback readerCallback = new MusicSessionReader.Callback() {
         @Override public void onReadSuccess(int sessionCount) {
@@ -89,7 +90,7 @@ public final class MusicNotificationListener extends NotificationListenerService
                 // Empty system sessions must neither replace a usable player nor suppress the
                 // notification fallback. Some car media centers continuously report PLAYING
                 // while publishing no metadata at all.
-                refreshNotificationSession();
+                onNoSession();
                 return;
             }
             lastStandardSessionElapsedMs = SystemClock.elapsedRealtime();
@@ -122,7 +123,29 @@ public final class MusicNotificationListener extends NotificationListenerService
                 MusicStateStore.clear();
             }
         }
+
+        @Override public void onServiceOnlyTitle(boolean present) {
+            if (present && !serviceOnlyTitle) {
+                DiagnosticLog.record(MusicNotificationListener.this, "MediaSession",
+                        "rejected service-only title; no song published");
+            }
+            serviceOnlyTitle = present;
+        }
+
+        @Override public void onIncompleteSession(String packageName, MusicPlaybackData data) {
+            if (BluetoothAvrcpReceiver.ownsCurrentState()) return;
+            if (dftcReader != null && dftcReader.hasUsableSession()) return;
+            if (refreshNotificationSession()) return;
+            if (packageName.equals(activePlayerPackageName)
+                    && MusicStateStore.retainIncompleteSession(packageName)) {
+                lastNonEmptySessionElapsedMs = SystemClock.elapsedRealtime();
+            } else {
+                onNoSession();
+            }
+        }
     };
+
+    static boolean hasServiceOnlyTitle() { return serviceOnlyTitle; }
 
     private final MusicSessionReader.Callback dftcReaderCallback =
             new MusicSessionReader.Callback() {

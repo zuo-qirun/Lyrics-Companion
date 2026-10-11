@@ -40,6 +40,18 @@ final class PlaybackPositionRules {
      */
     static boolean staleOnTrackChange(boolean identityChanged, boolean hadPreviousTrack,
                                       long previousReportedMs, long incomingMs,
+                                      long incomingDurationMs, boolean explicitlyPlaying) {
+        // QQ car 3.13 reports the NEW duration as position on every automatic track switch.
+        // Only reject this boundary with explicit playback and an established previous track.
+        return identityChanged && hadPreviousTrack && explicitlyPlaying
+                && incomingDurationMs > TRACK_START_TOLERANCE_MS
+                && incomingMs >= incomingDurationMs
+                || staleOnTrackChange(identityChanged, hadPreviousTrack,
+                        previousReportedMs, incomingMs, incomingDurationMs);
+    }
+
+    static boolean staleOnTrackChange(boolean identityChanged, boolean hadPreviousTrack,
+                                      long previousReportedMs, long incomingMs,
                                       long incomingDurationMs) {
         // 首次收到元数据时不算切歌，也就没有"上一首的残留"可言。
         if (!identityChanged || !hadPreviousTrack || incomingMs <= 0L) return false;

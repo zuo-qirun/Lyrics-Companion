@@ -6,6 +6,10 @@ interface MusicSessionReader {
         void onReadError(String message, Throwable error);
         void onSession(String packageName, String applicationLabel, MusicPlaybackData data);
         void onNoSession();
+        default void onIncompleteSession(String packageName, MusicPlaybackData data) {
+            onNoSession();
+        }
+        default void onServiceOnlyTitle(boolean present) { }
     }
 
     void start();

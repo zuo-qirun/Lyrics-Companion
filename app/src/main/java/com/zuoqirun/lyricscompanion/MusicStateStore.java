@@ -291,7 +291,13 @@ final class MusicStateStore {
                     TrackIdentityRules.isDifferentTrackMetadata(title, newTitle, artist, newArtist,
                             storedCatalogId, incomingCatalogId),
                     !TextUtils.isEmpty(trackKey), lastReportedPositionMs, newPosition,
-                    newDuration > 0L ? newDuration : -1L);
+                    newDuration > 0L ? newDuration : -1L,
+                    statePresent && stateValue == MusicPlaybackData.STATE_PLAYING);
+            if (changed) {
+                DiagnosticLog.record(context, "Playback", "positionOnTrackChange reported="
+                        + newPosition + " durationMs=" + newDuration + " previous="
+                        + lastReportedPositionMs + " state=" + stateValue + " stale=" + staleOnTrackChange);
+            }
             if (staleOnTrackChange) {
                 positionToStore = 0L;
                 positionTimeToStore = now;
@@ -434,6 +440,28 @@ final class MusicStateStore {
             scheduleAlbumArtLoad(generationForAlbumArt, newAlbumArtUri);
         }
         AudioSpectrumSource.setPlaybackActive(context.getApplicationContext(), playing);
+    }
+
+    static boolean retainIncompleteSession(String packageName) {
+        synchronized (LOCK) {
+            if (!active || TextUtils.isEmpty(title) || !TextUtils.equals(sourcePackage, packageName)) {
+                return false;
+            }
+            if (!"retained_metadata_only".equals(playingReason) && appContext != null) {
+                DiagnosticLog.record(appContext, "Playback", "retained last title; session still present package="
+                        + packageName + " progress unknown");
+            }
+            basePositionMs = currentPositionLocked();
+            positionUpdatedAtElapsedMs = SystemClock.elapsedRealtime();
+            playing = false;
+            playbackSpeed = 0f;
+            notificationProgressUnknown = true;
+            lastExplicitPlayingElapsedMs = -1L;
+            lastPositionEvidenceElapsedMs = -1L;
+            playingReason = "retained_metadata_only";
+        }
+        if (appContext != null) AudioSpectrumSource.setPlaybackActive(appContext, false);
+        return true;
     }
 
     static void clear() {
@@ -705,7 +733,7 @@ final class MusicStateStore {
                 + "\n" + MediaDiagnosisRules.verdictText(MediaDiagnosisRules.classify(
                 snapshot.active, !snapshot.title.isEmpty(), !unknownProgress,
                 snapshot.lyricLoaded, snapshot.lyricAvailable, snapshot.lyricSourceName,
-                MusicNotificationListener.getLastSessionCount()),
+                MusicNotificationListener.getLastSessionCount(), MusicNotificationListener.hasServiceOnlyTitle()),
                 snapshot.lyricSourceName);
     }
 
@@ -745,7 +773,8 @@ final class MusicStateStore {
                     MediaDiagnosisRules.classify(active, !TextUtils.isEmpty(title),
                             !notificationProgressUnknown, lyricLoadFinished,
                             !timeline.isEmpty() || isLiveLyricUsable(liveSessionLyric),
-                            lyricSourceName, MusicNotificationListener.getLastSessionCount()), lyricSourceName)
+                            lyricSourceName, MusicNotificationListener.getLastSessionCount(),
+                            MusicNotificationListener.hasServiceOnlyTitle()), lyricSourceName)
                     + "\nkuwoWordChannelBackoffMs=" + KuwoLyricClient.wordChannelBlockedForMs();
         }
     }

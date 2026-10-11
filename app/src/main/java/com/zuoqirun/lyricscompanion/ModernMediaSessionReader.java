@@ -122,15 +122,30 @@ final class ModernMediaSessionReader implements MusicSessionReader {
     private void handleSessions(List<MediaController> sessions) {
         syncObservedSessions(sessions);
         MediaController best = null;
+        MediaController retained = null;
+        boolean serviceOnlyTitle = false;
         int bestScore = Integer.MIN_VALUE;
         if (sessions != null) {
             for (MediaController candidate : sessions) {
                 if (candidate == null || context.getPackageName().equals(candidate.getPackageName())) {
                     continue;
                 }
-                if (!isUsableSession(candidate)) continue;
                 MediaMetadata metadata = candidate.getMetadata();
                 PlaybackState state = candidate.getPlaybackState();
+                String label = applicationLabel(candidate.getPackageName());
+                String title = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_TITLE,
+                        MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+                boolean serviceTitle = SessionMetadataRules.isServiceTitle(title, label);
+                serviceOnlyTitle |= serviceTitle;
+                if (!SessionMetadataRules.usableTitle(title, label)) {
+                    if (!serviceTitle && SessionMetadataRules.retainMissingTitle(
+                            sameSession(selectedController, candidate), selectedController != null,
+                            true, state == null ? MusicPlaybackData.STATE_NONE : state.getState())) {
+                        retained = candidate;
+                    }
+                    continue;
+                }
+                if (!isUsableSession(candidate)) continue;
                 MusicAppRegistry.App app = MusicAppRegistry.resolve(candidate.getPackageName(),
                         applicationLabel(candidate.getPackageName()));
                 int score = MusicAppRegistry.selectionScore(playbackRank(state),
@@ -141,6 +156,13 @@ final class ModernMediaSessionReader implements MusicSessionReader {
                     bestScore = score;
                 }
             }
+        }
+        callback.onServiceOnlyTitle(best == null && retained == null && serviceOnlyTitle);
+        if (best == null && retained != null) {
+            selectedController = retained;
+            callback.onIncompleteSession(retained.getPackageName(),
+                    playbackData(retained, retained.getMetadata(), retained.getPlaybackState()));
+            return;
         }
         selectedController = best;
         if (best == null) {

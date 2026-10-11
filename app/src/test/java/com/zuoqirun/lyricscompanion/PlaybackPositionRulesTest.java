@@ -12,6 +12,21 @@ import org.junit.Test;
  * the music is playing. Both used to freeze the lyric on one line until the user pressed pause.
  */
 public class PlaybackPositionRulesTest {
+    @Test public void playingTrackSwitchAtExactlyDurationRejectsEndAnchor() {
+        assertTrue(PlaybackPositionRules.staleOnTrackChange(
+                true, true, 123_000L, 283_000L, 283_000L, true));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(
+                true, true, 123_000L, 283_000L, 283_000L, false));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(
+                false, true, 123_000L, 283_000L, 283_000L, true));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(
+                true, false, 0L, 283_000L, 283_000L, true));
+        assertFalse(PlaybackPositionRules.staleOnTrackChange(
+                true, true, 123_000L, 282_999L, 283_000L, true));
+        // Repeated end reports cannot reattach the rejected anchor; a real start can.
+        assertTrue(PlaybackPositionRules.isStaleReport(false, true, 600L));
+        assertTrue(PlaybackPositionRules.residualReleased(283_000L, 500L));
+    }
 
     @Test public void positionCarriedOverFromThePreviousTrackIsStale() {
         // 切歌前 3:58，切歌后播放器还是报 3:58 —— 新曲目不可能"刚好"接着上一首的位置。
