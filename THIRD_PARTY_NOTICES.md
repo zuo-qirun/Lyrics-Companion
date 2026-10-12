@@ -57,10 +57,11 @@ The Folia lyric style is a native Android Canvas adaptation of
 reference revision `92792519ce4b72d540e69f3634aa408810c6e0f6` (Folia 0.7.17).
 Copyright chthollyphile and Folia contributors. Licensed under AGPL-3.0-only.
 
-`FoliaRingMath`, `FoliaGlyphTimeline` and `FoliaCanvasRenderer` adapt the ring geometry,
-word timeline and native scene compositions. The fourteen effects are grouped under one
-Folia style. WebGL shaders, complete procedural scenes, semantic segmentation and 3D
-postprocessing are not bundled; native layouts and light effects differ from upstream.
+`FoliaRingMath`, `FoliaGlyphTimeline`, `FoliaCanvasRenderer`, `FoliaSceneMath`,
+`FoliaCadenzaLayout`, `FoliaArticleLayout` and `FoliaClockworkRenderer` adapt the ring
+geometry, timing, seeded typography, collision search, paper and mechanical assembly. The fourteen effects are grouped under one
+Folia style. WebGL shaders, complete procedural scenes and 3D postprocessing are not
+bundled; native Android word segmentation, native layouts and light effects differ from upstream.
 See [the detailed attribution](third_party/folia/NOTICE.md) and
 [the full license](third_party/folia/LICENSE). The license is also packaged in the APK
 at `assets/licenses/Folia-AGPL-3.0.txt`.

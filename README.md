@@ -1,5 +1,9 @@
 # Lyrics Companion（歌词伴侣）
 
+> [!WARNING]
+>
+> 本项目由AI全栈开发
+
 一个采用 Material Design 3 的独立 Android 歌词显示应用。Android 5.0 以上读取系统标准 `MediaSession`，Android 4.4 使用系统 `RemoteController` 读取播放器发布的 `RemoteControlClient` 元数据，媒体接口没有有效曲目时再尝试解析播放器通知；随后按歌名、歌手和时长跨乐库匹配歌词，并同时支持：
 
 - 主屏可拖动悬浮窗；双击可强制返回设置页，长按锁定并开启触摸穿透，点击圆形 × 按钮可恢复操作。
