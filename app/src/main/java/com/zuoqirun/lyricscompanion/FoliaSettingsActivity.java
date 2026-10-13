@@ -25,6 +25,7 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
     static final String EXTRA_SECONDARY = "secondary";
     private boolean secondary;
     private LyricsPanelView preview;
+    private LinearLayout ringSettings;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -56,14 +57,23 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
 
         LinearLayout effects = card("效果与动画");
         LinearLayout ring = card("回环轨道");
+        ringSettings = ring;
         String initialMode = AppPreferences.foliaMode(this, secondary);
-        ring.setVisibility("claddagh".equals(initialMode) ? View.VISIBLE : View.GONE);
+        ring.setVisibility("claddagh".equals(initialMode) || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
         choice(effects, "Folia 效果", FoliaModeCatalog.LABELS, FoliaModeCatalog.VALUES,
                 initialMode, value -> {
                     AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_FOLIA_MODE, value);
-                    ring.setVisibility("claddagh".equals(value) ? View.VISIBLE : View.GONE);
+                    ring.setVisibility("claddagh".equals(value) || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
                     changed();
                 });
+        toggle(effects, "每首歌随机使用一个效果", AppPreferences.KEY_FOLIA_RANDOM,
+                AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false));
+        MaterialButton pool = new MaterialButton(this);
+        pool.setText("选择参与随机的效果");
+        pool.setOnClickListener(v -> selectRandomPool());
+        effects.addView(pool, new LinearLayout.LayoutParams(-1, dp(48)));
+        effects.addView(text("切歌时重新抽取，同一首歌内保持不变；多个效果时避免连续重复。全部 14 种均可参与，每个屏幕独立抽取。",
+                12, 0xFF8392A8, false));
         seek(effects, "动画强度", AppPreferences.KEY_FOLIA_STRENGTH, 0, 100, 50, "%");
         choice(effects, "动画帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
                 new String[]{"0", "24", "30", "60"},
@@ -82,13 +92,19 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         seek(ring, "主歌词放大倍率", AppPreferences.KEY_FOLIA_FOCUS, 100, 250, 165, "%");
         seek(ring, "轨道半径", AppPreferences.KEY_FOLIA_RADIUS, 40, 180, 100, "%");
         seek(ring, "轨道倾斜度", AppPreferences.KEY_FOLIA_TILT, 0, 90, 45, "°");
-        seek(ring, "额外字间距", AppPreferences.KEY_FOLIA_TRACKING, 0, 30, 0, " dp");
+
         toggle(ring, "中间轴线", AppPreferences.KEY_FOLIA_AXIS,
                 AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_AXIS, true));
         addCard(root, ring);
 
         LinearLayout appearance = card("文字与显示");
         seek(appearance, "字号", AppPreferences.KEY_TEXT_SCALE, 75, 220, 100, "%");
+        seek(appearance, "额外字间距（全部效果）", AppPreferences.KEY_FOLIA_TRACKING, 0, 30, 0, " dp");
+        toggle(appearance, "显示底部下一句", AppPreferences.KEY_FOLIA_SHOW_NEXT,
+                AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_SHOW_NEXT, true));
+        seek(appearance, "底部下一句字号", AppPreferences.KEY_FOLIA_NEXT_SCALE, 50, 400, 100, "%");
+        appearance.addView(text("底部优先显示已开启的翻译；没有翻译或关闭翻译时显示下一句。下一句字号独立于主歌词。",
+                12, 0xFF8392A8, false));
         appearance.addView(text("14 种效果共用这一屏的 Folia 参数；主屏和副屏分别保存，其他歌词样式不受影响。建议使用较大的悬浮窗或全屏。",
                 12, 0xFF8392A8, false));
         MaterialButton display = new MaterialButton(this);
@@ -132,7 +148,32 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         super.onPause();
     }
 
+    private void selectRandomPool() {
+        String[] selected = FoliaEffectSelector.pool(AppPreferences.displayString(this, secondary, AppPreferences.KEY_FOLIA_RANDOM_POOL, ""));
+        boolean[] checked = new boolean[FoliaModeCatalog.VALUES.length];
+        for (int i = 0; i < checked.length; i++) for (String mode : selected) checked[i] |= mode.equals(FoliaModeCatalog.VALUES[i]);
+        androidx.appcompat.app.AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("参与随机的 Folia 效果")
+                .setMultiChoiceItems(FoliaModeCatalog.LABELS, checked, (view, which, value) -> checked[which] = value)
+                .setNegativeButton("取消", null).setPositiveButton("保存", null).create();
+        dialog.setOnShowListener(view -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener(button -> {
+            StringBuilder encoded = new StringBuilder();
+            for (int i = 0; i < checked.length; i++) if (checked[i]) {
+                if (encoded.length() > 0) encoded.append(',');
+                encoded.append(FoliaModeCatalog.VALUES[i]);
+            }
+            if (encoded.length() == 0) {
+                SafeToast.show(this, "请至少选择一个效果", android.widget.Toast.LENGTH_SHORT); return;
+            }
+            AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_FOLIA_RANDOM_POOL, encoded.toString());
+            changed(); dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
     private void changed() {
+        if (ringSettings != null) ringSettings.setVisibility("claddagh".equals(AppPreferences.foliaMode(this, secondary))
+                || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
         preview.reloadStyle();
         AppPreferences.changed(this);
         AudioSpectrumSource.sync(this);

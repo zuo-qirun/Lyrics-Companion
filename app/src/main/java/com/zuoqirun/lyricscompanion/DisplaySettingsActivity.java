@@ -373,7 +373,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
         if (!secondary) {
             LinearLayout controls = card("播放控制与全屏按钮");
-            addSeek(controls, "播放按钮大小", 60, 160,
+            addSeek(controls, "播放按钮大小", 20, 160,
                     AppPreferences.playbackControlScale(this), "%",
                     value -> AppPreferences.get(this).edit()
                             .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_SCALE, value).apply());
@@ -413,7 +413,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             addToggle(controls, "下一首", AppPreferences.KEY_SHOW_NEXT_BUTTON,
                     AppPreferences.showNextButton(this, true));
             // 副屏自己的位置/大小（issue #73）：以前副屏只能跟着主屏的偏移走。
-            addSeek(controls, "播放按钮大小", 60, 160,
+            addSeek(controls, "播放按钮大小", 20, 160,
                     AppPreferences.playbackControlScale(this), "%",
                     value -> AppPreferences.get(this).edit()
                             .putInt(AppPreferences.KEY_PLAYBACK_CONTROL_SCALE, value).apply());
@@ -429,6 +429,22 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                             AppPreferences.KEY_PLAYBACK_CONTROL_Y, value));
             addCard(root, controls);
         }
+
+        LinearLayout playbackFade = card("播放按钮自动淡化（所有屏幕）");
+        MaterialSwitch fadeToggle = new MaterialSwitch(this);
+        fadeToggle.setText("闲置数秒后淡化播放按钮");
+        fadeToggle.setTextColor(Color.WHITE);
+        fadeToggle.setChecked(AppPreferences.get(this).getBoolean(AppPreferences.KEY_PLAYBACK_FADE, false));
+        fadeToggle.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_PLAYBACK_FADE, checked).apply();
+            changed();
+        });
+        playbackFade.addView(fadeToggle);
+        addSeek(playbackFade, "淡化等待时间", 1, 30,
+                AppPreferences.get(this).getInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, 3), " 秒",
+                value -> AppPreferences.get(this).edit().putInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, value).apply());
+        playbackFade.addView(text("主屏、副屏、追加屏与全屏共用此选项。淡化至 20% 后仍可点击，触摸或鼠标悬浮时恢复。", 12, 0xFF8392A8, false));
+        addCard(root, playbackFade);
 
         LinearLayout sourceCorrection = card("按播放器校正");
         addSourceCorrection(sourceCorrection);

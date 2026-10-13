@@ -21,6 +21,11 @@ final class FoliaCadenzaLayout {
 
     static List<Placement> build(LrcTimeline.Line line, FoliaGlyphTimeline timeline,
                                  float[] offsets, int[] rowEnds, float font, float step, float maxWidth) {
+        return build(line, timeline, offsets, rowEnds, font, step, maxWidth, 0);
+    }
+
+    static List<Placement> build(LrcTimeline.Line line, FoliaGlyphTimeline timeline,
+                                 float[] offsets, int[] rowEnds, float font, float step, float maxWidth, float spacing) {
         List<int[]> words = new ArrayList<>();
         int cursor = 0;
         for (LrcTimeline.Word word : line.words) {
@@ -43,8 +48,8 @@ final class FoliaCadenzaLayout {
                 p.first = first; p.end = end; p.word = w; p.row = row;
                 p.start = timeline.starts[words.get(w)[0]];
                 p.finish = timeline.ends[words.get(w)[1] - 1];
-                p.width = Math.max(offsets[end] - offsets[first], font * 0.18);
-                p.baseX = -(offsets[rowEnd] - offsets[rowFirst]) / 2 + offsets[first] - offsets[rowFirst];
+                p.width = Math.max(FoliaTextSpacing.extent(offsets, first, end, spacing), font * 0.18);
+                p.baseX = -FoliaTextSpacing.extent(offsets, rowFirst, rowEnd, spacing) / 2 + offsets[first] - offsets[rowFirst];
                 p.baseY = -totalHeight / 2 + font + row * step;
                 plans.add(p);
             }

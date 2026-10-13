@@ -34,6 +34,7 @@ final class ConfigurationCodec {
         JSONObject settings = root.optJSONObject("settings");
         if (settings == null) throw new IllegalArgumentException("配置内容为空");
         SharedPreferences.Editor editor = AppPreferences.get(context).edit();
+        Map<String, Boolean> importedBooleans = new java.util.LinkedHashMap<>();
         int imported = 0;
         java.util.Iterator<String> keys = settings.keys();
         while (keys.hasNext()) {
@@ -43,7 +44,11 @@ final class ConfigurationCodec {
             if (encoded == null) continue;
             String type = encoded.optString("type");
             switch (type) {
-                case "boolean": editor.putBoolean(key, encoded.optBoolean("value")); break;
+                case "boolean":
+                    boolean boolValue = encoded.optBoolean("value");
+                    importedBooleans.put(key, boolValue);
+                    editor.putBoolean(key, boolValue);
+                    break;
                 case "int": editor.putInt(key, encoded.optInt("value")); break;
                 case "long": editor.putLong(key, encoded.optLong("value")); break;
                 case "float": editor.putFloat(key, (float) encoded.optDouble("value")); break;
@@ -62,6 +67,9 @@ final class ConfigurationCodec {
             }
             imported++;
         }
+        for (Map.Entry<String, Boolean> change : PlaybackPreferenceMigration.legacyImportChanges(importedBooleans).entrySet()) {
+            editor.putBoolean(change.getKey(), change.getValue());
+        }
         editor.apply();
         return imported;
     }
@@ -75,6 +83,7 @@ final class ConfigurationCodec {
                 && !key.startsWith("observed_")
                 && !key.startsWith("player_package_")
                 && !key.startsWith("hide_overlays_in_apps")
+                && !key.equals(PlaybackPreferenceMigration.MARKER)
                 && !key.equals(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI)
                 && !key.equals(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_PATH)
                 && !key.equals(AppPreferences.KEY_CUSTOM_FONT_FILE)

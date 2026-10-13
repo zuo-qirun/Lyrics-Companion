@@ -2,6 +2,8 @@
     <application>
         <activity android:name=".FoliaRenderFixtureActivity"
             android:exported="true" android:permission="android.permission.DUMP" />
+        <activity android:name=".DisplayRegressionFixtureActivity"
+            android:exported="true" android:permission="android.permission.DUMP" />
         <service
             android:name=".LegacyRemoteControlFixtureService"
             android:exported="true"

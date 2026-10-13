@@ -31,6 +31,12 @@ final class AppPreferences {
     static final String KEY_FOLIA_FPS = "folia_fps";
     static final String KEY_FOLIA_STRENGTH = "folia_strength";
     static final String KEY_FOLIA_MODE = "folia_mode";
+    static final String KEY_FOLIA_RANDOM = "folia_random_per_track";
+    static final String KEY_FOLIA_RANDOM_POOL = "folia_random_pool";
+    static final String KEY_FOLIA_SHOW_NEXT = "folia_show_next";
+    static final String KEY_FOLIA_NEXT_SCALE = "folia_next_scale";
+    static final String KEY_PLAYBACK_FADE = "playback_auto_fade";
+    static final String KEY_PLAYBACK_FADE_SECONDS = "playback_fade_seconds";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
     static final String KEY_MAIN_OVERLAY_STYLE = "main_overlay_style";
     static final String KEY_SECONDARY_OVERLAY_STYLE = "secondary_overlay_style";
@@ -307,7 +313,19 @@ final class AppPreferences {
     private AppPreferences() {}
 
     static SharedPreferences get(Context context) {
-        return context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        SharedPreferences preferences = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        if (!preferences.getBoolean(PlaybackPreferenceMigration.MARKER, false)) {
+            synchronized (PlaybackPreferenceMigration.class) {
+                if (!preferences.getBoolean(PlaybackPreferenceMigration.MARKER, false)) {
+                    SharedPreferences.Editor editor = preferences.edit();
+                    for (java.util.Map.Entry<String, Boolean> entry : PlaybackPreferenceMigration.changes(preferences.getAll()).entrySet()) {
+                        editor.putBoolean(entry.getKey(), entry.getValue());
+                    }
+                    editor.apply();
+                }
+            }
+        }
+        return preferences;
     }
 
     static boolean mainEnabled(Context context) {
@@ -322,11 +340,7 @@ final class AppPreferences {
         return showPreviousButton(context, false);
     }
 
-    /**
-     * 这一屏显示哪几个播放按键。主屏沿用原来的全局键；副屏没在「副屏播放控制」里单独调过时沿用主屏的
-     * 值，调过之后只影响副屏——以前副屏只有总开关，想少画一个键只能去主屏关，主副屏一起变
-     * （issue #72 / #30 剩下的那半截）。
-     */
+    /** Screen overrides are independent after the one-time legacy snapshot migration. */
     static boolean showPreviousButton(Context context, boolean secondary) {
         return displayBoolean(context, secondary, KEY_SHOW_PREVIOUS_BUTTON,
                 get(context).getBoolean(KEY_SHOW_PREVIOUS_BUTTON, true));
@@ -453,6 +467,7 @@ final class AppPreferences {
                     KEY_FOLIA_PANEL_WIDTH_DP, KEY_FOLIA_PANEL_HEIGHT_DP,
                     KEY_FOLIA_FOCUS, KEY_FOLIA_RADIUS, KEY_FOLIA_TILT, KEY_FOLIA_AXIS,
                     KEY_FOLIA_TRACKING, KEY_FOLIA_FPS, KEY_FOLIA_STRENGTH, KEY_FOLIA_MODE,
+                    KEY_FOLIA_RANDOM, KEY_FOLIA_RANDOM_POOL, KEY_FOLIA_SHOW_NEXT, KEY_FOLIA_NEXT_SCALE,
                     KEY_REFINED_SHOW_TRANSLATION,
                     KEY_LYRIC_EFFECT, KEY_LYRIC_EFFECT_STRENGTH, KEY_LYRIC_EFFECT_SPEED,
                     KEY_LYRIC_EFFECT_FPS,
@@ -1421,6 +1436,23 @@ final class AppPreferences {
         return normalizeOverlayStyle(selected);
     }
 
+    private static final java.util.Map<SharedPreferences, FoliaEffectSelector[]> FOLIA_SELECTORS = new java.util.WeakHashMap<>();
+
+    static String foliaModeForTrack(Context context, boolean secondary, MusicSnapshot snapshot) {
+        SharedPreferences store = displaySlotStore(context, secondary);
+        synchronized (FOLIA_SELECTORS) {
+            FoliaEffectSelector[] selectors = FOLIA_SELECTORS.get(store);
+            if (selectors == null) {
+                selectors = new FoliaEffectSelector[]{new FoliaEffectSelector(new java.util.Random()), new FoliaEffectSelector(new java.util.Random())};
+                FOLIA_SELECTORS.put(store, selectors);
+            }
+            return selectors[secondary ? 1 : 0].selectTrack(snapshot.sourceName,
+                    snapshot.active ? snapshot.title : "", snapshot.artist,
+                    displayBoolean(context, secondary, KEY_FOLIA_RANDOM, false), foliaMode(context, secondary),
+                    displayString(context, secondary, KEY_FOLIA_RANDOM_POOL, ""));
+        }
+    }
+
     static String foliaMode(Context context, boolean secondary) {
         return FoliaModeCatalog.normalize(displayString(context, secondary, KEY_FOLIA_MODE, "claddagh"));
     }
@@ -1718,7 +1750,7 @@ final class AppPreferences {
     }
 
     static int playbackControlScale(Context context) {
-        return Math.max(60, Math.min(160, get(context).getInt(KEY_PLAYBACK_CONTROL_SCALE, 100)));
+        return Math.max(20, Math.min(160, get(context).getInt(KEY_PLAYBACK_CONTROL_SCALE, 100)));
     }
 
     /** 播放按钮偏移的上限（百分比，issue #73）：原来 ±40% 在带鱼屏上够不到面板两端。 */

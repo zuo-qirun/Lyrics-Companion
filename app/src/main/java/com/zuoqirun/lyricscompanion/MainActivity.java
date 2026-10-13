@@ -1967,6 +1967,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView label = sectionLabel("主屏播放控制按键");
         label.setPadding(0, dp(18), 0, dp(3));
         parent.addView(label);
+        parent.addView(text("仅影响主屏；副屏按键在副屏显示设置中单独调整。", 12, 0xFF8392A8, false));
         addPlaybackControlToggle(parent, "显示上一首按键",
                 AppPreferences.KEY_SHOW_PREVIOUS_BUTTON,
                 AppPreferences.showPreviousButton(this));
@@ -2140,7 +2141,7 @@ public final class MainActivity extends AppCompatActivity {
         MaterialSwitch toggle = toggle(title, "关闭后按键和对应触控操作都会隐藏");
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit().putBoolean(key, checked).apply();
+            AppPreferences.putDisplayBoolean(this, false, key, checked);
             refreshPreview();
             AppPreferences.changed(this);
         });

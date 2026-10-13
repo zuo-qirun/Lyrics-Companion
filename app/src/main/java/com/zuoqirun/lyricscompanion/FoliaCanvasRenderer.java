@@ -55,6 +55,13 @@ final class FoliaCanvasRenderer {
     private float bass;
     private boolean axis = true, animate = true, showTranslation = true, audioReactive;
     private long time;
+    private boolean showNextLine = true;
+    private float nextLineScale = 1;
+
+    void configureNextLine(boolean show, float scale) {
+        showNextLine = show;
+        nextLineScale = Math.max(0.5f, Math.min(4, scale));
+    }
 
     void configure(String mode, Typeface face, float fontScale, int strength, int fps,
                    float radiusScale, float focusScale, float tilt, boolean axis, float tracking,
@@ -219,7 +226,7 @@ final class FoliaCanvasRenderer {
 
     private PreparedLine prepare(int index, float size, float radius, Typeface font, float spacingEm) {
         LrcTimeline.Line line = sourceLines.get(index);
-        String key = index + ":" + size + ":" + radius + ":" + width + ':' + height + ':' + font.hashCode() + ':' + spacingEm;
+        String key = index + ":" + size + ":" + radius + ":" + width + ':' + height + ':' + font.hashCode() + ':' + spacingEm + ':' + tracking;
         PreparedLine cached = lines.get(key);
         if (cached != null) return cached;
         text.setTypeface(font);
@@ -229,16 +236,18 @@ final class FoliaCanvasRenderer {
                 index + 1 < sourceLines.size() ? sourceLines.get(index + 1).timeMs : -1);
         PreparedLine result = new PreparedLine(timeline, font, size, -(metrics.ascent + metrics.descent) / 2);
         double spacingScale = (1 + focusRatio) / 1.65;
+        result.spacing = size * spacingEm + tracking;
+        float[] measuredPrefixes = new float[timeline.glyphs.length + 1];
         for (int i = 0; i < timeline.glyphs.length; i++) {
             result.widths[i] = text.measureText(timeline.glyphs[i]);
-            result.offsets[i + 1] = Math.max(result.offsets[i], text.measureText(line.text, 0,
-                    timeline.offsets[i + 1]) + i * (size * spacingEm + ("claddagh".equals(mode) ? tracking : 0)));
+            measuredPrefixes[i + 1] = text.measureText(line.text, 0, timeline.offsets[i + 1]);
         }
+        FoliaTextSpacing.apply(measuredPrefixes, result.spacing, result.offsets);
         result.total = result.offsets[timeline.glyphs.length];
         double span = result.total * spacingScale / Math.max(radius, size * 2);
         result.arcScale = span > FoliaRingMath.MAX_ARC ? FoliaRingMath.MAX_ARC / span : 1;
         for (int i = 0; i < timeline.glyphs.length; i++) {
-            double center = (result.offsets[i] + result.offsets[i + 1]) * 0.5 * spacingScale;
+            double center = (result.offsets[i] + result.widths[i] / 2) * spacingScale;
             result.angles[i] = (center / Math.max(radius, size * 2) - span / 2) * result.arcScale;
         }
         lines.put(key, result);
@@ -431,7 +440,7 @@ final class FoliaCanvasRenderer {
     }
 
     private void subtitle(Canvas canvas) {
-        if (!showTranslation || anchor < 0 || anchor >= sourceLines.size()) return;
+        if (anchor < 0 || anchor >= sourceLines.size()) return;
         LrcTimeline.Line active = sourceLines.get(anchor);
         String value = !active.translated.isEmpty() ? active.translated : active.romaji;
         if (showTranslation && !value.isEmpty()) {
@@ -441,10 +450,11 @@ final class FoliaCanvasRenderer {
             size *= Math.min(1, width * 0.84f / Math.max(1, text.measureText(value)));
             label(canvas, value, width / 2, height - 32 - size * 0.25f, size, alpha(muted, 0.6f), Paint.Align.CENTER, regularFace);
         }
-        if (value.isEmpty() && anchor + 1 < sourceLines.size()) {
-            label(canvas, sourceLines.get(anchor + 1).text, width / 2,
-                    height - 36,
-                    FoliaSceneMath.clampFont(width, 14, 2, 16, fontScale), alpha(muted, 0.6f), Paint.Align.CENTER);
+        if (showNextLine && (!showTranslation || value.isEmpty()) && anchor + 1 < sourceLines.size()) {
+            PreparedLine next = prepare(anchor + 1,
+                    Math.max(14, Math.min(width * 0.02f, 16)) * nextLineScale, width, regularFace, 0);
+            slice(canvas, next, 0, next.timeline.glyphs.length, width / 2,
+                    height - 36, width * 0.84f, 0.6f, muted, false, 0, 0);
         }
     }
 
@@ -477,7 +487,7 @@ final class FoliaCanvasRenderer {
     private void slice(Canvas canvas, PreparedLine line, int first, int end, float x, float y,
                        float maxWidth, float opacity, int color, boolean reveal, float stagger, float glow) {
         if (end <= first) return;
-        float extent = line.offsets[end] - line.offsets[first];
+        float extent = line.extent(first, end);
         float fit = Math.min(1, maxWidth / Math.max(1, extent));
         int save = canvas.save();
         canvas.translate(x, y);
@@ -513,7 +523,7 @@ final class FoliaCanvasRenderer {
             if (first >= end) continue;
             boolean isTilt = r == tilted;
             PreparedLine line = isTilt ? italic : normal;
-            float extent = line.offsets[end] - line.offsets[first];
+            float extent = line.extent(first, end);
             float fit = Math.min(1, width * 0.85f / Math.max(1, extent));
             float entry = animate ? (float) FoliaSceneMath.easeOut(
                     (time - line.timeline.starts[first] + 250) / (isTilt ? 600.0 : 550.0)) : 1;
@@ -589,9 +599,9 @@ final class FoliaCanvasRenderer {
         float[] advances = new float[words.length];
         int first = 0;
         for (int w = 0; w < words.length; w++) {
-            float extent = line.offsets[words[w]] - line.offsets[first];
+            float extent = line.extent(first, words[w]);
             float s = 1.1f + (float) FoliaSceneMath.random(seed + w + 4) * 0.2f;
-            float nextWidth = w + 1 < words.length ? line.offsets[words[w + 1]] - line.offsets[words[w]] : 0;
+            float nextWidth = w + 1 < words.length ? line.extent(words[w], words[w + 1]) : 0;
             float nextScale = w + 1 < words.length ? 1.1f + (float) FoliaSceneMath.random(seed + w + 5) * 0.2f : 1;
             float x = (float) (FoliaSceneMath.random(seed + w + 1) - 0.5) * 40;
             float nextX = w + 1 < words.length ? (float) (FoliaSceneMath.random(seed + w + 2) - 0.5) * 40 : 0;
@@ -618,7 +628,7 @@ final class FoliaCanvasRenderer {
                 float x = (float) (FoliaSceneMath.random(wordSeed + 1) - 0.5) * 40;
                 float dy = (float) (FoliaSceneMath.random(wordSeed + 2) - 0.5) * 40;
                 float rotation = (float) (FoliaSceneMath.random(wordSeed + 3) - 0.5) * 10;
-                float wordWidth = line.offsets[end] - line.offsets[glyphFirst];
+                float wordWidth = line.extent(glyphFirst, end);
                 long start = line.timeline.starts[Math.min(glyphFirst, line.timeline.starts.length - 1)];
                 long finish = line.timeline.ends[end - 1];
                 float entered = animate ? (float) FoliaSceneMath.spring(Math.max(0, time - start + 150) / 1000.0, 200, 20, 1) : 1;
@@ -656,7 +666,7 @@ final class FoliaCanvasRenderer {
             long start = line.timeline.starts[first], finish = line.timeline.ends[end - 1];
             float entry = animate ? (float) FoliaSceneMath.spring(Math.max(0, time - start + 150) / 1000.0, 200, 20, 1) : 1;
             float opacity = animate ? (float) FoliaRingMath.clamp((time - start + 150) / 100.0, 0, 1) : 1;
-            float extent = line.offsets[end] - line.offsets[first] + (chunk.end - chunk.first) * 12.8f;
+            float extent = line.extent(first, end) + (chunk.end - chunk.first) * 12.8f;
             float fit = Math.min(1, (width - 64 - Math.abs(chunk.x) * 2) / Math.max(1, extent));
             int save = canvas.save();
             canvas.translate(width / 2 + chunk.x + (1 - entry) * (r % 2 == 0 ? -40 : 40),
@@ -667,7 +677,7 @@ final class FoliaCanvasRenderer {
             for (int w = chunk.first; w < chunk.end; w++) {
                 int glyphEnd = words[w];
                 double seed = start / 1000.0 + (w - chunk.first) * 7.13;
-                float wordWidth = line.offsets[glyphEnd] - line.offsets[glyphFirst];
+                float wordWidth = line.extent(glyphFirst, glyphEnd);
                 float dx = (float) (FoliaSceneMath.random(seed + 1) - 0.5) * 12;
                 float dy = (float) (FoliaSceneMath.random(seed + 2) - 0.5) * 12;
                 float wordEntry = animate ? (float) FoliaSceneMath.spring(Math.max(0,
@@ -713,7 +723,7 @@ final class FoliaCanvasRenderer {
         float wrapWidth = Math.min(width - 48, Math.max(Math.min(220, width - 48), Math.min(width * 0.72f * compression, 820)));
         float step = Math.round(size * (FoliaSceneMath.isCjk(source.text) ? 1.22f : 1.1f));
         if (line.placements == null) line.placements = FoliaCadenzaLayout.build(source, line.timeline, line.offsets,
-                FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, wrapWidth), size, step, wrapWidth);
+                FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, wrapWidth, line.spacing), size, step, wrapWidth, line.spacing);
         float focusY = height * 0.42f + (animate ? (float) Math.sin(time / 1000.0 * 2.3) * (3 + bass * 8) : 0);
         // Waiting fragments are hidden; draw passed fragments before active fragments, as upstream.
         for (int status = 0; status < 2; status++) for (FoliaCadenzaLayout.Placement p : line.placements) {
@@ -767,7 +777,7 @@ final class FoliaCanvasRenderer {
             if (block == null) continue;
             if (Math.abs(block.x - focusX) * cameraScale > width * 1.5f || Math.abs(block.y - focusY) * cameraScale > height) continue;
             PreparedLine line = prepare(block.line, block.font, width, block.hero ? face : regularFace, 0);
-            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, block.width);
+            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, block.width, line.spacing);
             int first = 0;
             for (int r = 0; r < rows.length; r++) {
                 int end = rows[r];
@@ -800,7 +810,7 @@ final class FoliaCanvasRenderer {
         float[] heights = new float[sourceLines.size()];
         for (int i = Math.max(0, anchor - 9); i < Math.min(sourceLines.size(), anchor + 10); i++) {
             PreparedLine line = prepare(i, 28 * fontScale, width);
-            heights[i] = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxWidth).length * 34 * fontScale;
+            heights[i] = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxWidth, line.spacing).length * 34 * fontScale;
             if (showTranslation && !sourceLines.get(i).translated.isEmpty()) heights[i] += 27;
             heights[i] *= 1.25f;
         }
@@ -822,12 +832,12 @@ final class FoliaCanvasRenderer {
             canvas.translate(x, y);
             canvas.rotate((float) Math.toDegrees(angle) * 0.35f);
             canvas.scale(scale, scale);
-            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxWidth);
+            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxWidth, line.spacing);
             int first = 0;
             float top = -(rows.length - 1) * line.size * 1.2f / 2;
             for (int r = 0; r < rows.length; r++) {
                 int end = rows[r];
-                float extent = line.offsets[end] - line.offsets[first];
+                float extent = line.extent(first, end);
                 slice(canvas, line, first, end, extent / 2, top + r * line.size * 1.2f,
                         maxWidth, opacity, primary, false, 0, 0);
                 first = end;
@@ -851,7 +861,7 @@ final class FoliaCanvasRenderer {
         for (int i = center; i >= Math.max(0, center - 19); i--) {
             PreparedLine line = prepare(i, base * (i == center ? 1.34f : 0.94f), width);
             float block = Math.max(i == center ? 64 : 44,
-                    FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth).length * line.size * 1.45f
+                    FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth, line.spacing).length * line.size * 1.45f
                             + (i == center ? 32 : 24)) + 12;
             if (totalHeight + block > usableHeight && center - first >= 1) break;
             totalHeight += block;
@@ -882,12 +892,12 @@ final class FoliaCanvasRenderer {
                 visible = Math.max(1, visible);
             }
             float paddingX = i == center ? 20 : 16, paddingY = i == center ? 16 : 12;
-            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth);
+            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth, line.spacing);
             float extent = 0;
             int start = 0, visibleRows = 0;
             for (int end : rows) {
                 if (start >= visible) break;
-                extent = Math.max(extent, line.offsets[Math.min(end, visible)] - line.offsets[start]);
+                extent = Math.max(extent, line.extent(start, Math.min(end, visible)));
                 start = end; visibleRows++;
             }
             float bubbleWidth = Math.max(size, extent) + paddingX * 2 + 2;
@@ -908,7 +918,7 @@ final class FoliaCanvasRenderer {
             start = 0;
             for (int r = 0; r < rows.length; r++) {
                 int end = rows[r];
-                float rowWidth = line.offsets[end] - line.offsets[start];
+                float rowWidth = line.extent(start, end);
                 for (int g = start; g < end; g++) {
                     float reveal = i != center || !animate ? 1 : (float) FoliaRingMath.clamp(
                             (time - line.timeline.starts[g]) / Math.max(40, Math.min(220, line.timeline.ends[g] - line.timeline.starts[g])), 0, 1);
@@ -1093,7 +1103,7 @@ final class FoliaCanvasRenderer {
         float total = 0;
         for (int i = 0; i < groups.length; i++) {
             PreparedLine line = i == hero ? heroLine : supportLine;
-            total += line.offsets[groups[i][1]] - line.offsets[groups[i][0]] + gap;
+            total += line.extent(groups[i][0], groups[i][1]) + gap;
         }
         float fit = Math.min(1, width * 0.9f / Math.max(1, total));
         int save = canvas.save();
@@ -1103,7 +1113,7 @@ final class FoliaCanvasRenderer {
         for (int i = 0; i < groups.length; i++) {
             PreparedLine line = i == hero ? heroLine : supportLine;
             int first = groups[i][0], end = groups[i][1];
-            float extent = line.offsets[end] - line.offsets[first];
+            float extent = line.extent(first, end);
             for (int g = first; g < end; g++) {
                 float entered = animate ? (float) FoliaSceneMath.easeOut((time - line.timeline.starts[g]) / 300.0) : 1;
                 if (entered < 0.001f) continue;
@@ -1220,6 +1230,8 @@ final class FoliaCanvasRenderer {
         final FoliaGlyphTimeline timeline;
         final Typeface font;
         final float size, baseline;
+        float spacing;
+        float extent(int first, int end) { return FoliaTextSpacing.extent(offsets, first, end, spacing); }
         final float[] widths, offsets;
         final double[] angles;
         int[] semanticEnds;

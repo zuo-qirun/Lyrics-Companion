@@ -278,6 +278,8 @@ final class LyricsPanelView extends View {
     private long amllScrollAnimationStartedMs;
     private int amllScrollDirection;
     private Typeface customTypeface;
+    private long playbackInteractionMs = -1;
+    private boolean playbackTouching, playbackHovering;
     private final FoliaCanvasRenderer foliaRenderer = new FoliaCanvasRenderer();
     private int foliaFps = 30;
     private String foliaMode = "claddagh";
@@ -490,16 +492,7 @@ final class LyricsPanelView extends View {
         customTypeface = CustomFontStore.load(getContext());
         foliaFps = AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FPS, 30);
         foliaMode = AppPreferences.foliaMode(getContext(), secondary);
-        foliaRenderer.configure(foliaMode, customTypeface, textScale,
-                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50),
-                foliaFps,
-                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_RADIUS, 100) / 100f,
-                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FOCUS, 165) / 100f,
-                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TILT, 45),
-                AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_AXIS, true),
-                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TRACKING, 0),
-                refinedShowTranslation, AppPreferences.spectrumEnabled(getContext(), secondary)
-                        && AppPreferences.compactUseRealSpectrum(getContext(), secondary));
+        configureFoliaRenderer();
         // 模糊歌词改走离屏位图（见 drawBlurredLine），面板本身不再需要软件渲染：以前 Refined / 紧凑
         // 打开「歌词模糊」、AMLL 一律把整块面板丢给 CPU，帧率再高也拉不回来（issue #59 后续）。
         setLayerType(LAYER_TYPE_NONE, null);
@@ -510,6 +503,22 @@ final class LyricsPanelView extends View {
         clearTextCaches();
         previousLyricDissolve.reset();
         invalidate();
+    }
+
+    private void configureFoliaRenderer() {
+        foliaRenderer.configure(foliaMode, customTypeface, textScale,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50),
+                foliaFps,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_RADIUS, 100) / 100f,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FOCUS, 165) / 100f,
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TILT, 45),
+                AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_AXIS, true),
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TRACKING, 0),
+                refinedShowTranslation, AppPreferences.spectrumEnabled(getContext(), secondary)
+                        && AppPreferences.compactUseRealSpectrum(getContext(), secondary));
+        foliaRenderer.configureNextLine(
+                AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_SHOW_NEXT, true),
+                AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_NEXT_SCALE, 100) / 100f);
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -595,6 +604,8 @@ final class LyricsPanelView extends View {
                 playingLine.lyrics.wordTimed, now);
 
         if (FoliaModeCatalog.isStyle(overlayStyle)) {
+            String resolvedMode = AppPreferences.foliaModeForTrack(getContext(), secondary, snapshot);
+            if (!resolvedMode.equals(foliaMode)) { foliaMode = resolvedMode; configureFoliaRenderer(); }
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
             drawRefinedBackground(canvas, snapshot.albumArt, refinedUsesLightColors(),
                     refinedAccentColor(), snapshot.playing);
@@ -646,6 +657,12 @@ final class LyricsPanelView extends View {
         long delay = FoliaModeCatalog.isStyle(overlayStyle) ? nextFrameDelay(snapshot, now)
                 : LyricEffectRules.frameDelay(lyricEffect, lyricEffectStrength, lyricEffectFps,
                         framePlaying, lyricEffectEntryAge(), lyricEffectSpeed, nextFrameDelay(snapshot, now));
+        if (AppPreferences.showPlaybackControls(getContext(), secondary) && playbackInteractionMs >= 0) {
+            delay = Math.min(delay, PlaybackControlVisibility.nextFrameDelay(
+                    AppPreferences.get(getContext()).getBoolean(AppPreferences.KEY_PLAYBACK_FADE, false),
+                    playbackTouching || playbackHovering, now - playbackInteractionMs,
+                    AppPreferences.get(getContext()).getInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, 3)));
+        }
         scheduleNextFrame(delay);
     }
 
@@ -828,6 +845,20 @@ final class LyricsPanelView extends View {
             return MediaControlAction.NEXT;
         }
         return null;
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) playbackTouching = true;
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) playbackTouching = false;
+        playbackInteractionMs = SystemClock.elapsedRealtime(); invalidate();
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override public boolean onHoverEvent(MotionEvent event) {
+        playbackHovering = event.getActionMasked() != MotionEvent.ACTION_HOVER_EXIT;
+        playbackInteractionMs = SystemClock.elapsedRealtime(); invalidate();
+        return super.onHoverEvent(event);
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
@@ -1028,6 +1059,22 @@ final class LyricsPanelView extends View {
         boolean showNext = playbackButtonShown[PLAYBACK_BUTTON_NEXT];
         if (!showPrevious && !showPlayPause && !showNext) return;
 
+        long now = SystemClock.elapsedRealtime();
+        if (playbackInteractionMs < 0) playbackInteractionMs = now;
+        float opacity = PlaybackControlVisibility.alpha(
+                AppPreferences.get(getContext()).getBoolean(AppPreferences.KEY_PLAYBACK_FADE, false),
+                playbackTouching || playbackHovering, now - playbackInteractionMs,
+                AppPreferences.get(getContext()).getInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, 3));
+        int fadedLayer = -1;
+        if (opacity < 0.999f) {
+            float extent = 0;
+            for (int i = 0; i < playbackButtonShown.length; i++) if (playbackButtonShown[i])
+                extent = Math.max(extent, Math.abs(playbackButtonX[i] - layout.centerX) + playbackButtonRadius(layout, i));
+            float halfWidth = PlaybackControlLayoutMath.backdropHalfWidth(extent, layout.radius) + 2 * density;
+            fadedLayer = canvas.saveLayerAlpha(layout.centerX - halfWidth, layout.centerY - layout.radius * 1.6f,
+                    layout.centerX + halfWidth, layout.centerY + layout.radius * 1.6f,
+                    Math.round(opacity * 255), Canvas.ALL_SAVE_FLAG);
+        }
         int fill = snapshot.active ? 0xC92B405A : 0x8A26384E;
         int icon = snapshot.active ? 0xFFF5F9FF : 0xFF9AAABB;
         int accent = snapshot.playing ? 0xFFFFCA66 : 0xFF6EE7F2;
@@ -1079,6 +1126,7 @@ final class LyricsPanelView extends View {
             drawPlaybackButton(canvas, playbackButtonX[PLAYBACK_BUTTON_NEXT], layout.centerY,
                     layout.radius, fill, icon, MediaControlAction.NEXT, false);
         }
+        if (fadedLayer >= 0) canvas.restoreToCount(fadedLayer);
     }
 
     private void drawPlaybackButton(Canvas canvas, float centerX, float centerY, float radius,

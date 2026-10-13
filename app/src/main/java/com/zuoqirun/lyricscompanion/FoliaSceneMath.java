@@ -140,11 +140,15 @@ final class FoliaSceneMath {
 
     /** Wrap on grapheme boundaries, preferring spaces and punctuation over splitting Latin words. */
     static int[] wrap(String[] glyphs, float[] offsets, float maxWidth) {
+        return wrap(glyphs, offsets, maxWidth, 0);
+    }
+
+    static int[] wrap(String[] glyphs, float[] offsets, float maxWidth, float spacing) {
         List<Integer> ends = new ArrayList<>();
         int first = 0;
         while (first < glyphs.length) {
             int end = first + 1, boundary = -1;
-            while (end <= glyphs.length && offsets[end] - offsets[first] <= maxWidth) {
+            while (end <= glyphs.length && FoliaTextSpacing.extent(offsets, first, end, spacing) <= maxWidth) {
                 String previous = glyphs[end - 1];
                 if (previous.trim().isEmpty() || previous.matches("[，。；！？、,.!?;:]")) boundary = end;
                 end++;
