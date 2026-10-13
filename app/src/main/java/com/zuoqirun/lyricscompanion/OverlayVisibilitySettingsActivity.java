@@ -392,10 +392,6 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
             mainHandler.post(() -> {
                 if (loadingDialog.isShowing()) loadingDialog.dismiss();
                 if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
-                if (apps.isEmpty()) {
-                    SafeToast.show(this, "未找到可选择的应用", Toast.LENGTH_SHORT);
-                    return;
-                }
                 showLoadedAppPicker(kind, apps);
             });
         });
@@ -417,6 +413,9 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(4), 0, dp(4), 0);
         content.addView(appSearchField(adapter));
+        MaterialButton manual = button("手动添加包名（含无桌面入口应用）");
+        manual.setOnClickListener(v -> addInstalledPackage(adapter));
+        content.addView(manual, new LinearLayout.LayoutParams(-1, dp(48)));
         content.addView(list, new LinearLayout.LayoutParams(-1, dp(440)));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(kind == PICK_IGNORED_PLAYERS ? "忽略哪些应用的媒体元数据"
@@ -425,6 +424,26 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("保存", (dialog, which) -> savePickedApps(kind, selected))
                 .show();
+    }
+
+    private void addInstalledPackage(AppChoiceListAdapter adapter) {
+        TextInputEditText editor = new TextInputEditText(this);
+        editor.setSingleLine(true); editor.setHint("例如 com.example.voice");
+        editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL); content.setPadding(dp(24), dp(8), dp(24), dp(8));
+        content.addView(text("输入已安装应用的准确包名；系统应用和没有桌面入口的应用也可添加。", 13, 0xFFA9B6C8, false));
+        content.addView(editor, new LinearLayout.LayoutParams(-1, -2));
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("添加已安装应用").setView(content).setNegativeButton("取消", null)
+                .setPositiveButton("添加", null).create();
+        dialog.setOnShowListener(v -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener(button -> {
+            InstalledAppListCache.AppChoice app = InstalledAppListCache.resolveInstalledPackage(this,
+                    editor.getText() == null ? "" : editor.getText().toString());
+            if (app == null) { editor.setError("未找到此包名，或不能选择歌词伴侣自身"); return; }
+            adapter.addSelected(app); dialog.dismiss();
+        }));
+        dialog.show();
     }
 
     private TextInputLayout appSearchField(AppChoiceListAdapter adapter) {

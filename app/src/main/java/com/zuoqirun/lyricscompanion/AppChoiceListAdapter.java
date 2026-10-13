@@ -30,6 +30,7 @@ final class AppChoiceListAdapter extends BaseAdapter {
     private final List<InstalledAppListCache.AppChoice> allApps;
     private final List<InstalledAppListCache.AppChoice> visibleApps;
     private final Set<String> selected;
+    private String currentQuery = "";
 
     AppChoiceListAdapter(Context context, List<InstalledAppListCache.AppChoice> apps,
                          Set<String> selected) {
@@ -47,7 +48,16 @@ final class AppChoiceListAdapter extends BaseAdapter {
 
     @Override public long getItemId(int position) { return position; }
 
+    void addSelected(InstalledAppListCache.AppChoice app) {
+        selected.add(app.packageName);
+        boolean exists = false;
+        for (InstalledAppListCache.AppChoice value : allApps) exists |= value.packageName.equals(app.packageName);
+        if (!exists) allApps.add(app);
+        setQuery(currentQuery);
+    }
+
     void setQuery(String query) {
+        currentQuery = query;
         String normalized = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         visibleApps.clear();
         for (InstalledAppListCache.AppChoice app : allApps) {

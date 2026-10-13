@@ -99,6 +99,18 @@ final class InstalledAppListCache {
                 label == null ? packageName : label.toString().trim(), desktop));
     }
 
+    static AppChoice resolveInstalledPackage(Context context, String entered) {
+        String name = entered == null ? "" : entered.trim();
+        if (name.isEmpty() || name.equals(context.getPackageName())) return null;
+        try {
+            android.content.pm.ApplicationInfo info = context.getPackageManager().getApplicationInfo(name, 0);
+            CharSequence label = info.loadLabel(context.getPackageManager());
+            return new AppChoice(name, label == null ? name : label.toString());
+        } catch (android.content.pm.PackageManager.NameNotFoundException | SecurityException unavailable) {
+            return null;
+        }
+    }
+
     static final class AppChoice {
         final String packageName;
         final String label;
