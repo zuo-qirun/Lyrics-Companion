@@ -127,6 +127,7 @@ final class CrashReporter {
                 + "\nmemoryFreeBytes=" + runtime.freeMemory()
                 + "\nmemoryTotalBytes=" + runtime.totalMemory()
                 + "\nmemoryMaxBytes=" + runtime.maxMemory()
+                + "\nresourceProfile=" + ResourceProfile.describe(context)
                 + "\nfilesAvailableBytes=" + storage.getAvailableBytes()
                 + "\ndensity=" + metrics.density + " (" + metrics.densityDpi + " dpi)"
                 + "\nfontScale=" + context.getResources().getConfiguration().fontScale

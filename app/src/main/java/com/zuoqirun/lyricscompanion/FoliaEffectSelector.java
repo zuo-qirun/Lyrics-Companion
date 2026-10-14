@@ -9,7 +9,7 @@ final class FoliaEffectSelector {
     private final Random random;
     private String track = "", configuration = "", selected = "claddagh";
     private boolean hasSelection;
-    private String source = "", title = "", artist = "", stableIdentity = "";
+    private final TrackIdentity trackIdentity = new TrackIdentity();
     FoliaEffectSelector(Random random) { this.random = random; }
 
     static String[] pool(String encoded) {
@@ -36,15 +36,6 @@ final class FoliaEffectSelector {
     }
 
     String selectTrack(String source, String title, String artist, boolean enabled, String manual, String encodedPool) {
-        if (!title.isEmpty()) {
-            boolean same = source.equals(this.source) && title.equals(this.title)
-                    && (artist.isEmpty() || this.artist.isEmpty() || artist.equals(this.artist));
-            if (!same || stableIdentity.isEmpty()) stableIdentity = source + '\n' + title + '\n' + artist;
-            this.source = source;
-            this.title = title;
-            if (!same || !artist.isEmpty()) this.artist = artist;
-            return select(stableIdentity, enabled, manual, encodedPool);
-        }
-        return select("", enabled, manual, encodedPool);
+        return select(trackIdentity.update(source, title, artist), enabled, manual, encodedPool);
     }
 }

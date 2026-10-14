@@ -25,6 +25,10 @@ final class AudioSpectrumSource {
     }
 
     static synchronized void sync(Context context, boolean fullscreen) {
+        if (AppPreferences.lowResourceMode(context)) {
+            stop("低配车机模式：已释放频谱采集");
+            return;
+        }
         boolean requested = fullscreen && AppPreferences.spectrumEnabled(context, false)
                 && AppPreferences.compactUseRealSpectrum(context, false)
                 || AppPreferences.mainEnabled(context)

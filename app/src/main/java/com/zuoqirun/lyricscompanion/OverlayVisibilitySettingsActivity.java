@@ -100,6 +100,10 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         addTargetToggle(rules, "副屏：不显示「暂无匹配歌词」占位",
                 AppPreferences.KEY_HIDE_NO_LYRIC_PLACEHOLDER, true,
                 AppPreferences.hideNoLyricPlaceholder(this, true));
+        addTargetToggle(rules, "主屏：匹配期间歌词区留白", AppPreferences.KEY_HIDE_MATCHING_PLACEHOLDER,
+                false, AppPreferences.hideMatchingPlaceholder(this, false));
+        addTargetToggle(rules, "副屏：匹配期间歌词区留白", AppPreferences.KEY_HIDE_MATCHING_PLACEHOLDER,
+                true, AppPreferences.hideMatchingPlaceholder(this, true));
         addGraceRow(rules);
         addCard(root, rules);
 

@@ -11,6 +11,8 @@ import java.util.Set;
 
 final class AppPreferences {
     static final String FILE = "lyrics_companion";
+    static final String KEY_LOW_RESOURCE_MODE = "low_resource_mode";
+    static final String KEY_HIDE_MATCHING_PLACEHOLDER = "hide_matching_placeholder";
     static final String KEY_MAIN_OVERLAY = "main_overlay";
     static final String KEY_SECONDARY_OVERLAY = "secondary_overlay";
     static final String KEY_DISPLAY_ID = "display_id";
@@ -326,6 +328,14 @@ final class AppPreferences {
             }
         }
         return preferences;
+    }
+
+    static boolean lowResourceMode(Context context) {
+        return get(context).getBoolean(KEY_LOW_RESOURCE_MODE, false);
+    }
+
+    static boolean hideMatchingPlaceholder(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_HIDE_MATCHING_PLACEHOLDER, false);
     }
 
     static boolean mainEnabled(Context context) {
@@ -1282,8 +1292,30 @@ final class AppPreferences {
     }
 
     static boolean lyricFollowsArtwork(Context context, boolean secondary, boolean current) {
-        return "artwork".equals(displayString(context, secondary, current
-                ? KEY_CURRENT_LYRIC_COLOR_MODE : KEY_INACTIVE_LYRIC_COLOR_MODE, "fixed"));
+        String mode = lyricColorMode(context, secondary, current);
+        return !lowResourceMode(context) && ("artwork".equals(mode) || "artwork_random".equals(mode));
+    }
+
+    static String lyricColorMode(Context context, boolean secondary, boolean current) {
+        String mode = displayString(context, secondary, current
+                ? KEY_CURRENT_LYRIC_COLOR_MODE : KEY_INACTIVE_LYRIC_COLOR_MODE, "fixed");
+        return "artwork".equals(mode) || "random".equals(mode) || "artwork_random".equals(mode) ? mode : "fixed";
+    }
+
+    private static final java.util.Map<SharedPreferences, TrackColorSelector[]> TRACK_COLORS = new java.util.WeakHashMap<>();
+
+    static int randomTrackColor(Context context, boolean secondary, MusicSnapshot snapshot) {
+        SharedPreferences store = displaySlotStore(context, secondary);
+        synchronized (TRACK_COLORS) {
+            TrackColorSelector[] selectors = TRACK_COLORS.get(store);
+            if (selectors == null) {
+                selectors = new TrackColorSelector[]{new TrackColorSelector(new java.util.Random()),
+                        new TrackColorSelector(new java.util.Random())};
+                TRACK_COLORS.put(store, selectors);
+            }
+            return selectors[secondary ? 1 : 0].select(snapshot.sourceName,
+                    snapshot.active ? snapshot.title : "", snapshot.artist);
+        }
     }
 
     static String islandSecondRow(Context context, boolean secondary) {
@@ -2319,6 +2351,8 @@ final class AppPreferences {
     }
 
     static void changed(Context context) {
+        MusicStateStore.applyResourceProfile(context);
+        AudioSpectrumSource.sync(context);
         LyricsDisplayService.startOrRefresh(context);
     }
 

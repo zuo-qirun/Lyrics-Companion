@@ -124,6 +124,10 @@ final class LyricsPanelView extends View {
     private int coverRotationPeriodSeconds = 20;
     /** 「正在匹配歌词」动画 (#45): whether it runs, and how long a match may take first. */
     private boolean matchingAnimationEnabled = true;
+    private boolean hideMatchingPlaceholder;
+    private boolean lowResourceMode;
+    private boolean currentLyricRandom, inactiveLyricRandom;
+    private int randomLyricBase, randomLyricBackground, randomLyricCurrent, randomLyricInactive;
     private int matchingAnimationDelayMs = 3_000;
     /** 无逐字时间轴时按本句时长估算逐字进度（issue #21）。 */
     private boolean estimatedWordKaraoke;
@@ -328,6 +332,8 @@ final class LyricsPanelView extends View {
     }
 
     void reloadStyle() {
+        lowResourceMode = AppPreferences.lowResourceMode(getContext());
+        AlbumArtLoader.setLowResourceMode(lowResourceMode);
         textScale = compactTextOnly ? AppPreferences.topLyricFontScale(getContext()) / 100f
                 : AppPreferences.textScale(getContext(), secondary);
         titleScale = AppPreferences.titleScale(getContext(), secondary) / 100f;
@@ -383,6 +389,7 @@ final class LyricsPanelView extends View {
                 secondary);
         roundCover = AppPreferences.roundCover(getContext(), secondary);
         matchingAnimationEnabled = AppPreferences.matchingAnimation(getContext(), secondary);
+        hideMatchingPlaceholder = AppPreferences.hideMatchingPlaceholder(getContext(), secondary);
         matchingAnimationDelayMs = AppPreferences.matchingAnimationDelayMs(getContext(), secondary);
         estimatedWordKaraoke = AppPreferences.estimatedWordKaraoke(getContext(), secondary);
         nextLyricOpacity = AppPreferences.nextLyricOpacity(getContext(), secondary);
@@ -416,6 +423,10 @@ final class LyricsPanelView extends View {
         islandBackground = AppPreferences.islandBackground(getContext(), secondary);
         currentLyricArtwork = !compactTextOnly && AppPreferences.lyricFollowsArtwork(getContext(), secondary, true);
         inactiveLyricArtwork = !compactTextOnly && AppPreferences.lyricFollowsArtwork(getContext(), secondary, false);
+        String currentMode = AppPreferences.lyricColorMode(getContext(), secondary, true);
+        String inactiveMode = AppPreferences.lyricColorMode(getContext(), secondary, false);
+        currentLyricRandom = !compactTextOnly && ("random".equals(currentMode) || "artwork_random".equals(currentMode));
+        inactiveLyricRandom = !compactTextOnly && ("random".equals(inactiveMode) || "artwork_random".equals(inactiveMode));
         liveLyricAnimation = AppPreferences.liveLyricAnimation(getContext(), secondary);
         liveLyricAnimationDuration = AppPreferences.liveLyricAnimationDuration(getContext(), secondary);
         coverFadePercent = AppPreferences.displayInt(getContext(), secondary,
@@ -492,12 +503,27 @@ final class LyricsPanelView extends View {
         customTypeface = CustomFontStore.load(getContext());
         foliaFps = AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FPS, 30);
         foliaMode = AppPreferences.foliaMode(getContext(), secondary);
+        if (lowResourceMode) {
+            refinedBackgroundType = "solid";
+            islandBackground = "solid";
+            backgroundBlur = 0;
+            coverFadeBlur = 0;
+            coverRotation = false;
+            refinedLyricBlur = false;
+            refinedLyricGlow = false;
+            panelShadowPercent = 0;
+            refinedTextEffect = "none";
+            lyricEffect = "none";
+        }
+        foliaRenderer.setLowResourceMode(lowResourceMode);
+        foliaRenderer.setLyricColorOverrides(currentLyricRandom, inactiveLyricRandom);
         configureFoliaRenderer();
         // 模糊歌词改走离屏位图（见 drawBlurredLine），面板本身不再需要软件渲染：以前 Refined / 紧凑
         // 打开「歌词模糊」、AMLL 一律把整块面板丢给 CPU，帧率再高也拉不回来（issue #59 后续）。
         setLayerType(LAYER_TYPE_NONE, null);
         layoutConfig = LyricsLayoutConfig.load(getContext(), secondary);
         recycleBlurPreview();
+        recycleCoverFadePreview();
         blurPreview = null;
         blurSource = null;
         clearTextCaches();
@@ -514,7 +540,7 @@ final class LyricsPanelView extends View {
                 AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TILT, 45),
                 AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_AXIS, true),
                 AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TRACKING, 0),
-                refinedShowTranslation, AppPreferences.spectrumEnabled(getContext(), secondary)
+                refinedShowTranslation, !lowResourceMode && AppPreferences.spectrumEnabled(getContext(), secondary)
                         && AppPreferences.compactUseRealSpectrum(getContext(), secondary));
         foliaRenderer.configureNextLine(
                 AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_SHOW_NEXT, true),
@@ -579,6 +605,15 @@ final class LyricsPanelView extends View {
             updatePalette(snapshot.albumArt);
             updateCoverLyricColors();
         }
+        if (currentLyricRandom || inactiveLyricRandom) {
+            int base = AppPreferences.randomTrackColor(getContext(), secondary, snapshot);
+            int background = lyricContrastBackground();
+            if (base != randomLyricBase || background != randomLyricBackground) {
+                randomLyricBase = base; randomLyricBackground = background;
+                randomLyricCurrent = CoverLyricColorRules.color(base, background, true);
+                randomLyricInactive = CoverLyricColorRules.color(base, background, false);
+            }
+        }
 
         // The dissolve timeline has to be advanced before the layouts draw: they ask it, glyph
         // by glyph, how much of the previous line is still there this frame.
@@ -609,7 +644,7 @@ final class LyricsPanelView extends View {
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
             drawRefinedBackground(canvas, snapshot.albumArt, refinedUsesLightColors(),
                     refinedAccentColor(), snapshot.playing);
-            foliaRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
+            if (!blankWhileMatching(snapshot)) foliaRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
                     lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
                     inactiveLyricColor(0xFFB9BBC5));
             drawProgress(canvas, 16f * density, getHeight() - 3f * density,
@@ -663,7 +698,7 @@ final class LyricsPanelView extends View {
                     playbackTouching || playbackHovering, now - playbackInteractionMs,
                     AppPreferences.get(getContext()).getInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, 3)));
         }
-        scheduleNextFrame(delay);
+        scheduleNextFrame(ResourceProfile.frameDelay(lowResourceMode, delay));
     }
 
     private void scheduleNextFrame(long delayMs) {
@@ -692,7 +727,8 @@ final class LyricsPanelView extends View {
     private void scheduleBackgroundFrame(long delayMs) {
         if (backgroundFramePosted) return;
         long period = displayFramePeriodMs();
-        long frames = Math.max(1L, Math.round(delayMs / (float) period));
+        long frames = Math.max(1L, lowResourceMode ? (long) Math.ceil(delayMs / (double) period)
+                : Math.round(delayMs / (float) period));
         if (frames <= 1L) {
             postInvalidateOnAnimation();
             return;
@@ -2299,6 +2335,10 @@ final class LyricsPanelView extends View {
     }
 
     private void drawAmllBackground(Canvas canvas, Bitmap art, boolean playing) {
+        if (lowResourceMode) {
+            drawRefinedBackground(canvas, null, lyricEnvironmentUsesLightColors(), refinedAccentColor(), false);
+            return;
+        }
         int alphaLayer = saveLayerAlphaCompat(canvas, panelRect,
                 fullscreen ? 255 : Math.round(clamp(opacity / 100f) * 255f));
         int save = canvas.save();
@@ -2608,6 +2648,7 @@ final class LyricsPanelView extends View {
     private void drawCompactPlaybackBars(Canvas canvas, MusicSnapshot snapshot, float left,
                                          float top, float right, float height, int lyricColor,
                                          int spectrumColor) {
+        if (lowResourceMode) return;
         if (right <= left || height <= 0f) return;
         int color = spectrumColor == 0 ? lyricColor : spectrumColor;
         float width = right - left;
@@ -3134,7 +3175,7 @@ final class LyricsPanelView extends View {
 
     /** True while the 「正在匹配」 indicator should be on screen. */
     private boolean matchingIndicatorVisible(long nowElapsedMs) {
-        if (!matchingAnimationEnabled || matchingSinceMs <= 0L) return false;
+        if (hideMatchingPlaceholder || !matchingAnimationEnabled || matchingSinceMs <= 0L) return false;
         return nowElapsedMs - matchingSinceMs >= matchingAnimationDelayMs;
     }
 
@@ -3525,18 +3566,21 @@ final class LyricsPanelView extends View {
     }
 
     private int artworkSlotColor(boolean current, int fallback) {
-        if (frameAlbumArtMissing || !(current ? currentLyricArtwork : inactiveLyricArtwork)) return fallback;
-        return withAlpha(current ? coverLyricCurrent : coverLyricInactive, Color.alpha(fallback));
+        if (!frameAlbumArtMissing && (current ? currentLyricArtwork : inactiveLyricArtwork)) {
+            return withAlpha(current ? coverLyricCurrent : coverLyricInactive, Color.alpha(fallback));
+        }
+        return (current ? currentLyricRandom : inactiveLyricRandom)
+                ? withAlpha(current ? randomLyricCurrent : randomLyricInactive, Color.alpha(fallback)) : fallback;
     }
 
     private int currentLyricColor(int fallback) {
-        if (currentLyricArtwork && !frameAlbumArtMissing) return withAlpha(coverLyricCurrent, Color.alpha(fallback));
+        if (currentLyricRandom || currentLyricArtwork && !frameAlbumArtMissing) return artworkSlotColor(true, fallback);
         return slotLyricColor(currentLyricColor, currentLyricLightColor,
                 currentLyricDarkColor, fallback);
     }
 
     private int inactiveLyricColor(int fallback) {
-        if (inactiveLyricArtwork && !frameAlbumArtMissing) return withAlpha(coverLyricInactive, Color.alpha(fallback));
+        if (inactiveLyricRandom || inactiveLyricArtwork && !frameAlbumArtMissing) return artworkSlotColor(false, fallback);
         return slotLyricColor(inactiveLyricColor, inactiveLyricLightColor,
                 inactiveLyricDarkColor, fallback);
     }
@@ -3557,7 +3601,10 @@ final class LyricsPanelView extends View {
         canvas.clipPath(clipPath);
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(null);
-        if ("compact".equals(mode)) {
+        if (lowResourceMode) {
+            paint.setColor(lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF101A29);
+            canvas.drawRoundRect(panelRect, radius, radius, paint);
+        } else if ("compact".equals(mode)) {
             if (snapshot.albumArt != null && !snapshot.albumArt.isRecycled()) {
                 drawBitmapCrop(canvas, blurredPreview(snapshot.albumArt), panelRect, 150);
             }
@@ -3591,6 +3638,7 @@ final class LyricsPanelView extends View {
     }
 
     private void drawSharedSpectrum(Canvas canvas, MusicSnapshot snapshot, float density) {
+        if (lowResourceMode) return;
         boolean useReal = AppPreferences.compactUseRealSpectrum(getContext(), secondary);
         AudioSpectrumSource.Frame frame = AudioSpectrumSource.latestFrame();
         long now = SystemClock.elapsedRealtime();
@@ -3678,6 +3726,7 @@ final class LyricsPanelView extends View {
      * 观感——Refined 看它自己的「当前歌词辉光」开关，其它样式保留一直以来的那点辉光。
      */
     private void applyLyricTextEffect(float size, int color, int alpha) {
+        if (lowResourceMode) return;
         if ("shadow".equals(refinedTextEffect) || "glow".equals(refinedTextEffect)) {
             applyRefinedTextEffect(size, color, alpha);
             return;
@@ -4062,6 +4111,7 @@ final class LyricsPanelView extends View {
     }
 
     private void updatePalette(Bitmap art) {
+        if (lowResourceMode) return;
         if (art == paletteSource) return;
         paletteSource = art;
         if (art == null || art.isRecycled()) return;
@@ -4373,7 +4423,11 @@ final class LyricsPanelView extends View {
         clipPath.addRoundRect(panelRect, radius, radius, Path.Direction.CW);
         canvas.clipPath(clipPath);
         int configured = configuredBackgroundColor();
-        if (configured != 0) {
+        if (lowResourceMode) {
+            paint.setShader(null);
+            paint.setColor(configured == 0 ? fallbackA : configured);
+            canvas.drawRect(panelRect, paint);
+        } else if (configured != 0) {
             paint.setShader(null);
             paint.setColor(configured);
             canvas.drawRect(panelRect, paint);
@@ -4834,6 +4888,7 @@ final class LyricsPanelView extends View {
 
     private String currentText(MusicSnapshot snapshot) {
         if (!snapshot.active) return "等待播放";
+        if (blankWhileMatching(snapshot)) return "";
         if (!snapshot.lyricLoaded && !snapshot.lyricAvailable) {
             // 匹配动画出现后这个位置显示歌名，匹配进度交给底部的发散小点（issue #45）；
             // 动画关闭或还没到延迟时，仍然是原来的静止文字。
@@ -4850,6 +4905,11 @@ final class LyricsPanelView extends View {
         if (snapshot.lyrics.interlude) return "♪  ·  ·  ·";
         if (snapshot.lyrics.lyric.isEmpty()) return "即将开始";
         return snapshot.lyrics.lyric;
+    }
+
+    private boolean blankWhileMatching(MusicSnapshot snapshot) {
+        return LyricPlaceholderRules.blankMatching(hideMatchingPlaceholder,
+                snapshot.active, snapshot.lyricLoaded, snapshot.lyricAvailable);
     }
 
     private String sourceSuffix(MusicSnapshot snapshot) {
@@ -5283,16 +5343,21 @@ final class LyricsPanelView extends View {
 
     private void updateCoverLyricColors() {
         if (frameAlbumArtMissing) return;
-        int background = configuredBackgroundColor();
-        if ("island".equals(overlayStyle) && "artwork".equals(islandBackground)) {
-            background = mix(palette[0], Color.BLACK, 0.55f);
-        }
-        if (background == 0) background = lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF1A2130;
+        int background = lyricContrastBackground();
         if (coverLyricBase == palette[0] && coverLyricBackground == background) return;
         coverLyricBase = palette[0];
         coverLyricBackground = background;
         coverLyricCurrent = CoverLyricColorRules.color(palette[0], background, true);
         coverLyricInactive = CoverLyricColorRules.color(palette[0], background, false);
+    }
+
+    private int lyricContrastBackground() {
+        int background = configuredBackgroundColor();
+        if ("island".equals(overlayStyle) && "artwork".equals(islandBackground)) {
+            background = mix(palette[0], Color.BLACK, 0.55f);
+        }
+        if (background == 0) background = lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF1A2130;
+        return background;
     }
 
     private float estimatedKaraokeFraction(MusicSnapshot snapshot) {
@@ -5691,6 +5756,7 @@ final class LyricsPanelView extends View {
                                  int baseColor, float frameAlpha, float maxWidth, int style,
                                  int maxLines, float blurRadius, boolean dissolving, long lineId) {
         if (value == null || value.isEmpty()) return;
+        if (lowResourceMode) blurRadius = 0;
         int alpha = Math.round(Color.alpha(baseColor) * clamp(frameAlpha));
         if (alpha <= 0) return;
         if (blurRadius <= 0.5f) {

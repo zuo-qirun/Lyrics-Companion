@@ -56,11 +56,23 @@ final class FoliaCanvasRenderer {
     private boolean axis = true, animate = true, showTranslation = true, audioReactive;
     private long time;
     private boolean showNextLine = true;
+    private boolean lowResourceMode;
+    private boolean overrideCurrentColor, overrideInactiveColor;
     private float nextLineScale = 1;
 
     void configureNextLine(boolean show, float scale) {
         showNextLine = show;
         nextLineScale = Math.max(0.5f, Math.min(4, scale));
+    }
+
+    void setLowResourceMode(boolean low) {
+        if (lowResourceMode != low) { masks.evictAll(); lines.evictAll(); }
+        lowResourceMode = low;
+    }
+
+    void setLyricColorOverrides(boolean current, boolean inactive) {
+        overrideCurrentColor = current;
+        overrideInactiveColor = inactive;
     }
 
     void configure(String mode, Typeface face, float fontScale, int strength, int fps,
@@ -234,7 +246,7 @@ final class FoliaCanvasRenderer {
         text.getFontMetrics(metrics);
         FoliaGlyphTimeline timeline = new FoliaGlyphTimeline(line,
                 index + 1 < sourceLines.size() ? sourceLines.get(index + 1).timeMs : -1);
-        PreparedLine result = new PreparedLine(timeline, font, size, -(metrics.ascent + metrics.descent) / 2);
+        PreparedLine result = new PreparedLine(index, timeline, font, size, -(metrics.ascent + metrics.descent) / 2);
         double spacingScale = (1 + focusRatio) / 1.65;
         result.spacing = size * spacingEm + tracking;
         float[] measuredPrefixes = new float[timeline.glyphs.length + 1];
@@ -332,6 +344,15 @@ final class FoliaCanvasRenderer {
 
     private void glyph(Canvas canvas, PreparedLine line, int index, int color,
                        float opacity, float blur, float glow) {
+        glyph(canvas, line, index, color, opacity, blur, glow, false);
+    }
+
+    private void glyph(Canvas canvas, PreparedLine line, int index, int color,
+                       float opacity, float blur, float glow, boolean resolvedColor) {
+        if (lowResourceMode) { blur = 0; glow = 0; }
+        if (!resolvedColor && (line.index == anchor ? overrideCurrentColor : overrideInactiveColor)) {
+            color = line.index == anchor ? accent : muted;
+        }
         if (opacity <= 0 || line.timeline.glyphs[index].trim().isEmpty()) return;
         text.setTypeface(line.font);
         text.setTextSize(line.size);
@@ -383,6 +404,7 @@ final class FoliaCanvasRenderer {
             offscreen.drawText(line.timeline.glyphs[index], w / 2f, pad - metrics.top, raster);
             raster.setMaskFilter(null);
             masks.put(key, mask);
+            masks.trimToSize(ResourceProfile.maskCacheBytes(lowResourceMode));
         }
         PorterDuffColorFilter filter = colors.get(color);
         if (filter == null) {
@@ -907,6 +929,10 @@ final class FoliaCanvasRenderer {
             float opacity = i == center ? 1 : 0.82f;
             int bubbleColor = right ? alpha(mix(accent, primary, 0.18f), 0.94f)
                     : mix(muted, accent, 0.18f + (i % 5) * 0.0775f);
+            int lyricColor = right ? 0xFF09090B : primary;
+            if (i == anchor ? overrideCurrentColor : overrideInactiveColor) {
+                lyricColor = CoverLyricColorRules.color(i == anchor ? accent : muted, bubbleColor, i == anchor);
+            }
             shape.setColor(alpha(bubbleColor, opacity));
             rect.set(x, y, x + bubbleWidth, y + bubbleHeight);
             int save = canvas.save();
@@ -925,7 +951,7 @@ final class FoliaCanvasRenderer {
                     int glyphSave = canvas.save();
                     canvas.translate(x + paddingX + line.offsets[g] - line.offsets[start] + line.widths[g] / 2,
                             y + paddingY + size * 0.725f + r * size * 1.45f);
-                    glyph(canvas, line, g, right ? 0xFF09090B : primary, opacity * reveal, 0, 0);
+                    glyph(canvas, line, g, lyricColor, opacity * reveal, 0, 0, true);
                     canvas.restoreToCount(glyphSave);
                 }
                 start = end;
@@ -1241,7 +1267,9 @@ final class FoliaCanvasRenderer {
         float total;
         double arcScale;
 
-        PreparedLine(FoliaGlyphTimeline timeline, Typeface font, float size, float baseline) {
+        final int index;
+        PreparedLine(int index, FoliaGlyphTimeline timeline, Typeface font, float size, float baseline) {
+            this.index = index;
             this.timeline = timeline;
             this.font = font;
             this.size = size;

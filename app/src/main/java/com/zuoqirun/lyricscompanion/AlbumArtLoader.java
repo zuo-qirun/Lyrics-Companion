@@ -9,9 +9,12 @@ import android.util.LruCache;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.lang.ref.WeakReference;
 
 final class AlbumArtLoader {
-    private static final int MAX_ART_SIDE = 700;
+    private static volatile boolean lowResourceMode;
+    private static WeakReference<Bitmap> sharedSource = new WeakReference<>(null);
+    private static WeakReference<Bitmap> sharedScaled = new WeakReference<>(null);
     private static final int MAX_INPUT_BYTES = 8 * 1024 * 1024;
     private static final int MAX_CACHE_KIB = 8 * 1024;
     private static final LruCache<String, Bitmap> MEMORY_CACHE =
@@ -24,6 +27,7 @@ final class AlbumArtLoader {
     private AlbumArtLoader() {}
 
     static Bitmap load(Context context, String address) {
+        setLowResourceMode(AppPreferences.lowResourceMode(context));
         if (address == null || address.trim().isEmpty()) return null;
         Bitmap cached = MEMORY_CACHE.get(address);
         if (cached != null && !cached.isRecycled()) return cached;
@@ -43,19 +47,48 @@ final class AlbumArtLoader {
                 input = context.getContentResolver().openInputStream(uri);
             }
             EncodedBuffer encoded = readEncoded(input);
-            bitmap = decodeSampled(encoded, MAX_ART_SIDE);
+            bitmap = decodeSampled(encoded, ResourceProfile.artSide(lowResourceMode));
         } catch (Throwable ignored) {
             bitmap = null;
         } finally {
             try { if (input != null) input.close(); } catch (Exception ignored) { }
             if (connection != null) connection.disconnect();
         }
-        if (bitmap != null) MEMORY_CACHE.put(address, bitmap);
+        if (bitmap != null) {
+            MEMORY_CACHE.put(address, bitmap);
+            MEMORY_CACHE.trimToSize(ResourceProfile.artCacheKiB(lowResourceMode));
+        }
         return bitmap;
     }
 
     static void clearMemoryCache() {
         MEMORY_CACHE.evictAll();
+    }
+
+    static synchronized void setLowResourceMode(boolean low) {
+        if (lowResourceMode == low) return;
+        lowResourceMode = low;
+        MEMORY_CACHE.evictAll();
+        sharedSource.clear();
+        sharedScaled.clear();
+    }
+
+    static int cachedKiB() { return MEMORY_CACHE.size(); }
+
+    /** The bitmap may belong to a MediaSession or live snapshot: never recycle it. */
+    static synchronized Bitmap limitShared(Bitmap bitmap, boolean low) {
+        if (bitmap == null || bitmap.isRecycled() || !low) return bitmap;
+        int largest = Math.max(bitmap.getWidth(), bitmap.getHeight());
+        int side = ResourceProfile.artSide(true);
+        if (largest <= side) return bitmap;
+        Bitmap cached = sharedScaled.get();
+        if (sharedSource.get() == bitmap && cached != null && !cached.isRecycled()) return cached;
+        float ratio = side / (float) largest;
+        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, Math.max(1, Math.round(bitmap.getWidth() * ratio)),
+                Math.max(1, Math.round(bitmap.getHeight() * ratio)), true);
+        sharedSource = new WeakReference<>(bitmap);
+        sharedScaled = new WeakReference<>(scaled);
+        return scaled;
     }
 
     private static EncodedBuffer readEncoded(InputStream input) throws Exception {

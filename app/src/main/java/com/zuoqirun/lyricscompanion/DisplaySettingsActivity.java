@@ -313,6 +313,9 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.matchingAnimation(this, secondary),
                 () -> setDependentVisibility(
                         AppPreferences.matchingAnimation(this, secondary), matchingDependents[0]));
+        addToggle(panel, "匹配期间歌词区留白", AppPreferences.KEY_HIDE_MATCHING_PLACEHOLDER,
+                AppPreferences.hideMatchingPlaceholder(this, secondary));
+        panel.addView(text("匹配期间隐藏歌词占位文字和匹配小点，保持原有版面；匹配成功后恢复歌词。", 12, 0xFF8392A8, false));
         View[] matchingDelayRow = addSeekRow(panel, "匹配超过多久才显示动画", 0, 10,
                 AppPreferences.matchingAnimationDelayMs(this, secondary) / 1_000, " 秒",
                 value -> AppPreferences.putDisplayInt(this, secondary,

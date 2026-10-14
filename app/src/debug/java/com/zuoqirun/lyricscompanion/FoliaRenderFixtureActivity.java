@@ -33,6 +33,8 @@ public final class FoliaRenderFixtureActivity extends Activity {
         boolean translations = getIntent().getBooleanExtra("translations", true);
         int tracking = Math.max(0, Math.min(30, getIntent().getIntExtra("tracking", 0)));
         boolean nextLine = getIntent().getBooleanExtra("nextLine", true);
+        boolean low = getIntent().getBooleanExtra("lowResource", false);
+        boolean randomColors = getIntent().getBooleanExtra("randomColors", false);
         int nextScale = getIntent().getIntExtra("nextScale", 100);
         String selected = getIntent().getStringExtra("mode");
         List<LrcTimeline.Line> lines = new ArrayList<>();
@@ -58,11 +60,14 @@ public final class FoliaRenderFixtureActivity extends Activity {
             Canvas canvas = new Canvas(image);
             canvas.drawColor(0xFF09090B);
             FoliaCanvasRenderer renderer = new FoliaCanvasRenderer();
+            renderer.setLowResourceMode(low);
+            renderer.setLyricColorOverrides(randomColors, randomColors);
             renderer.configure(mode, null, 1, 50, fps, 1, 1.65f, 45, true, tracking, translations, false);
             renderer.configureNextLine(nextLine, nextScale / 100f);
             renderer.draw(canvas, snapshot, at, at, 1, 0xFFF5F8FF, 0xFFFF984B, 0xFFB9BBC5);
             write(image, mode + '-' + at + (fps == 0 ? "-static" : "") + (translations ? "" : "-no-translation")
-                    + "-tracking" + tracking + "-next" + (nextLine ? nextScale : "hidden") + ".png");
+                    + "-tracking" + tracking + "-next" + (nextLine ? nextScale : "hidden")
+                    + (low ? "-low" : "") + (randomColors ? "-random" : "") + ".png");
             if (getIntent().getBooleanExtra("verifyPause", false)) {
                 Bitmap later = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
                 Canvas laterCanvas = new Canvas(later); laterCanvas.drawColor(0xFF09090B);

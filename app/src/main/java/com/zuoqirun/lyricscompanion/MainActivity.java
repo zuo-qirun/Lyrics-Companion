@@ -836,6 +836,7 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout homePage = sectionPage();
         homePage.addView(settingsModeCard, cardMargins());
+        homePage.addView(buildResourceProfileCard(), cardMargins());
         if (conciseSettingsMode) {
             homePage.addView(previewCard, cardMargins());
             homePage.addView(quickControlCard, cardMargins());
@@ -1562,7 +1563,24 @@ public final class MainActivity extends AppCompatActivity {
                 + "    读取方式：" + backendDescription()
                 + "\n最近成功读取会话：" + formatSessionReadAge(lastRead)
                 + "    当前会话数量：" + MusicNotificationListener.getLastSessionCount()
-                + "\n最近异常信息：" + error);
+                + "\n最近异常信息：" + error
+                + "\n" + ResourceProfile.describe(this));
+    }
+
+    private LinearLayout buildResourceProfileCard() {
+        LinearLayout panel = card();
+        panel.addView(sectionLabel("低配车机模式"));
+        MaterialSwitch low = toggle("所有屏幕启用低配档");
+        low.setChecked(AppPreferences.lowResourceMode(this));
+        low.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_LOW_RESOURCE_MODE, checked).apply();
+            if (previewPanel != null) previewPanel.reloadStyle();
+            AppPreferences.changed(this);
+        });
+        panel.addView(low);
+        panel.addView(text("临时将动画上限降至约 12 fps，重背景回退纯色，关闭频谱、封面取色、文字模糊和光晕，缩小封面与位图缓存。布局、字号和各项设置继续保留，关闭后恢复。",
+                12, 0xFF8392A8, false));
+        return panel;
     }
 
     private void refreshDisplayChoices() {

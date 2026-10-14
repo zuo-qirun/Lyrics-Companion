@@ -106,7 +106,7 @@ final class MusicStateStore {
         String incomingLiveSessionLyric = data.sessionLyricPresent
                 ? data.sessionLyric : hasCompositeIdentity ? rawTitle : "";
         String newMediaId = data.mediaId;
-        Bitmap newAlbumArt = data.albumArt;
+        Bitmap newAlbumArt = AlbumArtLoader.limitShared(data.albumArt, AppPreferences.lowResourceMode(context));
         String newAlbumArtUri = data.albumArtUri;
         String newMediaUri = data.mediaUri;
         long newDuration = data.durationMs;
@@ -714,6 +714,12 @@ final class MusicStateStore {
                 requestedMediaId, requestedMediaUri, requestedTitle,
                 requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback,
                 forcedPlayerCatalog);
+    }
+
+    static void applyResourceProfile(Context context) {
+        boolean low = AppPreferences.lowResourceMode(context);
+        AlbumArtLoader.setLowResourceMode(low);
+        synchronized (LOCK) { albumArt = AlbumArtLoader.limitShared(albumArt, low); }
     }
 
     static String describe(Context context) {

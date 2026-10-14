@@ -221,8 +221,12 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         parent.addView(label);
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this,
-                new String[]{"自动 / 自定义（使用下方颜色）", "跟随歌曲封面"}));
-        int initial = AppPreferences.lyricFollowsArtwork(this, secondary, current) ? 1 : 0;
+                new String[]{"自动 / 自定义（使用下方颜色）", "跟随歌曲封面", "每首歌随机", "封面优先，无封面时随机"}));
+        String[] modes = {"fixed", "artwork", "random", "artwork_random"};
+        String mode = AppPreferences.lyricColorMode(this, secondary, current);
+        int selectedIndex = 0;
+        for (int i = 0; i < modes.length; i++) if (modes[i].equals(mode)) selectedIndex = i;
+        final int initial = selectedIndex;
         spinner.setSelection(initial, false);
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             int selected = initial;
@@ -231,12 +235,14 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
                 selected = position;
                 AppPreferences.putDisplayString(ColorSettingsActivity.this, secondary, current
                         ? AppPreferences.KEY_CURRENT_LYRIC_COLOR_MODE : AppPreferences.KEY_INACTIVE_LYRIC_COLOR_MODE,
-                        position == 1 ? "artwork" : "fixed");
+                        modes[position]);
                 changed();
             }
             @Override public void onNothingSelected(AdapterView<?> owner) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
+        parent.addView(text("随机颜色按歌曲保持，同一屏的当前 / 非当前句共用色相，按面板基础背景调整明暗。复杂壁纸建议保留描边。",
+                12, 0xFF8392A8, false));
     }
 
     private void addStatusColors(LinearLayout parent) {

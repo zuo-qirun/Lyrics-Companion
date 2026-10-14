@@ -51,8 +51,6 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private static final int NOTIFICATION_ID = 41;
     private static final long NOTIFICATION_POLL_MS = 500L;
     private static final long LISTENER_HEALTH_POLL_MS = 10_000L;
-    private static final long SECONDARY_INITIAL_RETRY_MS = 1_500L;
-    private static final long SECONDARY_MAX_RETRY_MS = 12_000L;
     private static final String ACTION_REFRESH =
             "com.zuoqirun.lyricscompanion.action.REFRESH";
     private static final String ACTION_SECONDARY_POSITION =
@@ -110,7 +108,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
     private final Handler notificationHandler = new Handler(Looper.getMainLooper());
     private final Handler recoveryHandler = new Handler(Looper.getMainLooper());
-    private int secondaryRetryAttempts;
+    private final DisplayRecoveryBackoff secondaryRecovery = new DisplayRecoveryBackoff();
+    private final DisplayRecoveryBackoff extraRecovery = new DisplayRecoveryBackoff();
+    private long lastDisplayRecoveryCheck = -1;
     private int statusLyricRetryAttempts;
     private final Runnable communityHeartbeat = new Runnable() {
         @Override public void run() {
@@ -140,8 +140,14 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             if (!AppPreferences.secondaryEnabled(LyricsDisplayService.this)
                     || AppPreferences.serviceStoppedByUser(LyricsDisplayService.this)
                     || !canDrawOverlays() || shouldHideOverlays(true)) return;
-            rebuildSecondary();
-            if (secondaryPanel == null) scheduleSecondaryRetry("still_unavailable");
+            if (secondaryPanel == null) showSecondary();
+        }
+    };
+    private final Runnable extraRetry = new Runnable() {
+        @Override public void run() {
+            if (AppPreferences.serviceStoppedByUser(LyricsDisplayService.this)
+                    || !canDrawOverlays() || shouldHideOverlays(true)) return;
+            ensureExtraOverlays();
         }
     };
     /** The status bar's WindowManager is often the last surface ready during automotive boot. */
@@ -339,6 +345,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         recoveryHandler.removeCallbacks(listenerHealthProbe);
         recoveryHandler.removeCallbacks(statusLyricRetry);
         recoveryHandler.removeCallbacks(secondaryRetry);
+        recoveryHandler.removeCallbacks(extraRetry);
         unregisterScreenReceiver();
         if (displayManager != null) displayManager.unregisterDisplayListener(this);
         dismissMain();
@@ -520,7 +527,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     + AppPreferences.overlayStyle(this, true));
             Log.i(TAG, "Lyrics shown on display " + display.getDisplayId()
                     + " (" + display.getName() + ")");
-            secondaryRetryAttempts = 0;
+            secondaryRecovery.reset();
             recoveryHandler.removeCallbacks(secondaryRetry);
             applyOverlayInteraction(true);
         } catch (Throwable error) {
@@ -534,12 +541,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
 
     private void scheduleSecondaryRetry(String reason) {
         if (!AppPreferences.secondaryEnabled(this) || AppPreferences.serviceStoppedByUser(this)
-                || secondaryPanel != null || secondaryRetryAttempts >= 12) return;
+                || secondaryPanel != null) return;
         recoveryHandler.removeCallbacks(secondaryRetry);
-        long delay = Math.min(SECONDARY_MAX_RETRY_MS,
-                SECONDARY_INITIAL_RETRY_MS * (1L << Math.min(3, secondaryRetryAttempts)));
-        secondaryRetryAttempts++;
-        DiagnosticLog.record(this, "Display", "secondary retry=" + secondaryRetryAttempts
+        long delay = secondaryRecovery.failed(SystemClock.elapsedRealtime());
+        DiagnosticLog.record(this, "Display", "secondary retry=" + secondaryRecovery.attempts()
                 + " delayMs=" + delay + " reason=" + reason);
         recoveryHandler.postDelayed(secondaryRetry, delay);
     }
@@ -1352,21 +1357,34 @@ public final class LyricsDisplayService extends Service implements DisplayManage
      */
     private void rebuildExtras() {
         dismissExtras();
-        if (displayManager == null || !canDrawOverlays()
-                || AppPreferences.serviceStoppedByUser(this)) return;
+        extraRecovery.reset();
+        recoveryHandler.removeCallbacks(extraRetry);
+        ensureExtraOverlays();
+    }
+
+    private boolean hasExtraOverlay(int slot) {
+        for (ExtraOverlay overlay : extraOverlays) if (overlay.slot == slot) return true;
+        return false;
+    }
+
+    /** Retry missing windows only: one failing slot must not tear down working screens. */
+    private void ensureExtraOverlays() {
+        if (!canDrawOverlays() || AppPreferences.serviceStoppedByUser(this)) return;
         List<DisplaySlotRegistry.Entry> entries = DisplaySlotRegistry.entries(this);
-        if (entries.isEmpty()) return;
         Display secondary = AppPreferences.secondaryEnabled(this) ? findSecondaryDisplay() : null;
         int secondaryId = secondary == null ? -1 : secondary.getDisplayId();
+        boolean missing = false;
         // Screens that already carry a lyric window, for the duplicate-panel check below.
         List<DisplayIdentity.Screen> showingLyrics = new ArrayList<>();
         if (secondary != null) showingLyrics.add(screenOf(secondary));
+        for (ExtraOverlay overlay : extraOverlays) showingLyrics.add(screenOf(overlay.display));
         for (int index = 0; index < entries.size(); index++) {
             int slot = DisplaySlotRegistry.slotFor(index);
             DisplaySlotRegistry.Entry entry = entries.get(index);
-            if (!entry.enabled) continue;
-            Display display = DisplaySlotRegistry.resolve(entry, displayManager);
+            if (!entry.enabled || hasExtraOverlay(slot)) continue;
+            Display display = displayManager == null ? null : DisplaySlotRegistry.resolve(entry, displayManager);
             if (display == null) {
+                missing = true;
                 DiagnosticLog.record(this, "Display", "extra slot " + slot + " unavailable: "
                         + entry.describe());
                 continue;
@@ -1392,6 +1410,16 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             }
             showingLyrics.add(candidate);
             showExtra(slot, display);
+            missing |= !hasExtraOverlay(slot);
+        }
+        recoveryHandler.removeCallbacks(extraRetry);
+        if (missing) {
+            long delay = extraRecovery.failed(SystemClock.elapsedRealtime());
+            DiagnosticLog.record(this, "Display", "extra retry=" + extraRecovery.attempts()
+                    + " delayMs=" + delay + " reason=missing_windows");
+            recoveryHandler.postDelayed(extraRetry, delay);
+        } else {
+            extraRecovery.reset();
         }
     }
 
@@ -1408,7 +1436,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         try {
             Context context = new DisplaySlotContext(createDisplayContext(display), slot);
             WindowManager manager = (WindowManager) context.getSystemService(WINDOW_SERVICE);
-            if (manager == null) return;
+            if (manager == null) {
+                DiagnosticLog.record(this, "Display", "extra slot " + slot + " no_window_manager");
+                return;
+            }
             Point screen = displaySize(display);
             int width = Math.min(dp(context, AppPreferences.panelWidthDp(context, true)), screen.x);
             int height = Math.min(dp(context, AppPreferences.panelHeightDp(context, true)),
@@ -1684,6 +1715,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void showBottomSpectrum() {
+        if (AppPreferences.lowResourceMode(this)) return;
         bottomSpectrumManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (bottomSpectrumManager == null) return;
         int width = displaySize(bottomSpectrumManager.getDefaultDisplay()).x;
@@ -1923,6 +1955,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         syncOverlayTouchWindows(false);
         syncOverlayTouchWindows(true);
+        recoverMissingDisplayWindows(hideSecondary, nowElapsed);
         if (hideMain == overlaysHiddenForPlayback && hideSecondary == secondaryHiddenForPlayback) return;
         overlaysHiddenForPlayback = hideMain;
         secondaryHiddenForPlayback = hideSecondary;
@@ -1936,12 +1969,27 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             if (AppPreferences.bottomSpectrum(this) && bottomSpectrumView == null) showBottomSpectrum();
         }
         if (hideSecondary) {
+            secondaryRecovery.reset();
+            extraRecovery.reset();
+            recoveryHandler.removeCallbacks(secondaryRetry);
+            recoveryHandler.removeCallbacks(extraRetry);
             dismissSecondary();
             dismissExtras();
         } else if (canDrawOverlays()) {
-            if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null) showSecondary();
-            if (extraOverlays.isEmpty()) rebuildExtras();
+            if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null
+                    && secondaryRecovery.ready(nowElapsed)) showSecondary();
+            if (extraRecovery.ready(nowElapsed)) ensureExtraOverlays();
         }
+    }
+
+    private void recoverMissingDisplayWindows(boolean hidden, long now) {
+        if (hidden || AppPreferences.serviceStoppedByUser(this) || !canDrawOverlays()
+                || (lastDisplayRecoveryCheck >= 0 && now - lastDisplayRecoveryCheck < 1_500L)) return;
+        lastDisplayRecoveryCheck = now;
+        if (AppPreferences.secondaryEnabled(this) && secondaryPanel == null && secondaryRecovery.ready(now)) {
+            showSecondary();
+        }
+        if (extraRecovery.ready(now)) ensureExtraOverlays();
     }
 
     private Notification createNotification() {
