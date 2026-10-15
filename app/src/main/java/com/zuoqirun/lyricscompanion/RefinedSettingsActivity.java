@@ -139,10 +139,6 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         super.onSaveInstanceState(state);
     }
 
-    @Override public void onBackPressed() {
-        if (!navigation.back()) super.onBackPressed();
-    }
-
     @Override protected void onResume() {
         super.onResume();
         LyricsDisplayService.setSettingsVisible(this, true);

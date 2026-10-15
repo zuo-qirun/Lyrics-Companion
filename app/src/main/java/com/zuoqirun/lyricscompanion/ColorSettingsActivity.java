@@ -143,10 +143,6 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         super.onPause();
     }
 
-    @Override public void onBackPressed() {
-        if (!navigation.back()) super.onBackPressed();
-    }
-
     private void rebuildColors() {
         if (ready) recreate();
     }

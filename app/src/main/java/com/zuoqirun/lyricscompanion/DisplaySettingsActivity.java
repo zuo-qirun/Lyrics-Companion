@@ -640,10 +640,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         super.onSaveInstanceState(state);
     }
 
-    @Override public void onBackPressed() {
-        if (!navigation.back()) super.onBackPressed();
-    }
-
     @Override protected void onPause() {
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();

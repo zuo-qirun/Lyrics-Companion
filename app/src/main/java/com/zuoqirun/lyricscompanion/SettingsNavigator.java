@@ -15,6 +15,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.activity.OnBackPressedCallback;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
@@ -71,6 +72,13 @@ final class SettingsNavigator {
         toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert);
         toolbar.setNavigationContentDescription("返回");
         toolbar.setNavigationOnClickListener(v -> { if (!back()) activity.finish(); });
+        activity.getOnBackPressedDispatcher().addCallback(activity, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                if (back()) return;
+                setEnabled(false);
+                activity.getOnBackPressedDispatcher().onBackPressed();
+            }
+        });
         layout.addView(toolbar, new LinearLayout.LayoutParams(-1, -2));
         search = new EditText(activity);
         search.setSingleLine(true);
