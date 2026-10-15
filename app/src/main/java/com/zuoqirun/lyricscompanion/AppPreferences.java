@@ -521,6 +521,8 @@ final class AppPreferences {
         return key != null && STYLE_SCOPED_KEYS.contains(key);
     }
 
+    static Set<String> styleScopedKeys() { return STYLE_SCOPED_KEYS; }
+
     /** 这一屏正在用的样式，决定"共用显示参数"读写的层级。 */
     private static String displayStyle(Context context, boolean secondary) {
         String style = overlayStyle(context, secondary);
@@ -627,7 +629,7 @@ final class AppPreferences {
         return copied;
     }
 
-    private static void putPreference(SharedPreferences.Editor editor, String key, Object value) {
+    static void putPreference(SharedPreferences.Editor editor, String key, Object value) {
         if (value instanceof Boolean) editor.putBoolean(key, (Boolean) value);
         else if (value instanceof Integer) editor.putInt(key, (Integer) value);
         else if (value instanceof Float) editor.putFloat(key, (Float) value);
@@ -2336,14 +2338,14 @@ final class AppPreferences {
         return 226;
     }
 
-    private static String panelWidthKey(String style) {
+    static String panelWidthKey(String style) {
         if (FoliaModeCatalog.isStyle(style)) return KEY_FOLIA_PANEL_WIDTH_DP;
         if ("compact".equals(style)) return KEY_COMPACT_PANEL_WIDTH_DP;
         if ("amll".equals(style)) return KEY_AMLL_PANEL_WIDTH_DP;
         return KEY_PANEL_WIDTH_DP;
     }
 
-    private static String panelHeightKey(String style) {
+    static String panelHeightKey(String style) {
         if (FoliaModeCatalog.isStyle(style)) return KEY_FOLIA_PANEL_HEIGHT_DP;
         if ("compact".equals(style)) return KEY_COMPACT_PANEL_HEIGHT_DP;
         if ("amll".equals(style)) return KEY_AMLL_PANEL_HEIGHT_DP;

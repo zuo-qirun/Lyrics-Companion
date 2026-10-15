@@ -7,14 +7,12 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
 
@@ -25,6 +23,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
     private boolean secondary;
     private int displaySlot;
     private LyricsPanelView preview;
+    private SettingsNavigator navigation;
     private TextView spectrumStatus;
 
     @Override public SharedPreferences displaySlotPreferences() {
@@ -42,25 +41,18 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
             finish();
             return;
         }
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF07111F);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(12), dp(18), dp(32));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-        MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setTitle(DisplaySlotRegistry.slotLabel(this, displaySlot) + "紧凑歌词详细设置");
-        toolbar.setSubtitle("本页设置只影响当前屏幕的紧凑歌词样式");
-        toolbar.setTitleTextColor(Color.WHITE);
-        toolbar.setSubtitleTextColor(0xFFA9B6C8);
-        toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
-        toolbar.setNavigationOnClickListener(v -> finish());
-        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(70)));
-
+        navigation = new SettingsNavigator(this, "紧凑专属设置",
+                DisplaySlotRegistry.slotLabel(this, displaySlot) + " · 紧凑", "compact", new SettingsValues(this, secondary));
         preview = new LyricsPanelView(this, secondary);
-        root.addView(preview, new LinearLayout.LayoutParams(-1, dp(138)));
+        LinearLayout previewCard = card("效果预览");
+        com.google.android.material.button.MaterialButton previewToggle = new com.google.android.material.button.MaterialButton(this);
+        previewToggle.setText("查看 / 收起效果预览");
+        previewToggle.setOnClickListener(v -> preview.setVisibility(
+                preview.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        preview.setVisibility(View.GONE);
+        previewCard.addView(previewToggle);
+        previewCard.addView(preview, new LinearLayout.LayoutParams(-1, dp(138)));
+        navigation.addSection(previewCard, SettingsCatalog.Category.COMMON, "效果预览");
 
         LinearLayout content = card("歌词内容");
         addToggle(content, "显示下一句歌词（双行）", AppPreferences.KEY_COMPACT_SHOW_NEXT_LINE,
@@ -70,7 +62,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
                 AppPreferences.refinedShowTranslation(this, secondary));
         addToggle(content, "显示封面、歌名和歌手", AppPreferences.KEY_COMPACT_SHOW_COVER,
                 AppPreferences.compactShowCover(this, secondary));
-        addCard(root, content);
+        navigation.addSection(content, SettingsCatalog.Category.COMMON, "歌词内容");
 
         LinearLayout spectrum = card("底部律动");
         addToggle(spectrum, "显示底部律动条", AppPreferences.KEY_SPECTRUM_ENABLED,
@@ -91,18 +83,19 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
             changed();
             updateSpectrumStatus();
         });
-        spectrum.addView(realSpectrum);
+        LinearLayout realRow = navigation.row(spectrum, AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM, "真实音频律动");
+        realRow.addView(realSpectrum);
+        navigation.scopeNote(realRow, AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM);
         spectrumStatus = text(spectrumStatusText(), 12, 0xFF8392A8, false);
         spectrumStatus.setPadding(0, dp(7), 0, 0);
         spectrum.addView(spectrumStatus);
-        addCard(root, spectrum);
+        navigation.addSection(spectrum, SettingsCatalog.Category.EFFECTS, "底部律动");
 
         TextView note = text("紧凑歌词按窗口宽高自动缩放；双行模式优先显示本句与下一句。", 12,
                 0xFF8392A8, false);
         note.setPadding(dp(4), dp(14), dp(4), 0);
-        root.addView(note);
-        setContentView(scroll);
-        CustomFontStore.applyToViewTree(this, scroll);
+        content.addView(note);
+        navigation.finish(state);
     }
 
     @Override protected void onResume() {
@@ -111,12 +104,22 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
         updateSpectrumStatus();
     }
 
+    @Override protected void onSaveInstanceState(Bundle state) {
+        if (navigation != null) navigation.save(state);
+        super.onSaveInstanceState(state);
+    }
+
+    @Override public void onBackPressed() {
+        if (navigation == null || !navigation.back()) super.onBackPressed();
+    }
+
     @Override protected void onPause() {
         LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
     }
 
     private void addToggle(LinearLayout parent, String title, String key, boolean initial) {
+        parent = navigation.row(parent, key, title);
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setText(title);
         styleToggle(toggle);
@@ -126,6 +129,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
             changed();
         });
         parent.addView(toggle);
+        navigation.scopeNote(parent, key);
     }
 
     private String spectrumStatusText() {
@@ -139,6 +143,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
 
     private void changed() {
         if (preview != null) preview.reloadStyle();
+        if (navigation != null) navigation.refresh();
         AppPreferences.changed(this);
         AudioSpectrumSource.sync(this);
         LyricsDisplayService.setSettingsVisible(this, true);
@@ -155,12 +160,6 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
         card.setBackground(surface);
         card.addView(text(title, 13, 0xFF6EE7F2, true));
         return card;
-    }
-
-    private void addCard(LinearLayout root, LinearLayout card) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(14);
-        root.addView(card, params);
     }
 
     private void styleToggle(MaterialSwitch toggle) {

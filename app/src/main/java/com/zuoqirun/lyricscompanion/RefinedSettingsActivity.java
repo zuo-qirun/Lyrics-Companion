@@ -7,14 +7,12 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
 
@@ -23,6 +21,7 @@ import com.google.android.material.shape.MaterialShapeDrawable;
 public final class RefinedSettingsActivity extends AppCompatActivity implements DisplaySlotHost {
     static final String EXTRA_SECONDARY = "secondary";
     private LyricsPanelView preview;
+    private SettingsNavigator navigation;
     private boolean secondary;
     private int displaySlot;
 
@@ -35,26 +34,20 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         displaySlot = DisplaySlotContext.slotFrom(getIntent(), secondary);
         secondary = displaySlot > DisplaySlotRegistry.MAIN_SLOT;
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF07111F);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(12), dp(18), dp(32));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-        MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setTitle("Refined 风格详细设置");
-        toolbar.setSubtitle("按 BetterNCM 插件源码映射到原生 Canvas");
-        toolbar.setTitle(DisplaySlotRegistry.slotLabel(this, displaySlot)
-                + " Refined 风格详细设置");
-        toolbar.setTitleTextColor(Color.WHITE);
-        toolbar.setSubtitleTextColor(0xFFA9B6C8);
-        toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
-        toolbar.setNavigationOnClickListener(v -> finish());
-        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(70)));
-
+        String style = AppPreferences.overlayStyle(this, secondary);
+        navigation = new SettingsNavigator(this, "Refined 专属设置",
+                DisplaySlotRegistry.slotLabel(this, displaySlot) + " · " + DisplaySettingsActivity.styleName(style),
+                style, new SettingsValues(this, secondary));
+        LinearLayout root = navigation.content;
         preview = new LyricsPanelView(this, secondary);
+        LinearLayout previewCard = card("效果预览");
+        com.google.android.material.button.MaterialButton toggle = new com.google.android.material.button.MaterialButton(this);
+        toggle.setText("查看 / 收起效果预览");
+        toggle.setOnClickListener(v -> preview.setVisibility(preview.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        preview.setVisibility(View.GONE);
+        previewCard.addView(toggle);
+        previewCard.addView(preview, new LinearLayout.LayoutParams(-1, dp(150)));
+        navigation.addSection(previewCard, SettingsCatalog.Category.COMMON, "效果预览");
 
         LinearLayout appearance = card("外观");
         addChoice(appearance, "显示内容", AppPreferences.KEY_REFINED_DISPLAY_MODE,
@@ -133,36 +126,21 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
                 12, 0xFF74869D, false);
         note.setLineSpacing(0f, 1.2f);
         note.setPadding(dp(4), dp(14), dp(4), 0);
-        if (useTwoColumnLayout()) {
-            LinearLayout columns = new LinearLayout(this);
-            columns.setOrientation(LinearLayout.HORIZONTAL);
-            columns.setBaselineAligned(false);
-            LinearLayout leftColumn = new LinearLayout(this);
-            leftColumn.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout rightColumn = new LinearLayout(this);
-            rightColumn.setOrientation(LinearLayout.VERTICAL);
-            columns.addView(leftColumn, new LinearLayout.LayoutParams(0, -2, 1f));
-            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1f);
-            rightParams.leftMargin = dp(14);
-            columns.addView(rightColumn, rightParams);
-            LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(190));
-            previewParams.topMargin = dp(14);
-            leftColumn.addView(preview, previewParams);
-            addCard(leftColumn, appearance);
-            addCard(leftColumn, cover);
-            addCard(rightColumn, background);
-            addCard(rightColumn, lyric);
-            root.addView(columns, new LinearLayout.LayoutParams(-1, -2));
-        } else {
-            root.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
-            addCard(root, appearance);
-            addCard(root, cover);
-            addCard(root, background);
-            addCard(root, lyric);
-        }
-        root.addView(note);
-        setContentView(scroll);
-        CustomFontStore.applyToViewTree(this, scroll);
+        navigation.addSection(appearance, SettingsCatalog.Category.COMMON, "外观");
+        navigation.addSection(cover, SettingsCatalog.Category.BACKGROUND, "封面");
+        navigation.addSection(background, SettingsCatalog.Category.BACKGROUND, "背景");
+        lyric.addView(note);
+        navigation.addSection(lyric, SettingsCatalog.Category.TEXT, "歌词");
+        navigation.finish(savedInstanceState);
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        navigation.save(state);
+        super.onSaveInstanceState(state);
+    }
+
+    @Override public void onBackPressed() {
+        if (!navigation.back()) super.onBackPressed();
     }
 
     @Override protected void onResume() {
@@ -187,24 +165,11 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         return card;
     }
 
-    private void addCard(LinearLayout root, LinearLayout card) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(14);
-        root.addView(card, params);
-    }
-
-    private boolean useTwoColumnLayout() {
-        float widthDp = getResources().getDisplayMetrics().widthPixels
-                / getResources().getDisplayMetrics().density;
-        return getResources().getConfiguration().orientation
-                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-                && widthDp >= 600f;
-    }
-
     private void addChoice(LinearLayout parent, String title, String key,
                            String[] labels, String[] values, String current) {
+        parent = navigation.row(parent, key, title);
         TextView label = text(title, 13, 0xFFD7E1EE, true);
-        label.setPadding(0, dp(12), 0, dp(4));
+        label.setPadding(0, 0, 0, dp(4));
         parent.addView(label);
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
@@ -224,9 +189,11 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+        navigation.scopeNote(parent, key);
     }
 
     private void addToggle(LinearLayout parent, String title, String key, boolean initial) {
+        parent = navigation.row(parent, key, title);
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setText(title);
         toggle.setTextColor(0xFFF1F5FA);
@@ -238,11 +205,14 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
             AppPreferences.putDisplayBoolean(this, secondary, key, checked);
             changed();
         });
+        toggle.setMinHeight(dp(48));
         parent.addView(toggle);
+        navigation.scopeNote(parent, key);
     }
 
     private void addSeek(LinearLayout parent, String title, String key,
                          int min, int max, int initial, String suffix) {
+        parent = navigation.row(parent, key, title);
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(10), 0, 0);
@@ -250,6 +220,7 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
                 new LinearLayout.LayoutParams(0, -2, 1f));
         TextView value = text(initial + suffix, 12, 0xFF6EE7F2, true);
         row.addView(value);
+        navigation.value(value);
         parent.addView(row);
         SeekBar seek = new SeekBar(this);
         seek.setMax(max - min);
@@ -266,11 +237,13 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
             @Override public void onStartTrackingTouch(SeekBar seekBar) { }
             @Override public void onStopTrackingTouch(SeekBar seekBar) { }
         });
-        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(36)));
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(48)));
+        navigation.scopeNote(parent, key);
     }
 
     private void changed() {
         if (preview != null) preview.reloadStyle();
+        if (navigation != null) navigation.refresh();
         AppPreferences.changed(this);
         LyricsDisplayService.setSettingsVisible(this, true);
         if (secondary) LyricsDisplayService.refreshSecondary(this);

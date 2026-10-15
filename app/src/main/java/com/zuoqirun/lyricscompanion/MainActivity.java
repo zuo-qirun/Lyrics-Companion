@@ -849,7 +849,7 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout displayPage = sectionPage();
         if (conciseSettingsMode) {
-            TextView hint = text("只保留常用的尺寸、字号和透明度；其余请切到完整模式。", 13,
+            TextView hint = text("先调整尺寸、字号与不透明度；外观和交互选项可在设置页内按分类查找。", 13,
                     0xFF8392A8, false);
             hint.setPadding(0, dp(10), 0, dp(4));
             displayPage.addView(hint);
