@@ -77,7 +77,7 @@ public class DisplayStyleScopeTest {
             String key = AppPreferences.styleScopedKey(AppPreferences.KEY_TEXT_SCALE, false, style);
             assertEquals("text_scale_main_" + style, key);
         }
-        assertEquals(9, AppPreferences.OVERLAY_STYLES.length);
+        assertEquals(10, AppPreferences.OVERLAY_STYLES.length);
         assertEquals(1, java.util.Collections.frequency(
                 java.util.Arrays.asList(AppPreferences.OVERLAY_STYLES), "folia"));
         assertTrue(AppPreferences.isStyleScopedKey(AppPreferences.KEY_FOLIA_MODE));
@@ -85,5 +85,31 @@ public class DisplayStyleScopeTest {
                 AppPreferences.KEY_FOLIA_MODE, false, "folia"));
         assertEquals("folia_mode_secondary_folia", AppPreferences.styleScopedKey(
                 AppPreferences.KEY_FOLIA_MODE, true, "folia"));
+        assertEquals(1, java.util.Collections.frequency(
+                java.util.Arrays.asList(AppPreferences.OVERLAY_STYLES), "folia_original"));
+    }
+
+    @Test public void originalAndLightweightFoliaKeepIndependentScreenSettings() {
+        String[] keys = {AppPreferences.KEY_FOLIA_MODE, AppPreferences.KEY_FOLIA_FPS,
+                AppPreferences.KEY_FOLIA_RANDOM, AppPreferences.KEY_FOLIA_RANDOM_POOL,
+                AppPreferences.KEY_FOLIA_PANEL_WIDTH_DP, AppPreferences.KEY_FOLIA_PANEL_HEIGHT_DP,
+                AppPreferences.KEY_REFINED_SHOW_TRANSLATION};
+        java.util.Set<String> scoped = new java.util.HashSet<>();
+        for (String key : keys) {
+            assertTrue(AppPreferences.isStyleScopedKey(key));
+            for (String style : new String[]{"folia", "folia_original"}) {
+                assertTrue(scoped.add(AppPreferences.styleScopedKey(key, false, style)));
+                assertTrue(scoped.add(AppPreferences.styleScopedKey(key, true, style)));
+            }
+        }
+    }
+
+    @Test public void originalAudioSettingsAreIsolatedWithoutChangingOlderStyles() {
+        for (String key : new String[]{AppPreferences.KEY_SPECTRUM_ENABLED,
+                AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM}) {
+            assertTrue(AppPreferences.isStyleScopedKey(key, "folia_original"));
+            assertFalse(AppPreferences.isStyleScopedKey(key, "folia"));
+            assertFalse(AppPreferences.isStyleScopedKey(key, "compact"));
+        }
     }
 }

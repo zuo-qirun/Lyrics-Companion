@@ -99,7 +99,7 @@ public class FoliaRingMathTest {
         assertFalse(FoliaModeCatalog.isStyle("folia_unknown"));
         assertTrue(FoliaModeCatalog.isStyle("folia"));
         assertFalse(FoliaModeCatalog.isLegacyStyle("folia"));
-        assertArrayEquals(new String[]{"default", "folia"},
+        assertArrayEquals(new String[]{"default", "folia", "folia_original"},
                 FoliaModeCatalog.append(new String[]{"default"}, false));
         assertFalse(FoliaModeCatalog.isStyle("refined"));
         assertEquals("claddagh", FoliaModeCatalog.normalize("unknown"));

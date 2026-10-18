@@ -2,6 +2,8 @@ package com.zuoqirun.lyricscompanion;
 
 /** Stable Folia ids, independent of translated names and the existing text-effect catalogue. */
 final class FoliaModeCatalog {
+    static final String LOW_STYLE = "folia";
+    static final String ORIGINAL_STYLE = "folia_original";
     static final String[] VALUES = {"claddagh", "sonnet", "tempera", "lumiere", "classic",
             "cadenza", "partita", "fume", "tilt", "monet", "pendolo", "cappella", "diorama", "still"};
     static final String[] LABELS = {"回环", "商籁", "凝彩", "绘光", "流光", "心象", "云阶",
@@ -17,7 +19,14 @@ final class FoliaModeCatalog {
     static boolean animated(String mode) { return !"still".equals(normalize(mode)); }
 
     static boolean isStyle(String style) {
-        return "folia".equals(style) || isLegacyStyle(style);
+        return LOW_STYLE.equals(style) || isOriginalStyle(style) || isLegacyStyle(style);
+    }
+
+    static boolean isOriginalStyle(String style) { return ORIGINAL_STYLE.equals(style); }
+
+    static String normalizeStyle(String style) {
+        if (isOriginalStyle(style)) return ORIGINAL_STYLE;
+        return LOW_STYLE;
     }
 
     static boolean isLegacyStyle(String style) {
@@ -31,7 +40,7 @@ final class FoliaModeCatalog {
     }
 
     static String labelForStyle(String style) {
-        return "Folia";
+        return isOriginalStyle(style) ? "还原版folia" : "低配版folia";
     }
 
     static boolean settingsVisible(int slot, String style) {
@@ -39,8 +48,9 @@ final class FoliaModeCatalog {
     }
 
     static String[] append(String[] original, boolean labels) {
-        String[] result = java.util.Arrays.copyOf(original, original.length + 1);
-        result[original.length] = labels ? "Folia" : "folia";
+        String[] result = java.util.Arrays.copyOf(original, original.length + 2);
+        result[original.length] = labels ? labelForStyle(LOW_STYLE) : LOW_STYLE;
+        result[original.length + 1] = labels ? labelForStyle(ORIGINAL_STYLE) : ORIGINAL_STYLE;
         return result;
     }
 }

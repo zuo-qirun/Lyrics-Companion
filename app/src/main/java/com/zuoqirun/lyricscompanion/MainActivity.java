@@ -1288,11 +1288,15 @@ public final class MainActivity extends AppCompatActivity {
 
     private void updateRefinedSettingsVisibility() {
         if (mainFoliaSettingsButton != null) {
+            mainFoliaSettingsButton.setText("主屏 " + FoliaModeCatalog.labelForStyle(
+                    AppPreferences.overlayStyle(this, false)) + " 详细设置");
             mainFoliaSettingsButton.setVisibility(FoliaModeCatalog.settingsVisible(
                     DisplaySlotRegistry.MAIN_SLOT, AppPreferences.overlayStyle(this, false))
                     ? View.VISIBLE : View.GONE);
         }
         if (secondaryFoliaSettingsButton != null) {
+            secondaryFoliaSettingsButton.setText("副屏 " + FoliaModeCatalog.labelForStyle(
+                    AppPreferences.overlayStyle(this, true)) + " 详细设置");
             secondaryFoliaSettingsButton.setVisibility(FoliaModeCatalog.settingsVisible(
                     DisplaySlotRegistry.SECONDARY_SLOT, AppPreferences.overlayStyle(this, true))
                     ? View.VISIBLE : View.GONE);

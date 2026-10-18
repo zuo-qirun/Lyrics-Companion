@@ -71,6 +71,7 @@
          keeps that Android 10 behaviour across the in-app update path. -->
     <application
         android:name=".LyricsCompanionApp"
+        android:hardwareAccelerated="true"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher_compat"
         android:label="@string/app_name"

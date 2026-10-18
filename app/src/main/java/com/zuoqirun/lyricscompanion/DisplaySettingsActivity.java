@@ -76,6 +76,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
         String selectedStyle = AppPreferences.overlayStyle(this, secondary);
         boolean foliaStyle = FoliaModeCatalog.isStyle(selectedStyle);
+        boolean originalFolia = FoliaModeCatalog.isOriginalStyle(selectedStyle);
         LinearLayout panel = card("文字与排版");
         Point screenDp = targetScreenSizeDp();
         int maximumWidth = Math.max(AppPreferences.minimumPanelWidthDp(this, secondary), screenDp.x);
@@ -358,7 +359,9 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         if (foliaStyle) {
             addToggle(spectrum, "启用真实音频采集", AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
                     AppPreferences.compactUseRealSpectrum(this, secondary));
-            spectrum.addView(text("回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时保留原轨道，不生成虚拟节拍。",
+            spectrum.addView(text(originalFolia
+                    ? "把真实音频频谱传入原版场景。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时不生成虚拟节拍。"
+                    : "回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时保留原轨道，不生成虚拟节拍。",
                     12, 0xFF8392A8, false));
         }
         addCard(spectrum, SettingsCatalog.Category.EFFECTS);

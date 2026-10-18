@@ -51,7 +51,9 @@ final class SettingsCatalog {
     }
 
     static String unsupportedReason(String key, String style) {
-        if (key.startsWith("folia_") && !"folia".equals(style)) return "仅 Folia 样式支持";
+        if (key.startsWith("folia_") && !StyleSettingCapabilities.supportsFoliaParameter(style, key)) {
+            return "仅 folia 样式支持";
+        }
         if (key.startsWith("island_") && !"island".equals(style)) return "仅灵动岛样式支持";
         if (key.startsWith("pure_show_") && !"pure".equals(style)) return "仅纯净样式支持";
         if (key.startsWith("classic_") && !"default".equals(style)) return "仅经典样式支持";
@@ -68,9 +70,9 @@ final class SettingsCatalog {
         if (AppPreferences.KEY_ROUND_COVER.equals(key)
                 && !oneOf(style, "compact", "amll")) return "仅紧凑、AMLL 样式支持此圆形封面开关";
         if (AppPreferences.KEY_REFINED_BACKGROUND_TYPE.equals(key)
-                && !oneOf(style, "refined", "compact", "folia")) return "当前样式使用自身背景";
+                && !oneOf(style, "refined", "compact", "folia", "folia_original")) return "当前样式使用自身背景";
         if ((key.startsWith("starfield_") || key.startsWith("cover_fade_"))
-                && !oneOf(style, "refined", "compact", "folia")) return "当前样式使用自身背景";
+                && !oneOf(style, "refined", "compact", "folia", "folia_original")) return "当前样式使用自身背景";
         return "";
     }
 
@@ -87,7 +89,7 @@ final class SettingsCatalog {
         if (AppPreferences.KEY_ISLAND_MAIN_ROW_PERCENT.equals(key)
                 && values.enabled(AppPreferences.KEY_ISLAND_AUTO_ROWS)) return "关闭双行高度自动分配后可调整";
         if (key.startsWith("starfield_") || key.startsWith("cover_fade_")) {
-            if (!oneOf(style, "refined", "compact", "folia")) return "当前样式使用自身背景";
+            if (!oneOf(style, "refined", "compact", "folia", "folia_original")) return "当前样式使用自身背景";
             String required = key.startsWith("starfield_") ? "starfield" : "cover_fade";
             if (!required.equals(values.choice(AppPreferences.KEY_REFINED_BACKGROUND_TYPE))) {
                 return "选择“" + ("starfield".equals(required) ? "星空 / 星尘" : "封面渐隐") + "”背景后可调整";
@@ -109,7 +111,7 @@ final class SettingsCatalog {
         if (AppPreferences.KEY_LYRIC_CACHE_LIMIT_MB.equals(key)
                 && !"capacity".equals(values.choice(AppPreferences.KEY_LYRIC_CACHE_POLICY))) return "选择按容量自动淘汰后可调整";
         if (AppPreferences.KEY_STYLE_BLUR.equals(key)
-                && oneOf(style, "refined", "compact", "folia")
+                && oneOf(style, "refined", "compact", "folia", "folia_original")
                 && !oneOf(values.choice(AppPreferences.KEY_REFINED_BACKGROUND_TYPE), "fluid", "blur")) {
             return "选择流体或模糊背景后可调整";
         }

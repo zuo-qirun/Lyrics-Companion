@@ -19,11 +19,12 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.shape.MaterialShapeDrawable;
 
-/** One Folia style, with a display-specific choice of its fourteen native effects. */
+/** Per-screen controls for the lightweight and faithful Folia renderers. */
 @SuppressLint("SetTextI18n")
 public final class FoliaSettingsActivity extends AppCompatActivity {
     static final String EXTRA_SECONDARY = "secondary";
     private boolean secondary;
+    private String style;
     private LyricsPanelView preview;
     private LinearLayout ringSettings;
 
@@ -32,7 +33,8 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         int slot = DisplaySlotContext.slotFrom(getIntent(), secondary);
         secondary = slot == DisplaySlotRegistry.SECONDARY_SLOT;
-        if (!FoliaModeCatalog.settingsVisible(slot, AppPreferences.overlayStyle(this, secondary))) {
+        style = AppPreferences.overlayStyle(this, secondary);
+        if (!FoliaModeCatalog.settingsVisible(slot, style)) {
             finish();
             return;
         }
@@ -45,8 +47,10 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setTitle((secondary ? "副屏" : "主屏") + " Folia 详细设置");
-        toolbar.setSubtitle("只影响这一屏的 Folia 样式");
+        String styleLabel = FoliaModeCatalog.labelForStyle(style);
+        boolean original = FoliaModeCatalog.isOriginalStyle(style);
+        toolbar.setTitle((secondary ? "副屏 " : "主屏 ") + styleLabel + " 详细设置");
+        toolbar.setSubtitle("只影响这一屏的" + styleLabel);
         toolbar.setTitleTextColor(Color.WHITE);
         toolbar.setSubtitleTextColor(0xFFA9B6C8);
         toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
@@ -56,14 +60,10 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         root.addView(preview, new LinearLayout.LayoutParams(-1, dp(230)));
 
         LinearLayout effects = card("效果与动画");
-        LinearLayout ring = card("回环轨道");
-        ringSettings = ring;
         String initialMode = AppPreferences.foliaMode(this, secondary);
-        ring.setVisibility("claddagh".equals(initialMode) || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
-        choice(effects, "Folia 效果", FoliaModeCatalog.LABELS, FoliaModeCatalog.VALUES,
+        choice(effects, styleLabel + " 效果", FoliaModeCatalog.LABELS, FoliaModeCatalog.VALUES,
                 initialMode, value -> {
                     AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_FOLIA_MODE, value);
-                    ring.setVisibility("claddagh".equals(value) || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
                     changed();
                 });
         toggle(effects, "每首歌随机使用一个效果", AppPreferences.KEY_FOLIA_RANDOM,
@@ -77,7 +77,7 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         seek(effects, "动画强度", AppPreferences.KEY_FOLIA_STRENGTH, 0, 100, 50, "%");
         choice(effects, "动画帧率", new String[]{"关闭动画", "24 fps", "30 fps", "60 fps"},
                 new String[]{"0", "24", "30", "60"},
-                String.valueOf(AppPreferences.displayInt(this, secondary, AppPreferences.KEY_FOLIA_FPS, 30)),
+                String.valueOf(AppPreferences.foliaFps(this, secondary)),
                 value -> {
                     AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_FOLIA_FPS,
                             Integer.parseInt(value));
@@ -85,14 +85,18 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
                 });
         toggle(effects, "显示歌词翻译", AppPreferences.KEY_REFINED_SHOW_TRANSLATION,
                 AppPreferences.refinedShowTranslation(this, secondary));
-        effects.addView(text("原生改编版，布局与光效可能与 Folia 原版不同。暂停冻结运动；无逐字数据时按本句时长估算。",
+        effects.addView(text(original
+                ? "独立 Canvas 还原版，使用原版镜头和动画。暂停冻结运动；无逐字数据时按本句时长估算。"
+                : "原生改编版，布局与光效可能与 Folia 原版不同。暂停冻结运动；无逐字数据时按本句时长估算。",
                 12, 0xFF8392A8, false));
         addCard(root, effects);
 
+        LinearLayout ring = card("回环轨道");
+        ringSettings = ring;
+        updateRingVisibility();
         seek(ring, "主歌词放大倍率", AppPreferences.KEY_FOLIA_FOCUS, 100, 250, 165, "%");
         seek(ring, "轨道半径", AppPreferences.KEY_FOLIA_RADIUS, 40, 180, 100, "%");
         seek(ring, "轨道倾斜度", AppPreferences.KEY_FOLIA_TILT, 0, 90, 45, "°");
-
         toggle(ring, "中间轴线", AppPreferences.KEY_FOLIA_AXIS,
                 AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_AXIS, true));
         addCard(root, ring);
@@ -105,15 +109,15 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         seek(appearance, "底部下一句字号", AppPreferences.KEY_FOLIA_NEXT_SCALE, 50, 400, 100, "%");
         appearance.addView(text("底部优先显示已开启的翻译；没有翻译或关闭翻译时显示下一句。下一句字号独立于主歌词。",
                 12, 0xFF8392A8, false));
-        appearance.addView(text("14 种效果共用这一屏的 Folia 参数；主屏和副屏分别保存，其他歌词样式不受影响。建议使用较大的悬浮窗或全屏。",
+        appearance.addView(text("14 种效果共用这一屏的" + styleLabel + "参数；主屏、副屏和两个版本分别保存。建议使用较大的悬浮窗或全屏。",
                 12, 0xFF8392A8, false));
         MaterialButton display = new MaterialButton(this);
-        display.setText("调整本屏 Folia 的尺寸与背景");
+        display.setText("调整本屏" + styleLabel + "的尺寸与背景");
         display.setOnClickListener(v -> startActivity(new Intent(this, DisplaySettingsActivity.class)
                 .putExtra(DisplaySettingsActivity.EXTRA_SECONDARY, secondary)));
         appearance.addView(display, new LinearLayout.LayoutParams(-1, dp(50)));
         MaterialButton colors = new MaterialButton(this);
-        colors.setText("调整本屏 Folia 的颜色");
+        colors.setText("调整本屏" + styleLabel + "的颜色");
         colors.setOnClickListener(v -> startActivity(new Intent(this, ColorSettingsActivity.class)
                 .putExtra(ColorSettingsActivity.EXTRA_SCOPE, secondary
                         ? DisplaySlotRegistry.SECONDARY_SLOT : DisplaySlotRegistry.MAIN_SLOT)));
@@ -125,7 +129,9 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
                 AppPreferences.spectrumEnabled(this, secondary));
         toggle(audio, "启用真实音频采集", AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
                 AppPreferences.compactUseRealSpectrum(this, secondary));
-        audio.addView(text("回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时不伪造节拍。",
+        audio.addView(text(original
+                ? "把真实音频频谱传入原版场景。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时不伪造节拍。"
+                : "回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时不伪造节拍。",
                 12, 0xFF8392A8, false));
         addCard(root, audio);
         setContentView(scroll);
@@ -135,7 +141,7 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         if (preview == null) return;
-        if (!FoliaModeCatalog.isStyle(AppPreferences.overlayStyle(this, secondary))) {
+        if (!style.equals(AppPreferences.overlayStyle(this, secondary))) {
             finish();
             return;
         }
@@ -153,7 +159,7 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         boolean[] checked = new boolean[FoliaModeCatalog.VALUES.length];
         for (int i = 0; i < checked.length; i++) for (String mode : selected) checked[i] |= mode.equals(FoliaModeCatalog.VALUES[i]);
         androidx.appcompat.app.AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("参与随机的 Folia 效果")
+                .setTitle("参与随机的" + FoliaModeCatalog.labelForStyle(style) + "效果")
                 .setMultiChoiceItems(FoliaModeCatalog.LABELS, checked, (view, which, value) -> checked[which] = value)
                 .setNegativeButton("取消", null).setPositiveButton("保存", null).create();
         dialog.setOnShowListener(view -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener(button -> {
@@ -172,13 +178,17 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
     }
 
     private void changed() {
-        if (ringSettings != null) ringSettings.setVisibility("claddagh".equals(AppPreferences.foliaMode(this, secondary))
-                || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
+        updateRingVisibility();
         preview.reloadStyle();
         AppPreferences.changed(this);
         AudioSpectrumSource.sync(this);
         LyricsDisplayService.setSettingsVisible(this, true);
         if (secondary) LyricsDisplayService.refreshSecondary(this);
+    }
+
+    private void updateRingVisibility() {
+        if (ringSettings != null) ringSettings.setVisibility("claddagh".equals(AppPreferences.foliaMode(this, secondary))
+                || AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_RANDOM, false) ? View.VISIBLE : View.GONE);
     }
 
     private void seek(LinearLayout parent, String title, String key, int min, int max,

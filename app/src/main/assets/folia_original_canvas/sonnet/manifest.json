@@ -1,0 +1,23 @@
+{
+  "project": "Folia",
+  "version": "0.7.17",
+  "revision": "92792519ce4b72d540e69f3634aa408810c6e0f6",
+  "width": 800,
+  "height": 600,
+  "geometryVariants": 100,
+  "variantsPerGeometry": 4,
+  "seedCycles": [
+    173,
+    389,
+    617,
+    887
+  ],
+  "kinds": [
+    "editorial-column",
+    "tracking-ribbon",
+    "mask-reveal",
+    "poster-blocks",
+    "quiet-tableau"
+  ],
+  "limitation": "Original vector command recordings cover every MG motif, with four deterministic seed examples at 800x600. Arbitrary song-seed subvariants, viewport-sensitive recipes, icon textures and shader postprocessing are not equivalent to upstream execution."
+}

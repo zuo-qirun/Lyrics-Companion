@@ -285,6 +285,7 @@ final class LyricsPanelView extends View {
     private long playbackInteractionMs = -1;
     private boolean playbackTouching, playbackHovering;
     private final FoliaCanvasRenderer foliaRenderer = new FoliaCanvasRenderer();
+    private FoliaOriginalCanvasRenderer foliaOriginalRenderer;
     private int foliaFps = 30;
     private String foliaMode = "claddagh";
     /** Avoid repeatedly entering vendor Typeface code when the requested face has not changed. */
@@ -501,7 +502,7 @@ final class LyricsPanelView extends View {
         refinedShowTranslation = AppPreferences.refinedShowTranslation(getContext(), secondary);
         refinedLyricGlow = AppPreferences.refinedLyricGlow(getContext(), secondary);
         customTypeface = CustomFontStore.load(getContext());
-        foliaFps = AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FPS, 30);
+        foliaFps = AppPreferences.foliaFps(getContext(), secondary);
         foliaMode = AppPreferences.foliaMode(getContext(), secondary);
         if (lowResourceMode) {
             refinedBackgroundType = "solid";
@@ -532,6 +533,27 @@ final class LyricsPanelView extends View {
     }
 
     private void configureFoliaRenderer() {
+        if (FoliaModeCatalog.isOriginalStyle(overlayStyle)) {
+            if (foliaOriginalRenderer == null) foliaOriginalRenderer = new FoliaOriginalCanvasRenderer();
+            foliaOriginalRenderer.setAssets(getContext().getAssets());
+            foliaOriginalRenderer.setLowResourceMode(lowResourceMode);
+            foliaOriginalRenderer.setLyricColorOverrides(currentLyricRandom, inactiveLyricRandom);
+            foliaOriginalRenderer.configure(foliaMode, customTypeface, textScale,
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50),
+                    foliaFps,
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_RADIUS, 100) / 100f,
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_FOCUS, 165) / 100f,
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TILT, 45),
+                    AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_AXIS, true),
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_TRACKING, 0),
+                    refinedShowTranslation, !lowResourceMode && AppPreferences.spectrumEnabled(getContext(), secondary)
+                            && AppPreferences.compactUseRealSpectrum(getContext(), secondary));
+            foliaOriginalRenderer.configureNextLine(
+                    AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_SHOW_NEXT, true),
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_NEXT_SCALE, 100) / 100f);
+            return;
+        }
+        if (foliaOriginalRenderer != null) { foliaOriginalRenderer.clear(); foliaOriginalRenderer = null; }
         foliaRenderer.configure(foliaMode, customTypeface, textScale,
                 AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_STRENGTH, 50),
                 foliaFps,
@@ -644,9 +666,17 @@ final class LyricsPanelView extends View {
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
             drawRefinedBackground(canvas, snapshot.albumArt, refinedUsesLightColors(),
                     refinedAccentColor(), snapshot.playing);
-            if (!blankWhileMatching(snapshot)) foliaRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
-                    lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
-                    inactiveLyricColor(0xFFB9BBC5));
+            if (!blankWhileMatching(snapshot)) {
+                if (FoliaModeCatalog.isOriginalStyle(overlayStyle) && foliaOriginalRenderer != null) {
+                    foliaOriginalRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
+                            lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
+                            inactiveLyricColor(0xFFB9BBC5));
+                } else {
+                    foliaRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
+                            lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
+                            inactiveLyricColor(0xFFB9BBC5));
+                }
+            }
             drawProgress(canvas, 16f * density, getHeight() - 3f * density,
                     getWidth() - 16f * density, 2f * density, snapshot,
                     0x33888888, refinedAccentColor());
@@ -749,7 +779,9 @@ final class LyricsPanelView extends View {
     private long nextFrameDelay(MusicSnapshot snapshot, long nowElapsedMs) {
         if (FoliaModeCatalog.isStyle(overlayStyle)) {
             return FoliaRingMath.frameDelay(foliaMode, foliaFps,
-                    snapshot.playing, foliaRenderer.transitioning());
+                    snapshot.playing, FoliaModeCatalog.isOriginalStyle(overlayStyle)
+                            && foliaOriginalRenderer != null ? foliaOriginalRenderer.transitioning()
+                            : foliaRenderer.transitioning());
         }
         if (liveTransition.isAnimating(snapshot.playing)) return 16L;
         if (browsingLyrics || browseSettling) return 16L;
@@ -4744,6 +4776,7 @@ final class LyricsPanelView extends View {
 
     @Override protected void onDetachedFromWindow() {
         foliaRenderer.clear();
+        if (foliaOriginalRenderer != null) foliaOriginalRenderer.clear();
         // 排给动态背景的 vsync 回调必须撤掉，否则视图已经不在窗口上还会被唤醒一次。
         Choreographer.getInstance().removeFrameCallback(backgroundFrameCallback);
         backgroundFramePosted = false;

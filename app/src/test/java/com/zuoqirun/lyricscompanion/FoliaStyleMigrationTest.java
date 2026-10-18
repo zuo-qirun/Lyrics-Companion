@@ -52,7 +52,7 @@ public class FoliaStyleMigrationTest {
     }
 
     @Test public void normalAndUnknownStylesDoNotCreateFoliaPreferences() {
-        for (String style : new String[]{"refined", "folia_unknown", null}) {
+        for (String style : new String[]{"refined", "folia", "folia_original", "folia_unknown", null}) {
             assertTrue(FoliaStyleMigration.plan(Collections.emptyMap(), Collections.emptyMap(),
                     KEYS, false, style, AppPreferences.KEY_MAIN_OVERLAY_STYLE).isEmpty());
         }

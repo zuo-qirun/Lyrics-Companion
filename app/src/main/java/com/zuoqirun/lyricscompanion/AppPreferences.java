@@ -521,6 +521,11 @@ final class AppPreferences {
         return key != null && STYLE_SCOPED_KEYS.contains(key);
     }
 
+    static boolean isStyleScopedKey(String key, String style) {
+        return isStyleScopedKey(key) || FoliaModeCatalog.isOriginalStyle(style)
+                && (KEY_SPECTRUM_ENABLED.equals(key) || KEY_COMPACT_USE_REAL_SPECTRUM.equals(key));
+    }
+
     static Set<String> styleScopedKeys() { return STYLE_SCOPED_KEYS; }
 
     /** 这一屏正在用的样式，决定"共用显示参数"读写的层级。 */
@@ -531,8 +536,9 @@ final class AppPreferences {
 
     /** 写入键：分样式的参数写 屏 × 样式，其余仍写屏。 */
     private static String displayWriteKey(Context context, boolean secondary, String key) {
-        return isStyleScopedKey(key)
-                ? styleScopedKey(key, secondary, displayStyle(context, secondary))
+        String style = displayStyle(context, secondary);
+        return isStyleScopedKey(key, style)
+                ? styleScopedKey(key, secondary, style)
                 : displayKey(key, secondary);
     }
 
@@ -542,11 +548,15 @@ final class AppPreferences {
      */
     static int displayInt(Context context, boolean secondary, String key, int fallback) {
         SharedPreferences slot = displaySlotStore(context, secondary);
-        if (isStyleScopedKey(key)) {
-            String styled = styleScopedKey(key, secondary, displayStyle(context, secondary));
+        String style = displayStyle(context, secondary);
+        if (isStyleScopedKey(key, style)) {
+            String styled = styleScopedKey(key, secondary, style);
             if (slot.contains(styled)) return slot.getInt(styled, fallback);
             SharedPreferences shared = get(context);
             if (shared != slot && shared.contains(styled)) return shared.getInt(styled, fallback);
+            // A newly added faithful renderer starts with upstream defaults. Legacy global or
+            // screen-only appearance values belong to the older renderers and stay untouched.
+            if (FoliaModeCatalog.isOriginalStyle(style)) return fallback;
         }
         String scoped = displayKey(key, secondary);
         if (slot.contains(scoped)) return slot.getInt(scoped, fallback);
@@ -558,11 +568,13 @@ final class AppPreferences {
     static boolean displayBoolean(Context context, boolean secondary, String key,
                                   boolean fallback) {
         SharedPreferences slot = displaySlotStore(context, secondary);
-        if (isStyleScopedKey(key)) {
-            String styled = styleScopedKey(key, secondary, displayStyle(context, secondary));
+        String style = displayStyle(context, secondary);
+        if (isStyleScopedKey(key, style)) {
+            String styled = styleScopedKey(key, secondary, style);
             if (slot.contains(styled)) return slot.getBoolean(styled, fallback);
             SharedPreferences shared = get(context);
             if (shared != slot && shared.contains(styled)) return shared.getBoolean(styled, fallback);
+            if (FoliaModeCatalog.isOriginalStyle(style)) return fallback;
         }
         String scoped = displayKey(key, secondary);
         if (slot.contains(scoped)) return slot.getBoolean(scoped, fallback);
@@ -573,11 +585,13 @@ final class AppPreferences {
 
     static String displayString(Context context, boolean secondary, String key, String fallback) {
         SharedPreferences slot = displaySlotStore(context, secondary);
-        if (isStyleScopedKey(key)) {
-            String styled = styleScopedKey(key, secondary, displayStyle(context, secondary));
+        String style = displayStyle(context, secondary);
+        if (isStyleScopedKey(key, style)) {
+            String styled = styleScopedKey(key, secondary, style);
             if (slot.contains(styled)) return slot.getString(styled, fallback);
             SharedPreferences shared = get(context);
             if (shared != slot && shared.contains(styled)) return shared.getString(styled, fallback);
+            if (FoliaModeCatalog.isOriginalStyle(style)) return fallback;
         }
         String scoped = displayKey(key, secondary);
         if (slot.contains(scoped)) return slot.getString(scoped, fallback);
@@ -1470,15 +1484,22 @@ final class AppPreferences {
         return normalizeOverlayStyle(selected);
     }
 
-    private static final java.util.Map<SharedPreferences, FoliaEffectSelector[]> FOLIA_SELECTORS = new java.util.WeakHashMap<>();
+    private static final java.util.Map<SharedPreferences,
+            java.util.Map<String, FoliaEffectSelector[]>> FOLIA_SELECTORS = new java.util.WeakHashMap<>();
 
     static String foliaModeForTrack(Context context, boolean secondary, MusicSnapshot snapshot) {
         SharedPreferences store = displaySlotStore(context, secondary);
         synchronized (FOLIA_SELECTORS) {
-            FoliaEffectSelector[] selectors = FOLIA_SELECTORS.get(store);
+            java.util.Map<String, FoliaEffectSelector[]> styles = FOLIA_SELECTORS.get(store);
+            if (styles == null) {
+                styles = new java.util.HashMap<>();
+                FOLIA_SELECTORS.put(store, styles);
+            }
+            String style = FoliaModeCatalog.normalizeStyle(overlayStyle(context, secondary));
+            FoliaEffectSelector[] selectors = styles.get(style);
             if (selectors == null) {
                 selectors = new FoliaEffectSelector[]{new FoliaEffectSelector(new java.util.Random()), new FoliaEffectSelector(new java.util.Random())};
-                FOLIA_SELECTORS.put(store, selectors);
+                styles.put(style, selectors);
             }
             return selectors[secondary ? 1 : 0].selectTrack(snapshot.sourceName,
                     snapshot.active ? snapshot.title : "", snapshot.artist,
@@ -1491,6 +1512,11 @@ final class AppPreferences {
         return FoliaModeCatalog.normalize(displayString(context, secondary, KEY_FOLIA_MODE, "claddagh"));
     }
 
+    static int foliaFps(Context context, boolean secondary) {
+        int fallback = FoliaModeCatalog.isOriginalStyle(overlayStyle(context, secondary)) ? 60 : 30;
+        return Math.max(0, Math.min(60, displayInt(context, secondary, KEY_FOLIA_FPS, fallback)));
+    }
+
     static void setOverlayStyle(Context context, boolean secondary, String style) {
         overlayStyle(context, secondary); // Preserve the selected legacy variant before switching away.
         displaySlotStore(context, secondary).edit()
@@ -1499,7 +1525,7 @@ final class AppPreferences {
     }
 
     private static String normalizeOverlayStyle(String style) {
-        if (FoliaModeCatalog.isStyle(style)) return "folia";
+        if (FoliaModeCatalog.isStyle(style)) return FoliaModeCatalog.normalizeStyle(style);
         if ("default".equals(style) || "refined".equals(style)
                 || "compact".equals(style) || "pip".equals(style)
                 || "custom".equals(style) || "amll".equals(style) || "pure".equals(style)

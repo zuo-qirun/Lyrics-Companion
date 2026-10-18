@@ -1,4 +1,4 @@
-# Folia source calibration (2026-10-13 beta)
+# Folia source calibration (2026-10-17 beta)
 
 Source reference: [Folia 9279251](https://github.com/chthollyphile/folia-major/tree/92792519ce4b72d540e69f3634aa408810c6e0f6).
 The main renderer is Android Canvas; the reference renderer was run separately in Chromium.
@@ -43,6 +43,30 @@ measured advances, plus words fragmented across wrapped lines. This separates pu
 placement fidelity from Android/Chromium font measurement differences.
 `FoliaArticleLayoutTest` checks seeded article identity and repeatability.
 
+## 还原版 folia validation (2026-10-17)
+
+`FoliaRenderFixtureActivity` also exercises the restored renderers with
+`--es renderer original --es mode <mode>`; `--ez hardware true` draws the live
+hardware-accelerated view and logs `FoliaFixture: Hardware Canvas=true`.
+Software PNGs cover all 14 modes at 1.28x and 720p; the hardware path was checked
+on API 31 and all 14 modes reported `Canvas=true` with no exception. The
+`verifyPause` check now covers all 14 restored modes and logged
+`Paused frame stable: <mode>` for each, so the paused raster is deterministic.
+
+The restored renderers were developed against the exported upstream data
+(121 Tempera compositions, 100 Sonnet graphic programs) and the GPU paths
+described in `NOTICE.md`. Emulator-only frame-pacing numbers were collected with
+`dumpsys gfxinfo` (API 31, SwiftShader software GPU, hardware canvas, 800x600,
+60 fps request): the restored renderer is heavier than 低配版, most visibly for
+Claddagh, Diorama and Fume where layered blur/glare runs on the software GPU;
+Lumiere's AGSL path is unavailable below Android 13 and falls back to the
+bounded native raster. These numbers are not real-device GPU evidence and are
+not a claim of upstream-relative performance.
+
+Still unverified for 还原版: physical car head units, secondary displays,
+weak-device thermals, Android 13+ AGSL hardware devices and long playback
+sessions. API 19/API 28 runtime smoke tests are separate emulator checks.
+
 ## Remaining differences
 
 All fourteen modes were inspected at 6.7 seconds. The eight typography/chat/clock/
@@ -51,8 +75,12 @@ later in the line (8.5 seconds). These samples cover a single synthetic lyric fi
 They do not cover every language, chorus, long song, dynamic theme, audio response,
 manual font, physical display, car ROM or weak-device performance.
 
-Sonnet, Tempera, Lumiere and Diorama remain native approximations: full procedural
-shot programs, all rigs/formations and shaders/postprocessing are not ported.
+In 低配版folia, Sonnet, Tempera, Lumiere and Diorama remain native approximations:
+full procedural shot programs, all rigs/formations and shaders/postprocessing are
+not ported. In 还原版folia the exported Tempera/Sonnet compositions and shot
+layouts are played natively, but upstream shaders are approximated (AGSL light
+field on Android 13+, layered native strokes otherwise), so pixel identity is
+still not claimed.
 Fume's paper geometry is adapted, but its camera bridges, overview and decor differ.
 Cappella does not implement upstream emotion-image messages or TTML agent identities.
 Monet lacks album metadata, custom portrait controls and floating decor. Pendolo's

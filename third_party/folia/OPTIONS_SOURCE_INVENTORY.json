@@ -1,0 +1,1840 @@
+{
+  "revision": "92792519ce4b72d540e69f3634aa408810c6e0f6",
+  "note": "Source contracts for the later options phase. A listed field is not evidence of native implementation.",
+  "declarations": {
+    "Theme": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string",
+          "line": 90
+        },
+        {
+          "name": "backgroundColor",
+          "optional": false,
+          "type": "string",
+          "line": 91
+        },
+        {
+          "name": "primaryColor",
+          "optional": false,
+          "type": "string",
+          "line": 92
+        },
+        {
+          "name": "accentColor",
+          "optional": false,
+          "type": "string",
+          "line": 93
+        },
+        {
+          "name": "secondaryColor",
+          "optional": false,
+          "type": "string",
+          "line": 94
+        },
+        {
+          "name": "fontStyle",
+          "optional": false,
+          "type": "'sans' | 'serif' | 'mono'",
+          "line": 95
+        },
+        {
+          "name": "fontFamily",
+          "optional": true,
+          "type": "string",
+          "line": 96
+        },
+        {
+          "name": "fontFamilyStack",
+          "optional": true,
+          "type": "string[]",
+          "line": 97
+        },
+        {
+          "name": "fontWeight",
+          "optional": true,
+          "type": "number",
+          "line": 98
+        },
+        {
+          "name": "animationIntensity",
+          "optional": false,
+          "type": "'calm' | 'normal' | 'chaotic'",
+          "line": 99
+        },
+        {
+          "name": "wordColors",
+          "optional": true,
+          "type": "{ word: string; color: string; }[]",
+          "line": 100
+        },
+        {
+          "name": "lyricsIcons",
+          "optional": true,
+          "type": "string[]",
+          "line": 101
+        },
+        {
+          "name": "provider",
+          "optional": true,
+          "type": "string",
+          "line": 102
+        },
+        {
+          "name": "description",
+          "optional": true,
+          "type": "string",
+          "line": 103
+        }
+      ]
+    },
+    "ClassicTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "enableWordRotation",
+          "optional": false,
+          "type": "boolean",
+          "line": 392
+        },
+        {
+          "name": "breathingFloatMultiplier",
+          "optional": false,
+          "type": "number",
+          "line": 393
+        },
+        {
+          "name": "useLegacyLayout",
+          "optional": true,
+          "type": "boolean",
+          "line": 394
+        },
+        {
+          "name": "wordSpacing",
+          "optional": true,
+          "type": "number",
+          "line": 395
+        }
+      ]
+    },
+    "CadenzaTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "fontScale",
+          "optional": false,
+          "type": "number",
+          "line": 406
+        },
+        {
+          "name": "widthRatio",
+          "optional": false,
+          "type": "number",
+          "line": 407
+        },
+        {
+          "name": "motionAmount",
+          "optional": false,
+          "type": "number",
+          "line": 408
+        },
+        {
+          "name": "glowIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 409
+        },
+        {
+          "name": "beamIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 410
+        }
+      ]
+    },
+    "PartitaTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "showGuideLines",
+          "optional": false,
+          "type": "boolean",
+          "line": 422
+        },
+        {
+          "name": "useSemanticLayout",
+          "optional": false,
+          "type": "boolean",
+          "line": 423
+        },
+        {
+          "name": "staggerMin",
+          "optional": false,
+          "type": "number",
+          "line": 424
+        },
+        {
+          "name": "staggerMax",
+          "optional": false,
+          "type": "number",
+          "line": 425
+        }
+      ]
+    },
+    "FumeTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "hidePrintSymbols",
+          "optional": false,
+          "type": "boolean",
+          "line": 436
+        },
+        {
+          "name": "disableGeometricBackground",
+          "optional": false,
+          "type": "boolean",
+          "line": 437
+        },
+        {
+          "name": "backgroundObjectOpacity",
+          "optional": false,
+          "type": "number",
+          "line": 438
+        },
+        {
+          "name": "textHoldRatio",
+          "optional": false,
+          "type": "number",
+          "line": 439
+        },
+        {
+          "name": "cameraTrackingMode",
+          "optional": false,
+          "type": "'stepped' | 'smooth'",
+          "line": 440
+        },
+        {
+          "name": "cameraSpeed",
+          "optional": false,
+          "type": "number",
+          "line": 441
+        },
+        {
+          "name": "glowIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 442
+        },
+        {
+          "name": "heroScale",
+          "optional": false,
+          "type": "number",
+          "line": 443
+        }
+      ]
+    },
+    "CladdaghTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "focusScaleRatio",
+          "optional": false,
+          "type": "number",
+          "line": 458
+        },
+        {
+          "name": "radiusScale",
+          "optional": false,
+          "type": "number",
+          "line": 459
+        },
+        {
+          "name": "ellipseTiltDeg",
+          "optional": false,
+          "type": "number",
+          "line": 460
+        },
+        {
+          "name": "showAxisLine",
+          "optional": false,
+          "type": "boolean",
+          "line": 461
+        },
+        {
+          "name": "letterSpacingOffset",
+          "optional": false,
+          "type": "number",
+          "line": 462
+        }
+      ]
+    },
+    "CappellaTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "showEmoMessages",
+          "optional": false,
+          "type": "boolean",
+          "line": 477
+        },
+        {
+          "name": "emojiPackSource",
+          "optional": false,
+          "type": "CappellaEmojiPackSource",
+          "line": 478
+        },
+        {
+          "name": "avatarSource",
+          "optional": false,
+          "type": "CappellaAvatarSource",
+          "line": 479
+        }
+      ]
+    },
+    "TiltTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "splitProbability",
+          "optional": false,
+          "type": "number",
+          "line": 491
+        },
+        {
+          "name": "tiltStyleProbability",
+          "optional": false,
+          "type": "number",
+          "line": 492
+        },
+        {
+          "name": "colorScheme",
+          "optional": true,
+          "type": "TiltColorScheme",
+          "line": 493
+        }
+      ]
+    },
+    "PendoloTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "arcRadius",
+          "optional": false,
+          "type": "number",
+          "line": 503
+        },
+        {
+          "name": "arcAngleDeg",
+          "optional": false,
+          "type": "number",
+          "line": 504
+        },
+        {
+          "name": "wheelCenterX",
+          "optional": false,
+          "type": "number",
+          "line": 505
+        },
+        {
+          "name": "wheelCenterY",
+          "optional": false,
+          "type": "number",
+          "line": 506
+        },
+        {
+          "name": "tickSnappiness",
+          "optional": false,
+          "type": "number",
+          "line": 507
+        },
+        {
+          "name": "activeScale",
+          "optional": false,
+          "type": "number",
+          "line": 508
+        },
+        {
+          "name": "showGearDecor",
+          "optional": false,
+          "type": "'none' | 'subtle' | 'full'",
+          "line": 509
+        },
+        {
+          "name": "showCenterGradient",
+          "optional": true,
+          "type": "boolean",
+          "line": 510
+        },
+        {
+          "name": "showCoverOnWatchFace",
+          "optional": true,
+          "type": "boolean",
+          "line": 511
+        },
+        {
+          "name": "enableLineGlow",
+          "optional": true,
+          "type": "boolean",
+          "line": 512
+        }
+      ]
+    },
+    "SonnetTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "cameraIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 531
+        },
+        {
+          "name": "typographyMotion",
+          "optional": false,
+          "type": "number",
+          "line": 532
+        },
+        {
+          "name": "mgDensity",
+          "optional": false,
+          "type": "number",
+          "line": 533
+        },
+        {
+          "name": "showOnlyText",
+          "optional": false,
+          "type": "boolean",
+          "line": 534
+        },
+        {
+          "name": "showGuide",
+          "optional": false,
+          "type": "boolean",
+          "line": 535
+        },
+        {
+          "name": "showBackgroundMg",
+          "optional": false,
+          "type": "boolean",
+          "line": 536
+        },
+        {
+          "name": "showFixedGeo",
+          "optional": false,
+          "type": "boolean",
+          "line": 537
+        },
+        {
+          "name": "showGiantDecorativeText",
+          "optional": false,
+          "type": "boolean",
+          "line": 538
+        },
+        {
+          "name": "showBackgroundDecor",
+          "optional": false,
+          "type": "boolean",
+          "line": 539
+        },
+        {
+          "name": "enableTransitions",
+          "optional": false,
+          "type": "boolean",
+          "line": 540
+        },
+        {
+          "name": "outerFrameMode",
+          "optional": false,
+          "type": "SonnetOuterFrameMode",
+          "line": 541
+        },
+        {
+          "name": "textureResolution",
+          "optional": false,
+          "type": "number",
+          "line": 542
+        },
+        {
+          "name": "postProcessEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 544
+        },
+        {
+          "name": "postProcessGrain",
+          "optional": false,
+          "type": "number",
+          "line": 546
+        },
+        {
+          "name": "postProcessContrast",
+          "optional": false,
+          "type": "number",
+          "line": 548
+        },
+        {
+          "name": "postProcessRgbShift",
+          "optional": false,
+          "type": "number",
+          "line": 550
+        },
+        {
+          "name": "postProcessHalftone",
+          "optional": false,
+          "type": "number",
+          "line": 551
+        },
+        {
+          "name": "postProcessVignette",
+          "optional": false,
+          "type": "number",
+          "line": 553
+        },
+        {
+          "name": "postProcessLensDistortion",
+          "optional": false,
+          "type": "number",
+          "line": 555
+        },
+        {
+          "name": "postProcessLensDispersion",
+          "optional": false,
+          "type": "number",
+          "line": 557
+        }
+      ]
+    },
+    "TemperaTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "cameraIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 622
+        },
+        {
+          "name": "glyphMotion",
+          "optional": false,
+          "type": "number",
+          "line": 624
+        },
+        {
+          "name": "wholeLineLyrics",
+          "optional": false,
+          "type": "boolean",
+          "line": 626
+        },
+        {
+          "name": "glyphSettleStretch",
+          "optional": false,
+          "type": "number",
+          "line": 633
+        },
+        {
+          "name": "colorMode",
+          "optional": false,
+          "type": "TemperaColorMode",
+          "line": 635
+        },
+        {
+          "name": "showBlocks",
+          "optional": false,
+          "type": "boolean",
+          "line": 636
+        },
+        {
+          "name": "showDecor",
+          "optional": false,
+          "type": "boolean",
+          "line": 637
+        },
+        {
+          "name": "showCornerMarks",
+          "optional": false,
+          "type": "boolean",
+          "line": 639
+        },
+        {
+          "name": "textInversion",
+          "optional": false,
+          "type": "boolean",
+          "line": 645
+        },
+        {
+          "name": "layerImages",
+          "optional": false,
+          "type": "TemperaLayerImage[]",
+          "line": 647
+        },
+        {
+          "name": "layerImageDepth",
+          "optional": false,
+          "type": "'back' | 'front'",
+          "line": 649
+        },
+        {
+          "name": "layerImageFrequency",
+          "optional": false,
+          "type": "number",
+          "line": 651
+        },
+        {
+          "name": "enableTransitions",
+          "optional": false,
+          "type": "boolean",
+          "line": 652
+        },
+        {
+          "name": "textureResolution",
+          "optional": false,
+          "type": "number",
+          "line": 653
+        },
+        {
+          "name": "postProcessEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 655
+        },
+        {
+          "name": "postProcessTextureCompression",
+          "optional": false,
+          "type": "boolean",
+          "line": 661
+        },
+        {
+          "name": "postProcessGrain",
+          "optional": false,
+          "type": "number",
+          "line": 663
+        },
+        {
+          "name": "postProcessContrast",
+          "optional": false,
+          "type": "number",
+          "line": 665
+        },
+        {
+          "name": "postProcessRgbShift",
+          "optional": false,
+          "type": "number",
+          "line": 667
+        },
+        {
+          "name": "postProcessVignette",
+          "optional": false,
+          "type": "number",
+          "line": 669
+        },
+        {
+          "name": "postProcessLensDistortion",
+          "optional": false,
+          "type": "number",
+          "line": 671
+        }
+      ]
+    },
+    "LumiereTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "lightIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 705
+        },
+        {
+          "name": "audioResponse",
+          "optional": false,
+          "type": "number",
+          "line": 707
+        },
+        {
+          "name": "fogDensity",
+          "optional": false,
+          "type": "number",
+          "line": 709
+        },
+        {
+          "name": "darkField",
+          "optional": false,
+          "type": "number",
+          "line": 714
+        },
+        {
+          "name": "moteAmount",
+          "optional": false,
+          "type": "number",
+          "line": 716
+        },
+        {
+          "name": "bloom",
+          "optional": false,
+          "type": "number",
+          "line": 718
+        },
+        {
+          "name": "textBloom",
+          "optional": false,
+          "type": "number",
+          "line": 720
+        },
+        {
+          "name": "unlitOpacity",
+          "optional": false,
+          "type": "number",
+          "line": 722
+        },
+        {
+          "name": "windowNeighbors",
+          "optional": false,
+          "type": "1 | 2",
+          "line": 724
+        },
+        {
+          "name": "decay",
+          "optional": false,
+          "type": "number",
+          "line": 726
+        },
+        {
+          "name": "echo",
+          "optional": false,
+          "type": "number",
+          "line": 728
+        },
+        {
+          "name": "fogOctaves",
+          "optional": false,
+          "type": "number",
+          "line": 730
+        },
+        {
+          "name": "lineArt",
+          "optional": false,
+          "type": "boolean",
+          "line": 732
+        },
+        {
+          "name": "frontBokeh",
+          "optional": false,
+          "type": "boolean",
+          "line": 734
+        },
+        {
+          "name": "trails",
+          "optional": false,
+          "type": "boolean",
+          "line": 736
+        },
+        {
+          "name": "hideTrails",
+          "optional": false,
+          "type": "boolean",
+          "line": 738
+        },
+        {
+          "name": "seamlessTransitions",
+          "optional": false,
+          "type": "boolean",
+          "line": 743
+        },
+        {
+          "name": "overlayFrame",
+          "optional": false,
+          "type": "boolean",
+          "line": 745
+        },
+        {
+          "name": "textOnly",
+          "optional": false,
+          "type": "boolean",
+          "line": 750
+        },
+        {
+          "name": "keywordColors",
+          "optional": false,
+          "type": "boolean",
+          "line": 752
+        },
+        {
+          "name": "themeIcons",
+          "optional": false,
+          "type": "boolean",
+          "line": 754
+        },
+        {
+          "name": "themeColorMix",
+          "optional": false,
+          "type": "number",
+          "line": 756
+        },
+        {
+          "name": "renderQuality",
+          "optional": false,
+          "type": "LumiereRenderQuality",
+          "line": 758
+        }
+      ]
+    },
+    "DioramaTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "cameraSpeed",
+          "optional": false,
+          "type": "number",
+          "line": 847
+        },
+        {
+          "name": "motionAmount",
+          "optional": false,
+          "type": "number",
+          "line": 848
+        },
+        {
+          "name": "audioReactivity",
+          "optional": false,
+          "type": "number",
+          "line": 849
+        },
+        {
+          "name": "geometryVisibility",
+          "optional": false,
+          "type": "DioramaGeometryVisibility",
+          "line": 850
+        },
+        {
+          "name": "particleDensity",
+          "optional": false,
+          "type": "number",
+          "line": 852
+        },
+        {
+          "name": "particleScale",
+          "optional": false,
+          "type": "number",
+          "line": 854
+        },
+        {
+          "name": "particleGlowEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 856
+        },
+        {
+          "name": "particleGlowIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 857
+        },
+        {
+          "name": "showParticles",
+          "optional": false,
+          "type": "boolean",
+          "line": 858
+        },
+        {
+          "name": "backgroundParticleCircumference",
+          "optional": false,
+          "type": "number",
+          "line": 861
+        },
+        {
+          "name": "backgroundParticleRadial",
+          "optional": false,
+          "type": "number",
+          "line": 862
+        },
+        {
+          "name": "glowEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 864
+        },
+        {
+          "name": "glowIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 865
+        },
+        {
+          "name": "soulEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 867
+        },
+        {
+          "name": "soulIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 868
+        },
+        {
+          "name": "soulActiveEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 873
+        },
+        {
+          "name": "gradientEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 875
+        },
+        {
+          "name": "gradientIntensity",
+          "optional": false,
+          "type": "number",
+          "line": 876
+        },
+        {
+          "name": "keywordColoringEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 880
+        }
+      ]
+    },
+    "MonetBackgroundTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "backgroundSource",
+          "optional": false,
+          "type": "MonetBackgroundSource",
+          "line": 925
+        },
+        {
+          "name": "backgroundLayout",
+          "optional": false,
+          "type": "MonetBackgroundLayout",
+          "line": 926
+        },
+        {
+          "name": "backgroundBlurPx",
+          "optional": false,
+          "type": "number",
+          "line": 927
+        },
+        {
+          "name": "backgroundOverlayOpacity",
+          "optional": false,
+          "type": "number",
+          "line": 928
+        },
+        {
+          "name": "backgroundGrayscale",
+          "optional": false,
+          "type": "number",
+          "line": 929
+        },
+        {
+          "name": "backgroundSaturation",
+          "optional": false,
+          "type": "number",
+          "line": 930
+        },
+        {
+          "name": "backgroundWash",
+          "optional": false,
+          "type": "number",
+          "line": 931
+        },
+        {
+          "name": "backgroundHalfPaneOffsetX",
+          "optional": false,
+          "type": "number",
+          "line": 932
+        },
+        {
+          "name": "backgroundWashColorMode",
+          "optional": false,
+          "type": "MonetBackgroundWashColorMode",
+          "line": 933
+        },
+        {
+          "name": "backgroundWashCustomColor",
+          "optional": false,
+          "type": "string",
+          "line": 934
+        },
+        {
+          "name": "backgroundDriftEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 936
+        },
+        {
+          "name": "backgroundDriftStrength",
+          "optional": false,
+          "type": "number",
+          "line": 938
+        },
+        {
+          "name": "backgroundStreaksEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 940
+        }
+      ]
+    },
+    "NomandBackgroundTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "imageSource",
+          "optional": false,
+          "type": "NomandBackgroundSource",
+          "line": 944
+        },
+        {
+          "name": "effect",
+          "optional": false,
+          "type": "NomandBackgroundEffect",
+          "line": 945
+        },
+        {
+          "name": "ditheringType",
+          "optional": false,
+          "type": "NomandBackgroundDitheringType",
+          "line": 946
+        },
+        {
+          "name": "size",
+          "optional": false,
+          "type": "number",
+          "line": 947
+        },
+        {
+          "name": "colorSteps",
+          "optional": false,
+          "type": "number",
+          "line": 948
+        },
+        {
+          "name": "originalColors",
+          "optional": false,
+          "type": "boolean",
+          "line": 949
+        },
+        {
+          "name": "inverted",
+          "optional": false,
+          "type": "boolean",
+          "line": 950
+        },
+        {
+          "name": "flutedGlassSize",
+          "optional": false,
+          "type": "number",
+          "line": 951
+        },
+        {
+          "name": "flutedGlassDistortion",
+          "optional": false,
+          "type": "number",
+          "line": 952
+        },
+        {
+          "name": "flutedGlassBlur",
+          "optional": false,
+          "type": "number",
+          "line": 953
+        },
+        {
+          "name": "paperTextureContrast",
+          "optional": false,
+          "type": "number",
+          "line": 954
+        },
+        {
+          "name": "paperTextureRoughness",
+          "optional": false,
+          "type": "number",
+          "line": 955
+        },
+        {
+          "name": "paperTextureFiber",
+          "optional": false,
+          "type": "number",
+          "line": 956
+        },
+        {
+          "name": "halftoneDotsSize",
+          "optional": false,
+          "type": "number",
+          "line": 957
+        },
+        {
+          "name": "halftoneDotsRadius",
+          "optional": false,
+          "type": "number",
+          "line": 958
+        },
+        {
+          "name": "halftoneDotsContrast",
+          "optional": false,
+          "type": "number",
+          "line": 959
+        },
+        {
+          "name": "halftoneDotsOriginalColors",
+          "optional": false,
+          "type": "boolean",
+          "line": 960
+        },
+        {
+          "name": "halftoneDotsInverted",
+          "optional": false,
+          "type": "boolean",
+          "line": 961
+        },
+        {
+          "name": "lensDistortionSpread",
+          "optional": false,
+          "type": "number",
+          "line": 962
+        },
+        {
+          "name": "lensDistortionBulge",
+          "optional": false,
+          "type": "number",
+          "line": 963
+        },
+        {
+          "name": "lensDistortionDispersion",
+          "optional": false,
+          "type": "number",
+          "line": 964
+        },
+        {
+          "name": "overlayEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 965
+        },
+        {
+          "name": "overlayOpacity",
+          "optional": false,
+          "type": "number",
+          "line": 966
+        }
+      ]
+    },
+    "LatentBackgroundTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "displayMode",
+          "optional": false,
+          "type": "LatentBackgroundDisplayMode",
+          "line": 970
+        },
+        {
+          "name": "colorSource",
+          "optional": false,
+          "type": "LatentBackgroundColorSource",
+          "line": 971
+        },
+        {
+          "name": "dynamicOnlyInPlayer",
+          "optional": false,
+          "type": "boolean",
+          "line": 972
+        },
+        {
+          "name": "enhancedBeatResponse",
+          "optional": false,
+          "type": "boolean",
+          "line": 973
+        },
+        {
+          "name": "ditheringSpeed",
+          "optional": false,
+          "type": "number",
+          "line": 974
+        },
+        {
+          "name": "ditheringAudioSpeed",
+          "optional": false,
+          "type": "number",
+          "line": 975
+        },
+        {
+          "name": "ditheringSize",
+          "optional": false,
+          "type": "number",
+          "line": 976
+        },
+        {
+          "name": "ditheringOpacity",
+          "optional": false,
+          "type": "number",
+          "line": 977
+        },
+        {
+          "name": "meshSpeed",
+          "optional": false,
+          "type": "number",
+          "line": 978
+        },
+        {
+          "name": "meshAudioSpeed",
+          "optional": false,
+          "type": "number",
+          "line": 979
+        },
+        {
+          "name": "meshDistortion",
+          "optional": false,
+          "type": "number",
+          "line": 980
+        },
+        {
+          "name": "meshSwirl",
+          "optional": false,
+          "type": "number",
+          "line": 981
+        },
+        {
+          "name": "overlayEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 982
+        },
+        {
+          "name": "overlayOpacity",
+          "optional": false,
+          "type": "number",
+          "line": 983
+        }
+      ]
+    },
+    "SoraBackgroundTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "blank",
+          "optional": false,
+          "type": "boolean",
+          "line": 988
+        }
+      ]
+    },
+    "MonetTuning": {
+      "source": "src/types.ts",
+      "fields": [
+        {
+          "name": "keywordColoringEnabled",
+          "optional": false,
+          "type": "boolean",
+          "line": 992
+        },
+        {
+          "name": "showDescription",
+          "optional": false,
+          "type": "boolean",
+          "line": 993
+        },
+        {
+          "name": "showAudioVisualization",
+          "optional": false,
+          "type": "boolean",
+          "line": 994
+        },
+        {
+          "name": "audioStyle",
+          "optional": false,
+          "type": "MonetAudioStyle",
+          "line": 995
+        },
+        {
+          "name": "fontScale",
+          "optional": false,
+          "type": "number",
+          "line": 996
+        },
+        {
+          "name": "portraitSource",
+          "optional": false,
+          "type": "MonetPortraitSource",
+          "line": 997
+        },
+        {
+          "name": "portraitOffsetX",
+          "optional": true,
+          "type": "number",
+          "line": 998
+        },
+        {
+          "name": "portraitStyle",
+          "optional": true,
+          "type": "'square' | 'rectangular'",
+          "line": 999
+        },
+        {
+          "name": "showPortraitDragHanger",
+          "optional": true,
+          "type": "boolean",
+          "line": 1000
+        }
+      ]
+    },
+    "VisualizerSharedProps": {
+      "source": "src/components/visualizer/definition.ts",
+      "fields": [
+        {
+          "name": "currentTime",
+          "optional": false,
+          "type": "MotionValue<number>",
+          "line": 34
+        },
+        {
+          "name": "currentLineIndex",
+          "optional": false,
+          "type": "number",
+          "line": 35
+        },
+        {
+          "name": "lines",
+          "optional": false,
+          "type": "Line[]",
+          "line": 36
+        },
+        {
+          "name": "theme",
+          "optional": false,
+          "type": "Theme",
+          "line": 37
+        },
+        {
+          "name": "subtitleTheme",
+          "optional": true,
+          "type": "Theme",
+          "line": 38
+        },
+        {
+          "name": "isDaylight",
+          "optional": true,
+          "type": "boolean",
+          "line": 39
+        },
+        {
+          "name": "audioPower",
+          "optional": false,
+          "type": "MotionValue<number>",
+          "line": 40
+        },
+        {
+          "name": "audioBands",
+          "optional": false,
+          "type": "AudioBands",
+          "line": 41
+        },
+        {
+          "name": "showText",
+          "optional": true,
+          "type": "boolean",
+          "line": 42
+        },
+        {
+          "name": "songTitle",
+          "optional": true,
+          "type": "string | null",
+          "line": 43
+        },
+        {
+          "name": "songArtist",
+          "optional": true,
+          "type": "string | null",
+          "line": 44
+        },
+        {
+          "name": "songAlbum",
+          "optional": true,
+          "type": "string | null",
+          "line": 45
+        },
+        {
+          "name": "coverUrl",
+          "optional": true,
+          "type": "string | null",
+          "line": 46
+        },
+        {
+          "name": "temperaLayerImageAssets",
+          "optional": true,
+          "type": "{ id: string; name: string; url: string }[]",
+          "line": 52
+        },
+        {
+          "name": "seed",
+          "optional": true,
+          "type": "string | number",
+          "line": 53
+        },
+        {
+          "name": "staticMode",
+          "optional": true,
+          "type": "boolean",
+          "line": 54
+        },
+        {
+          "name": "backgroundStaticMode",
+          "optional": true,
+          "type": "boolean",
+          "line": 55
+        },
+        {
+          "name": "visualizerOpacity",
+          "optional": true,
+          "type": "number",
+          "line": 56
+        },
+        {
+          "name": "background",
+          "optional": true,
+          "type": "VisualizerBackgroundConfig",
+          "line": 57
+        },
+        {
+          "name": "lyricsFontScale",
+          "optional": true,
+          "type": "number",
+          "line": 58
+        },
+        {
+          "name": "subtitleFontScale",
+          "optional": true,
+          "type": "number",
+          "line": 59
+        },
+        {
+          "name": "subtitleOverlayOpacity",
+          "optional": true,
+          "type": "number",
+          "line": 60
+        },
+        {
+          "name": "subtitleOverlayBackground",
+          "optional": true,
+          "type": "boolean",
+          "line": 61
+        },
+        {
+          "name": "subtitleUpcomingLyricsBlur",
+          "optional": true,
+          "type": "boolean",
+          "line": 62
+        },
+        {
+          "name": "showHarmonySubtitle",
+          "optional": true,
+          "type": "boolean",
+          "line": 63
+        },
+        {
+          "name": "harmonySubtitleBackground",
+          "optional": true,
+          "type": "boolean",
+          "line": 64
+        },
+        {
+          "name": "isPlayerChromeHidden",
+          "optional": true,
+          "type": "boolean",
+          "line": 65
+        },
+        {
+          "name": "hideTranslationSubtitle",
+          "optional": true,
+          "type": "boolean",
+          "line": 66
+        },
+        {
+          "name": "showSubtitleTranslation",
+          "optional": true,
+          "type": "boolean",
+          "line": 67
+        },
+        {
+          "name": "subtitleContentMode",
+          "optional": true,
+          "type": "SubtitleContentMode",
+          "line": 68
+        },
+        {
+          "name": "paused",
+          "optional": true,
+          "type": "boolean",
+          "line": 69
+        },
+        {
+          "name": "onBack",
+          "optional": true,
+          "type": "() => void",
+          "line": 70
+        },
+        {
+          "name": "isPanelOpen",
+          "optional": true,
+          "type": "boolean",
+          "line": 71
+        },
+        {
+          "name": "alwaysShowBackButton",
+          "optional": true,
+          "type": "boolean",
+          "line": 72
+        },
+        {
+          "name": "onPlayerPanelGuideHotspotChange",
+          "optional": true,
+          "type": "(isActive: boolean) => void",
+          "line": 73
+        },
+        {
+          "name": "onLyricLineSeek",
+          "optional": true,
+          "type": "(lyricTimeSec: number) => void",
+          "line": 74
+        },
+        {
+          "name": "isPreviewMode",
+          "optional": true,
+          "type": "boolean",
+          "line": 75
+        },
+        {
+          "name": "visualizerTunings",
+          "optional": true,
+          "type": "VisualizerTuningBundle",
+          "line": 76
+        },
+        {
+          "name": "classicTuning",
+          "optional": true,
+          "type": "ClassicTuning",
+          "line": 77
+        },
+        {
+          "name": "cadenzaTuning",
+          "optional": true,
+          "type": "CadenzaTuning",
+          "line": 78
+        },
+        {
+          "name": "partitaTuning",
+          "optional": true,
+          "type": "PartitaTuning",
+          "line": 79
+        },
+        {
+          "name": "fumeTuning",
+          "optional": true,
+          "type": "FumeTuning",
+          "line": 80
+        },
+        {
+          "name": "claddaghTuning",
+          "optional": true,
+          "type": "CladdaghTuning",
+          "line": 81
+        },
+        {
+          "name": "onCladdaghTuningChange",
+          "optional": true,
+          "type": "(patch: Partial<CladdaghTuning>) => void",
+          "line": 82
+        },
+        {
+          "name": "cappellaTuning",
+          "optional": true,
+          "type": "CappellaTuning",
+          "line": 83
+        },
+        {
+          "name": "cappellaCustomEmojiImages",
+          "optional": true,
+          "type": "CappellaEmojiImage[]",
+          "line": 84
+        },
+        {
+          "name": "cappellaCustomAvatarImages",
+          "optional": true,
+          "type": "CappellaAvatarImage[]",
+          "line": 85
+        },
+        {
+          "name": "tiltTuning",
+          "optional": true,
+          "type": "TiltTuning",
+          "line": 86
+        },
+        {
+          "name": "dioramaTuning",
+          "optional": true,
+          "type": "DioramaTuning",
+          "line": 87
+        },
+        {
+          "name": "monetTuning",
+          "optional": true,
+          "type": "MonetTuning",
+          "line": 88
+        },
+        {
+          "name": "monetPortraitImage",
+          "optional": true,
+          "type": "MonetPortraitImage | null",
+          "line": 89
+        },
+        {
+          "name": "onMonetTuningChange",
+          "optional": true,
+          "type": "(patch: Partial<MonetTuning>) => void",
+          "line": 90
+        },
+        {
+          "name": "pendoloTuning",
+          "optional": true,
+          "type": "PendoloTuning",
+          "line": 91
+        },
+        {
+          "name": "onPendoloTuningChange",
+          "optional": true,
+          "type": "(patch: Partial<PendoloTuning>) => void",
+          "line": 92
+        },
+        {
+          "name": "sonnetTuning",
+          "optional": true,
+          "type": "SonnetTuning",
+          "line": 93
+        },
+        {
+          "name": "onSonnetTuningChange",
+          "optional": true,
+          "type": "(patch: Partial<SonnetTuning>) => void",
+          "line": 94
+        },
+        {
+          "name": "temperaTuning",
+          "optional": true,
+          "type": "TemperaTuning",
+          "line": 95
+        },
+        {
+          "name": "onTemperaTuningChange",
+          "optional": true,
+          "type": "(patch: Partial<TemperaTuning>) => void",
+          "line": 96
+        },
+        {
+          "name": "lumiereTuning",
+          "optional": true,
+          "type": "LumiereTuning",
+          "line": 97
+        },
+        {
+          "name": "onLumiereTuningChange",
+          "optional": true,
+          "type": "(patch: Partial<LumiereTuning>) => void",
+          "line": 98
+        }
+      ]
+    },
+    "VisualizerBackgroundConfig": {
+      "source": "src/components/visualizer/backgrounds/definition.ts",
+      "fields": [
+        {
+          "name": "mode",
+          "optional": true,
+          "type": "VisualizerBackgroundMode | null",
+          "line": 19
+        },
+        {
+          "name": "transparent",
+          "optional": true,
+          "type": "boolean",
+          "line": 20
+        },
+        {
+          "name": "common",
+          "optional": true,
+          "type": "{\n        useCoverColorBg?: boolean;\n        opacity?: number;\n        disableGeometricBackground?: boolean;\n        disableVignette?: boolean;\n    }",
+          "line": 21
+        },
+        {
+          "name": "customImage",
+          "optional": true,
+          "type": "MonetBackgroundImage | null",
+          "line": 27
+        },
+        {
+          "name": "monet",
+          "optional": true,
+          "type": "{\n        tuning?: MonetBackgroundTuning;\n    }",
+          "line": 28
+        },
+        {
+          "name": "nomand",
+          "optional": true,
+          "type": "{\n        tuning?: NomandBackgroundTuning;\n    }",
+          "line": 31
+        },
+        {
+          "name": "latent",
+          "optional": true,
+          "type": "{\n        tuning?: LatentBackgroundTuning;\n    }",
+          "line": 34
+        },
+        {
+          "name": "sora",
+          "optional": true,
+          "type": "{\n        tuning?: SoraBackgroundTuning;\n    }",
+          "line": 37
+        },
+        {
+          "name": "url",
+          "optional": true,
+          "type": "{\n        items?: UrlBackgroundItem[];\n        selectedId?: string | null;\n    }",
+          "line": 40
+        }
+      ]
+    },
+    "VisualizerSubtitleOverlayProps": {
+      "source": "src/components/visualizer/VisualizerSubtitleOverlay.tsx",
+      "fields": [
+        {
+          "name": "showText",
+          "optional": false,
+          "type": "boolean",
+          "line": 27
+        },
+        {
+          "name": "activeLine",
+          "optional": false,
+          "type": "Line | null",
+          "line": 28
+        },
+        {
+          "name": "recentCompletedLine",
+          "optional": false,
+          "type": "Line | null",
+          "line": 29
+        },
+        {
+          "name": "nextLines",
+          "optional": false,
+          "type": "Line[]",
+          "line": 30
+        },
+        {
+          "name": "theme",
+          "optional": false,
+          "type": "Theme",
+          "line": 31
+        },
+        {
+          "name": "subtitleTheme",
+          "optional": true,
+          "type": "Theme",
+          "line": 32
+        },
+        {
+          "name": "translationFontSize",
+          "optional": false,
+          "type": "string",
+          "line": 33
+        },
+        {
+          "name": "upcomingFontSize",
+          "optional": false,
+          "type": "string",
+          "line": 34
+        },
+        {
+          "name": "subtitleFontScale",
+          "optional": true,
+          "type": "number",
+          "line": 35
+        },
+        {
+          "name": "opacity",
+          "optional": true,
+          "type": "number",
+          "line": 36
+        },
+        {
+          "name": "subtitleOverlayOpacity",
+          "optional": true,
+          "type": "number",
+          "line": 37
+        },
+        {
+          "name": "subtitleOverlayBackground",
+          "optional": true,
+          "type": "boolean",
+          "line": 38
+        },
+        {
+          "name": "subtitleUpcomingLyricsBlur",
+          "optional": true,
+          "type": "boolean",
+          "line": 39
+        },
+        {
+          "name": "isPlayerChromeHidden",
+          "optional": true,
+          "type": "boolean",
+          "line": 40
+        },
+        {
+          "name": "hideTranslationSubtitle",
+          "optional": true,
+          "type": "boolean",
+          "line": 41
+        },
+        {
+          "name": "showSubtitleTranslation",
+          "optional": true,
+          "type": "boolean",
+          "line": 42
+        },
+        {
+          "name": "subtitleContentMode",
+          "optional": true,
+          "type": "SubtitleContentMode",
+          "line": 43
+        }
+      ]
+    }
+  },
+  "defaults": {
+    "DEFAULT_CLASSIC_TUNING": "{\n  enableWordRotation: true,\n  breathingFloatMultiplier: 1,\n  useLegacyLayout: false,\n  wordSpacing: 0.7,\n}",
+    "DEFAULT_CADENZA_TUNING": "{\n  fontScale: 1.12,\n  widthRatio: 0.72,\n  motionAmount: 1,\n  glowIntensity: 1,\n  beamIntensity: 0,\n}",
+    "DEFAULT_PARTITA_TUNING": "{\n  showGuideLines: true,\n  useSemanticLayout: true,\n  staggerMin: 20,\n  staggerMax: 100,\n}",
+    "DEFAULT_FUME_TUNING": "{\n  hidePrintSymbols: false,\n  disableGeometricBackground: true,\n  backgroundObjectOpacity: 0.5,\n  textHoldRatio: 1,\n  cameraTrackingMode: 'smooth',\n  cameraSpeed: 1,\n  glowIntensity: 1,\n  heroScale: 1,\n}",
+    "DEFAULT_CLADDAGH_TUNING": "{\n  focusScaleRatio: 0.65,\n  radiusScale: 1.0,\n  ellipseTiltDeg: 45,\n  showAxisLine: true,\n  letterSpacingOffset: 0,\n}",
+    "DEFAULT_CAPPELLA_TUNING": "{\n  showEmoMessages: true,\n  emojiPackSource: 'builtin',\n  avatarSource: 'cover',\n}",
+    "DEFAULT_TILT_TUNING": "{\n  splitProbability: 0.75,\n  tiltStyleProbability: 0.35,\n  colorScheme: 'default',\n}",
+    "DEFAULT_PENDOLO_TUNING": "{\n  arcRadius: 0.42,\n  arcAngleDeg: 100,\n  wheelCenterX: 0.0,\n  wheelCenterY: 0.50,\n  tickSnappiness: 2.0,\n  activeScale: 1.25,\n  showGearDecor: 'subtle',\n  showCenterGradient: true,\n  showCoverOnWatchFace: false,\n  enableLineGlow: false,\n}",
+    "DEFAULT_SONNET_TUNING": "{\n  cameraIntensity: 1,\n  typographyMotion: 1,\n  mgDensity: 1,\n  showOnlyText: false,\n  showGuide: true,\n  showBackgroundMg: true,\n  showFixedGeo: true,\n  showGiantDecorativeText: true,\n  showBackgroundDecor: true,\n  enableTransitions: true,\n  outerFrameMode: 'full',\n  textureResolution: 1.5,\n  postProcessEnabled: false,\n  postProcessGrain: 0.2,\n  postProcessContrast: 0,\n  postProcessRgbShift: 0,\n  postProcessHalftone: 0,\n  postProcessVignette: 0.85,\n  postProcessLensDistortion: 0.3,\n  postProcessLensDispersion: 0.6,\n}",
+    "DEFAULT_TEMPERA_TUNING": "{\n  cameraIntensity: 1,\n  glyphMotion: 1,\n  wholeLineLyrics: false,\n  glyphSettleStretch: 0.5,\n  colorMode: 'duo',\n  showBlocks: true,\n  showDecor: true,\n  showCornerMarks: true,\n  textInversion: true,\n  layerImages: [],\n  layerImageDepth: 'back',\n  layerImageFrequency: 0.6,\n  enableTransitions: true,\n  textureResolution: 1.5,\n  postProcessEnabled: true,\n  postProcessTextureCompression: false,\n  postProcessGrain: 0.2,\n  postProcessContrast: 0,\n  postProcessRgbShift: 0,\n  postProcessVignette: 0.85,\n  postProcessLensDistortion: 0.3,\n}",
+    "DEFAULT_LUMIERE_TUNING": "{\n  lightIntensity: 1,\n  audioResponse: 1,\n  fogDensity: 1,\n  darkField: 0.75,\n  moteAmount: 1,\n  bloom: 1,\n  textBloom: 1,\n  unlitOpacity: 0.22,\n  windowNeighbors: 2,\n  decay: 1,\n  echo: 1,\n  fogOctaves: 5,\n  lineArt: true,\n  frontBokeh: true,\n  trails: true,\n  hideTrails: false,\n  seamlessTransitions: true,\n  overlayFrame: true,\n  textOnly: false,\n  keywordColors: true,\n  themeIcons: true,\n  themeColorMix: 0.3,\n  renderQuality: 'full',\n}",
+    "DEFAULT_DIORAMA_TUNING": "{\n  cameraSpeed: 1,\n  motionAmount: 1,\n  audioReactivity: 1,\n  geometryVisibility: DEFAULT_DIORAMA_GEOMETRY_VISIBILITY,\n  particleDensity: 576,\n  particleScale: 1,\n  particleGlowEnabled: true,\n  particleGlowIntensity: 0.65,\n  showParticles: true,\n  backgroundParticleCircumference: 28,\n  backgroundParticleRadial: 2,\n  glowEnabled: true,\n  glowIntensity: 1,\n  soulEnabled: true,\n  soulIntensity: 1,\n  soulActiveEnabled: false,\n  gradientEnabled: false,\n  gradientIntensity: 1,\n  keywordColoringEnabled: true,\n}",
+    "DEFAULT_MONET_BACKGROUND_TUNING": "{\n  backgroundSource: 'cover-derived',\n  backgroundLayout: 'full-overlay',\n  backgroundBlurPx: 6,\n  backgroundOverlayOpacity: 0.74,\n  backgroundGrayscale: 0,\n  backgroundSaturation: 1.05,\n  backgroundWash: 0.34,\n  backgroundHalfPaneOffsetX: 0,\n  backgroundWashColorMode: 'theme',\n  backgroundWashCustomColor: '#8fb7ff',\n  backgroundDriftEnabled: true,\n  backgroundDriftStrength: 0.5,\n  backgroundStreaksEnabled: true,\n}",
+    "DEFAULT_NOMAND_BACKGROUND_TUNING": "{\n  imageSource: 'cover-derived',\n  effect: 'dithering',\n  ditheringType: '8x8',\n  size: 3,\n  colorSteps: 4,\n  originalColors: false,\n  inverted: false,\n  flutedGlassSize: 0.5,\n  flutedGlassDistortion: 0.5,\n  flutedGlassBlur: 0.08,\n  paperTextureContrast: 0.32,\n  paperTextureRoughness: 0.42,\n  paperTextureFiber: 0.3,\n  halftoneDotsSize: 0.5,\n  halftoneDotsRadius: 1.25,\n  halftoneDotsContrast: 0.4,\n  halftoneDotsOriginalColors: false,\n  halftoneDotsInverted: false,\n  lensDistortionSpread: 0.45,\n  lensDistortionBulge: 0.3,\n  lensDistortionDispersion: 0.65,\n  overlayEnabled: true,\n  overlayOpacity: 0.35,\n}",
+    "DEFAULT_LATENT_BACKGROUND_TUNING": "{\n  displayMode: 'both',\n  colorSource: 'cover-theme',\n  dynamicOnlyInPlayer: true,\n  enhancedBeatResponse: true,\n  ditheringSpeed: 0.1,\n  ditheringAudioSpeed: 1.2,\n  ditheringSize: 2.5,\n  ditheringOpacity: 0.55,\n  meshSpeed: 0.3,\n  meshAudioSpeed: 2,\n  meshDistortion: 0.8,\n  meshSwirl: 0.1,\n  overlayEnabled: true,\n  overlayOpacity: 0.35,\n}",
+    "DEFAULT_SORA_BACKGROUND_TUNING": "{\n  blank: false,\n}",
+    "DEFAULT_MONET_TUNING": "{\n  keywordColoringEnabled: true,\n  showDescription: true,\n  showAudioVisualization: true,\n  audioStyle: 'bar',\n  fontScale: 1.2,\n  portraitSource: 'cover',\n  portraitOffsetX: 0,\n  portraitStyle: 'square',\n  showPortraitDragHanger: true,\n}"
+  }
+}

@@ -1,0 +1,660 @@
+[
+  {
+    "text": "在无人的世界里",
+    "prefixes": [
+      0,
+      72,
+      144,
+      216,
+      288,
+      360,
+      432,
+      504
+    ],
+    "values": [
+      {
+        "char": "在",
+        "startTime": 0,
+        "endTime": 0.42857142857142855,
+        "wordIndex": 0,
+        "startAngle": 0.10636363636363635,
+        "nominalAngle": -0.7486363636363637,
+        "scaleFactor": 1
+      },
+      {
+        "char": "无",
+        "startTime": 0.42857142857142855,
+        "endTime": 0.8571428571428571,
+        "wordIndex": 1,
+        "startAngle": 0.33749999999999997,
+        "nominalAngle": -0.5175000000000001,
+        "scaleFactor": 1
+      },
+      {
+        "char": "人",
+        "startTime": 0.8571428571428571,
+        "endTime": 1.2857142857142858,
+        "wordIndex": 2,
+        "startAngle": 0.5870454545454545,
+        "nominalAngle": -0.26795454545454545,
+        "scaleFactor": 1
+      },
+      {
+        "char": "的",
+        "startTime": 1.2857142857142858,
+        "endTime": 1.7142857142857142,
+        "wordIndex": 3,
+        "startAngle": 0.8365909090909089,
+        "nominalAngle": -0.01840909090909104,
+        "scaleFactor": 1
+      },
+      {
+        "char": "世",
+        "startTime": 1.7142857142857142,
+        "endTime": 2.142857142857143,
+        "wordIndex": 4,
+        "startAngle": 1.0861363636363635,
+        "nominalAngle": 0.23113636363636347,
+        "scaleFactor": 1
+      },
+      {
+        "char": "界",
+        "startTime": 2.142857142857143,
+        "endTime": 2.5714285714285716,
+        "wordIndex": 5,
+        "startAngle": 1.3356818181818182,
+        "nominalAngle": 0.4806818181818182,
+        "scaleFactor": 1
+      },
+      {
+        "char": "里",
+        "startTime": 2.5714285714285716,
+        "endTime": 3,
+        "wordIndex": 6,
+        "startAngle": 1.5852272727272727,
+        "nominalAngle": 0.7302272727272727,
+        "scaleFactor": 1
+      }
+    ]
+  },
+  {
+    "text": "听见风穿过树梢",
+    "prefixes": [
+      0,
+      72,
+      144,
+      216,
+      288,
+      360,
+      432,
+      504
+    ],
+    "values": [
+      {
+        "char": "听",
+        "startTime": 3,
+        "endTime": 3.4285714285714284,
+        "wordIndex": 0,
+        "startAngle": 0.10636363636363635,
+        "nominalAngle": -0.7486363636363637,
+        "scaleFactor": 1
+      },
+      {
+        "char": "见",
+        "startTime": 3.4285714285714284,
+        "endTime": 3.857142857142857,
+        "wordIndex": 1,
+        "startAngle": 0.33749999999999997,
+        "nominalAngle": -0.5175000000000001,
+        "scaleFactor": 1
+      },
+      {
+        "char": "风",
+        "startTime": 3.857142857142857,
+        "endTime": 4.285714285714286,
+        "wordIndex": 2,
+        "startAngle": 0.5870454545454545,
+        "nominalAngle": -0.26795454545454545,
+        "scaleFactor": 1
+      },
+      {
+        "char": "穿",
+        "startTime": 4.285714285714286,
+        "endTime": 4.714285714285714,
+        "wordIndex": 3,
+        "startAngle": 0.8365909090909089,
+        "nominalAngle": -0.01840909090909104,
+        "scaleFactor": 1
+      },
+      {
+        "char": "过",
+        "startTime": 4.714285714285714,
+        "endTime": 5.142857142857142,
+        "wordIndex": 4,
+        "startAngle": 1.0861363636363635,
+        "nominalAngle": 0.23113636363636347,
+        "scaleFactor": 1
+      },
+      {
+        "char": "树",
+        "startTime": 5.142857142857142,
+        "endTime": 5.571428571428571,
+        "wordIndex": 5,
+        "startAngle": 1.3356818181818182,
+        "nominalAngle": 0.4806818181818182,
+        "scaleFactor": 1
+      },
+      {
+        "char": "梢",
+        "startTime": 5.571428571428571,
+        "endTime": 6,
+        "wordIndex": 6,
+        "startAngle": 1.5852272727272727,
+        "nominalAngle": 0.7302272727272727,
+        "scaleFactor": 1
+      }
+    ]
+  },
+  {
+    "text": "所有微光 汇成星河",
+    "prefixes": [
+      0,
+      72,
+      144,
+      216,
+      288,
+      305.9296875,
+      377.9296875,
+      449.9296875,
+      521.9296875,
+      593.9296875
+    ],
+    "values": [
+      {
+        "char": "所",
+        "startTime": 6,
+        "endTime": 6.333333333333333,
+        "wordIndex": 0,
+        "startAngle": 0.10636363636363635,
+        "nominalAngle": -0.9213773970170455,
+        "scaleFactor": 1
+      },
+      {
+        "char": "有",
+        "startTime": 6.333333333333333,
+        "endTime": 6.666666666666667,
+        "wordIndex": 1,
+        "startAngle": 0.33749999999999997,
+        "nominalAngle": -0.6902410333806819,
+        "scaleFactor": 1
+      },
+      {
+        "char": "微",
+        "startTime": 6.666666666666667,
+        "endTime": 7,
+        "wordIndex": 2,
+        "startAngle": 0.5870454545454545,
+        "nominalAngle": -0.44069557883522725,
+        "scaleFactor": 1
+      },
+      {
+        "char": "光",
+        "startTime": 7,
+        "endTime": 7.333333333333333,
+        "wordIndex": 3,
+        "startAngle": 0.8365909090909089,
+        "nominalAngle": -0.19115012428977285,
+        "scaleFactor": 1
+      },
+      {
+        "char": " ",
+        "startTime": 7.333333333333333,
+        "endTime": 7.666666666666667,
+        "wordIndex": 4,
+        "startAngle": 1.0093319424715907,
+        "nominalAngle": -0.01840909090909104,
+        "scaleFactor": 1
+      },
+      {
+        "char": "汇",
+        "startTime": 7.666666666666667,
+        "endTime": 8,
+        "wordIndex": 5,
+        "startAngle": 1.1820729758522726,
+        "nominalAngle": 0.15433194247159077,
+        "scaleFactor": 1
+      },
+      {
+        "char": "成",
+        "startTime": 8,
+        "endTime": 8.333333333333334,
+        "wordIndex": 6,
+        "startAngle": 1.4316184303977273,
+        "nominalAngle": 0.4038773970170455,
+        "scaleFactor": 1
+      },
+      {
+        "char": "星",
+        "startTime": 8.333333333333334,
+        "endTime": 8.666666666666666,
+        "wordIndex": 7,
+        "startAngle": 1.6811638849431816,
+        "nominalAngle": 0.6534228515624998,
+        "scaleFactor": 1
+      },
+      {
+        "char": "河",
+        "startTime": 8.666666666666666,
+        "endTime": 9,
+        "wordIndex": 8,
+        "startAngle": 1.9307093394886363,
+        "nominalAngle": 0.9029683061079545,
+        "scaleFactor": 1
+      }
+    ]
+  },
+  {
+    "text": "让这首歌陪你远行",
+    "prefixes": [
+      0,
+      72,
+      144,
+      216,
+      288,
+      360,
+      432,
+      504,
+      576
+    ],
+    "values": [
+      {
+        "char": "让",
+        "startTime": 9,
+        "endTime": 9.375,
+        "wordIndex": 0,
+        "startAngle": 0.10636363636363635,
+        "nominalAngle": -0.8734090909090909,
+        "scaleFactor": 1
+      },
+      {
+        "char": "这",
+        "startTime": 9.375,
+        "endTime": 9.75,
+        "wordIndex": 1,
+        "startAngle": 0.33749999999999997,
+        "nominalAngle": -0.6422727272727273,
+        "scaleFactor": 1
+      },
+      {
+        "char": "首",
+        "startTime": 9.75,
+        "endTime": 10.125,
+        "wordIndex": 2,
+        "startAngle": 0.5870454545454545,
+        "nominalAngle": -0.3927272727272727,
+        "scaleFactor": 1
+      },
+      {
+        "char": "歌",
+        "startTime": 10.125,
+        "endTime": 10.5,
+        "wordIndex": 3,
+        "startAngle": 0.8365909090909089,
+        "nominalAngle": -0.1431818181818183,
+        "scaleFactor": 1
+      },
+      {
+        "char": "陪",
+        "startTime": 10.5,
+        "endTime": 10.875,
+        "wordIndex": 4,
+        "startAngle": 1.0861363636363635,
+        "nominalAngle": 0.10636363636363622,
+        "scaleFactor": 1
+      },
+      {
+        "char": "你",
+        "startTime": 10.875,
+        "endTime": 11.25,
+        "wordIndex": 5,
+        "startAngle": 1.3356818181818182,
+        "nominalAngle": 0.35590909090909095,
+        "scaleFactor": 1
+      },
+      {
+        "char": "远",
+        "startTime": 11.25,
+        "endTime": 11.625,
+        "wordIndex": 6,
+        "startAngle": 1.5852272727272727,
+        "nominalAngle": 0.6054545454545455,
+        "scaleFactor": 1
+      },
+      {
+        "char": "行",
+        "startTime": 11.625,
+        "endTime": 12,
+        "wordIndex": 7,
+        "startAngle": 1.834772727272727,
+        "nominalAngle": 0.8549999999999998,
+        "scaleFactor": 1
+      }
+    ]
+  },
+  {
+    "text": "Until the morning comes",
+    "prefixes": [
+      0,
+      47.390625,
+      87.71484375,
+      112.04296875,
+      131.1328125,
+      150.22265625,
+      168.15234375,
+      192.48046875,
+      232.8046875,
+      271.72265625,
+      289.65234375,
+      351.984375,
+      392.6953125,
+      418.9921875,
+      459.31640625,
+      478.40625,
+      518.73046875,
+      559.86328125,
+      577.79296875,
+      615.375,
+      656.0859375,
+      718.41796875,
+      757.3359375,
+      794.390625
+    ],
+    "values": [
+      {
+        "char": "U",
+        "startTime": 12,
+        "endTime": 12.130434782608695,
+        "wordIndex": 0,
+        "startAngle": 0.07140713778409091,
+        "nominalAngle": -1.5560795454545455,
+        "scaleFactor": 1
+      },
+      {
+        "char": "n",
+        "startTime": 12.130434782608695,
+        "endTime": 12.26086956521739,
+        "wordIndex": 1,
+        "startAngle": 0.22259299538352273,
+        "nominalAngle": -1.4048936878551137,
+        "scaleFactor": 1
+      },
+      {
+        "char": "t",
+        "startTime": 12.26086956521739,
+        "endTime": 12.391304347826088,
+        "wordIndex": 2,
+        "startAngle": 0.35942871093749995,
+        "nominalAngle": -1.2680579723011363,
+        "scaleFactor": 1
+      },
+      {
+        "char": "i",
+        "startTime": 12.391304347826088,
+        "endTime": 12.521739130434783,
+        "wordIndex": 3,
+        "startAngle": 0.4661019620028409,
+        "nominalAngle": -1.1613847212357955,
+        "scaleFactor": 1
+      },
+      {
+        "char": "l",
+        "startTime": 12.521739130434783,
+        "endTime": 12.652173913043478,
+        "wordIndex": 4,
+        "startAngle": 0.56533447265625,
+        "nominalAngle": -1.0621522105823864,
+        "scaleFactor": 1
+      },
+      {
+        "char": " ",
+        "startTime": 12.652173913043478,
+        "endTime": 12.782608695652174,
+        "wordIndex": 5,
+        "startAngle": 0.6629190340909091,
+        "nominalAngle": -0.9645676491477272,
+        "scaleFactor": 1
+      },
+      {
+        "char": "t",
+        "startTime": 12.782608695652174,
+        "endTime": 12.91304347826087,
+        "wordIndex": 6,
+        "startAngle": 0.7679443359375,
+        "nominalAngle": -0.8595423473011363,
+        "scaleFactor": 1
+      },
+      {
+        "char": "h",
+        "startTime": 12.91304347826087,
+        "endTime": 13.043478260869565,
+        "wordIndex": 7,
+        "startAngle": 0.9047800514914772,
+        "nominalAngle": -0.7227066317471591,
+        "scaleFactor": 1
+      },
+      {
+        "char": "e",
+        "startTime": 13.043478260869565,
+        "endTime": 13.173913043478262,
+        "wordIndex": 8,
+        "startAngle": 1.0623399769176136,
+        "nominalAngle": -0.5651467063210227,
+        "scaleFactor": 1
+      },
+      {
+        "char": " ",
+        "startTime": 13.173913043478262,
+        "endTime": 13.304347826086957,
+        "wordIndex": 9,
+        "startAngle": 1.1880894886363635,
+        "nominalAngle": -0.4393971946022728,
+        "scaleFactor": 1
+      },
+      {
+        "char": "m",
+        "startTime": 13.304347826086957,
+        "endTime": 13.434782608695652,
+        "wordIndex": 10,
+        "startAngle": 1.3470976118607956,
+        "nominalAngle": -0.28038907137784075,
+        "scaleFactor": 1
+      },
+      {
+        "char": "o",
+        "startTime": 13.434782608695652,
+        "endTime": 13.565217391304348,
+        "wordIndex": 11,
+        "startAngle": 1.5384654651988638,
+        "nominalAngle": -0.08902121803977248,
+        "scaleFactor": 1
+      },
+      {
+        "char": "r",
+        "startTime": 13.565217391304348,
+        "endTime": 13.695652173913043,
+        "wordIndex": 12,
+        "startAngle": 1.6786470170454544,
+        "nominalAngle": 0.05116033380681806,
+        "scaleFactor": 1
+      },
+      {
+        "char": "n",
+        "startTime": 13.695652173913043,
+        "endTime": 13.826086956521738,
+        "wordIndex": 13,
+        "startAngle": 1.8182792524857954,
+        "nominalAngle": 0.19079256924715904,
+        "scaleFactor": 1
+      },
+      {
+        "char": "i",
+        "startTime": 13.826086956521738,
+        "endTime": 13.956521739130435,
+        "wordIndex": 14,
+        "startAngle": 1.947674227627841,
+        "nominalAngle": 0.3201875443892046,
+        "scaleFactor": 1
+      },
+      {
+        "char": "n",
+        "startTime": 13.956521739130435,
+        "endTime": 14.08695652173913,
+        "wordIndex": 15,
+        "startAngle": 2.0770692027698865,
+        "nominalAngle": 0.44958251953125017,
+        "scaleFactor": 1
+      },
+      {
+        "char": "g",
+        "startTime": 14.08695652173913,
+        "endTime": 14.217391304347826,
+        "wordIndex": 16,
+        "startAngle": 2.237775213068182,
+        "nominalAngle": 0.6102885298295455,
+        "scaleFactor": 1
+      },
+      {
+        "char": " ",
+        "startTime": 14.217391304347826,
+        "endTime": 14.347826086956522,
+        "wordIndex": 17,
+        "startAngle": 2.3666708096590905,
+        "nominalAngle": 0.7391841264204542,
+        "scaleFactor": 1
+      },
+      {
+        "char": "c",
+        "startTime": 14.347826086956522,
+        "endTime": 14.478260869565217,
+        "wordIndex": 18,
+        "startAngle": 2.4905226828835225,
+        "nominalAngle": 0.8630359996448862,
+        "scaleFactor": 1
+      },
+      {
+        "char": "o",
+        "startTime": 14.478260869565217,
+        "endTime": 14.608695652173914,
+        "wordIndex": 19,
+        "startAngle": 2.6467342862215903,
+        "nominalAngle": 1.019247602982954,
+        "scaleFactor": 1
+      },
+      {
+        "char": "m",
+        "startTime": 14.608695652173914,
+        "endTime": 14.73913043478261,
+        "wordIndex": 20,
+        "startAngle": 2.8381021395596586,
+        "nominalAngle": 1.2106154563210223,
+        "scaleFactor": 1
+      },
+      {
+        "char": "e",
+        "startTime": 14.73913043478261,
+        "endTime": 14.869565217391305,
+        "wordIndex": 21,
+        "startAngle": 3.0269231622869315,
+        "nominalAngle": 1.3994364790482952,
+        "scaleFactor": 1
+      },
+      {
+        "char": "s",
+        "startTime": 14.869565217391305,
+        "endTime": 15,
+        "wordIndex": 22,
+        "startAngle": 3.1798388671875,
+        "nominalAngle": 1.5523521839488639,
+        "scaleFactor": 1
+      }
+    ]
+  },
+  {
+    "text": "我们仍然向前走",
+    "prefixes": [
+      0,
+      72,
+      144,
+      216,
+      288,
+      360,
+      432,
+      504
+    ],
+    "values": [
+      {
+        "char": "我",
+        "startTime": 15,
+        "endTime": 15.428571428571429,
+        "wordIndex": 0,
+        "startAngle": 0.10636363636363635,
+        "nominalAngle": -0.7486363636363637,
+        "scaleFactor": 1
+      },
+      {
+        "char": "们",
+        "startTime": 15.428571428571429,
+        "endTime": 15.857142857142858,
+        "wordIndex": 1,
+        "startAngle": 0.33749999999999997,
+        "nominalAngle": -0.5175000000000001,
+        "scaleFactor": 1
+      },
+      {
+        "char": "仍",
+        "startTime": 15.857142857142858,
+        "endTime": 16.285714285714285,
+        "wordIndex": 2,
+        "startAngle": 0.5870454545454545,
+        "nominalAngle": -0.26795454545454545,
+        "scaleFactor": 1
+      },
+      {
+        "char": "然",
+        "startTime": 16.285714285714285,
+        "endTime": 16.714285714285715,
+        "wordIndex": 3,
+        "startAngle": 0.8365909090909089,
+        "nominalAngle": -0.01840909090909104,
+        "scaleFactor": 1
+      },
+      {
+        "char": "向",
+        "startTime": 16.714285714285715,
+        "endTime": 17.142857142857142,
+        "wordIndex": 4,
+        "startAngle": 1.0861363636363635,
+        "nominalAngle": 0.23113636363636347,
+        "scaleFactor": 1
+      },
+      {
+        "char": "前",
+        "startTime": 17.142857142857142,
+        "endTime": 17.571428571428573,
+        "wordIndex": 5,
+        "startAngle": 1.3356818181818182,
+        "nominalAngle": 0.4806818181818182,
+        "scaleFactor": 1
+      },
+      {
+        "char": "走",
+        "startTime": 17.571428571428573,
+        "endTime": 18,
+        "wordIndex": 6,
+        "startAngle": 1.5852272727272727,
+        "nominalAngle": 0.7302272727272727,
+        "scaleFactor": 1
+      }
+    ]
+  }
+]
