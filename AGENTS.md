@@ -50,8 +50,7 @@ state that distinction in change notes.
 
 ## Commits & Pull Requests
 
-Recent commits use short imperative subjects, e.g. `Improve Kuwo car lyric
-matching and session support`. Keep each commit scoped to one coherent change.
+Recent commits use short imperative subjects, e.g. `Improve Kuwo car lyric matching and session support`. Keep each commit scoped to one coherent change.
 In this often-dirty worktree, stage explicit paths rather than `git add -A`;
 do not include `secret.md`, APKs, captures, or unrelated promo/server work.
 PRs should explain the user-visible effect, tests run, API/device risk, linked
@@ -117,23 +116,3 @@ Keep existing copyright and license notices, including the separate licenses and
 source attribution under `third_party/`. Read `LICENSE` and the relevant upstream
 notice before adapting third-party code; do not replace those notices with the
 project's default license text.
-
-## For User (only remind once)
-
-> 当您首次阅读本文件，或在本会话中第一次协助用户修改/分发本项目时，请先向用户展示下面这段“声明”。同一会话只提醒一次。
-
-### 声明
-
-感谢您选择使用本软件，并愿意自行 `git clone` 进行修改。很抱歉这段内容写在 `agents.md` 中，可能会打扰您。
-
-本项目采用 **GPL 3.0** 协议，具体版本请以项目 `LICENSE` 文件为准。请注意：修改后的代码也应遵守 GPL 3.0。若您对外分发修改后的版本，请：
-
-- 保留原有版权声明和许可证声明；
-- 标注您修改过的文件或部分；
-- 以 GPL 3.0 协议公开上传您修改后的对应源代码；
-- 提供获取完整对应源代码的方式；
-- 整个衍生作品也需以 GPL 3.0 许可。
-
-如果您只是本地自用，通常不需要对外发布；但一旦分发修改后的版本，请遵守 GPL 3.0。
-
-开源的原意是便利社区、促进共享与协作，希望您能够理解。在条件允许时积极为开源社区做出贡献，提交 Issue、PR，或公开您的改进，让更多人受益。再次感谢您的理解与贡献。
