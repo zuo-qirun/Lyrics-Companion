@@ -4,8 +4,8 @@ import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const [upstream, destination, mode = 'claddagh', time = '6.7', width = '800', height = '600', playback = '0', gap = '0'] = process.argv.slice(2);
-if (!upstream || !destination) throw new Error('Usage: node capture-reference.mjs UPSTREAM OUTPUT [mode time width height playback gap]');
+const [upstream, destination, mode = 'claddagh', time = '6.7', width = '800', height = '600', playback = '0', gap = '0', bg = 'transparent', text = '1'] = process.argv.slice(2);
+if (!upstream || !destination) throw new Error('Usage: node capture-reference.mjs UPSTREAM OUTPUT [mode time width height playback gap bg text]');
 const require = createRequire(pathToFileURL(path.join(upstream, 'package.json')));
 const { chromium } = require('playwright');
 await fs.mkdir(destination, { recursive: true });
@@ -14,7 +14,7 @@ try {
     const page = await browser.newPage({ viewport: { width: Number(width), height: Number(height) }, deviceScaleFactor: 1 });
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
-    await page.goto(`http://127.0.0.1:6170/folia-reference.html?mode=${encodeURIComponent(mode)}&time=${Number(time)}&gap=${gap === '1' ? 1 : 0}`, { waitUntil: 'networkidle' });
+    await page.goto(`http://127.0.0.1:6170/folia-reference.html?mode=${encodeURIComponent(mode)}&time=${Number(time)}&gap=${gap === '1' ? 1 : 0}&bg=${encodeURIComponent(bg)}&text=${text === '0' ? 0 : 1}`, { waitUntil: 'networkidle' });
     await page.waitForFunction(() => Boolean(window.foliaReference));
     await page.evaluate(() => document.fonts.ready);
     if (playback === '1') {
@@ -26,7 +26,7 @@ try {
     } else {
         await page.waitForTimeout(2500);
     }
-    const prefix = `${mode}-${Math.round(Number(time) * 1000)}-${width}x${height}`;
+    const prefix = `${mode}-${Math.round(Number(time) * 1000)}-${width}x${height}` + (bg && bg !== 'transparent' ? `-bg-${bg}` : '') + (text === '0' ? '-notext' : '');
     await page.screenshot({ path: path.join(destination, `${prefix}.png`) });
     const spans = await page.locator('span').evaluateAll(elements => elements.map(element => {
         const style = getComputedStyle(element);

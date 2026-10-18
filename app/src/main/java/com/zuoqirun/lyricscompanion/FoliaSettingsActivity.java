@@ -137,6 +137,20 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
             custom.addView(text("背景元素强度作用于莫奈花瓣与浮名纸面装饰；浮动幅度作用于流光/云阶的整行漂浮；逐字旋转只影响流光。",
                     12, 0xFF8392A8, false));
             addCard(root, custom);
+
+            LinearLayout background = card("背景模式");
+            choice(background, "还原版背景类型",
+                    new String[]{"无背景", "通用", "隐现", "莫奈", "漫游", "空", "嵌入"},
+                    new String[]{"", "common", "latent", "monet", "nomand", "sora", "url"},
+                    AppPreferences.displayString(this, secondary, AppPreferences.KEY_FOLIA_ORIGINAL_BG_MODE, ""),
+                    value -> {
+                        AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_FOLIA_ORIGINAL_BG_MODE, value);
+                        changed();
+                    });
+            background.addView(text("通用为几何图形；隐现按封面色生成流体场；莫奈为柔焦画像；漫游为网点纸面；空为星场；嵌入需要网页地址，留空时保持纯色。"
+                            + "“背景元素强度”会整体调节背景浓度；“无背景”保持原来的纯色底。",
+                    12, 0xFF8392A8, false));
+            addCard(root, background);
         }
 
         LinearLayout audio = card("真实律动");

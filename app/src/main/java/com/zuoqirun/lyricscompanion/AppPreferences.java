@@ -43,6 +43,7 @@ final class AppPreferences {
     static final String KEY_FOLIA_ORIGINAL_WORD_SPACING = "folia_original_word_spacing";
     static final String KEY_FOLIA_ORIGINAL_SUBTITLE_SCALE = "folia_original_subtitle_scale";
     static final String KEY_FOLIA_ORIGINAL_HEADER = "folia_original_header";
+    static final String KEY_FOLIA_ORIGINAL_BG_MODE = "folia_original_background_mode";
     static final String KEY_PLAYBACK_FADE = "playback_auto_fade";
     static final String KEY_PLAYBACK_FADE_SECONDS = "playback_fade_seconds";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
@@ -487,6 +488,7 @@ final class AppPreferences {
                     KEY_FOLIA_ORIGINAL_BACKGROUND, KEY_FOLIA_ORIGINAL_WORD_ROTATION,
                     KEY_FOLIA_ORIGINAL_FLOAT, KEY_FOLIA_ORIGINAL_WORD_SPACING,
                     KEY_FOLIA_ORIGINAL_SUBTITLE_SCALE, KEY_FOLIA_ORIGINAL_HEADER,
+                    KEY_FOLIA_ORIGINAL_BG_MODE,
                     KEY_REFINED_SHOW_TRANSLATION,
                     KEY_LYRIC_EFFECT, KEY_LYRIC_EFFECT_STRENGTH, KEY_LYRIC_EFFECT_SPEED,
                     KEY_LYRIC_EFFECT_FPS,

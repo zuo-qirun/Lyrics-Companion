@@ -45,6 +45,7 @@ final class FoliaOriginalCanvasRenderer {
     private final FoliaOriginalTemperaRenderer tempera = new FoliaOriginalTemperaRenderer();
     private final FoliaOriginalLumiereRenderer lumiere = new FoliaOriginalLumiereRenderer();
     private final FoliaOriginalSonnetRenderer sonnet = new FoliaOriginalSonnetRenderer();
+    private final FoliaOriginalBackgroundRenderer background = new FoliaOriginalBackgroundRenderer();
     private final FoliaRingMath.Pose pose = new FoliaRingMath.Pose();
     private final LruCache<Integer, PorterDuffColorFilter> colors = new LruCache<>(32);
     private final LruCache<String, PreparedLine> lines = new LruCache<>(24);
@@ -83,6 +84,8 @@ final class FoliaOriginalCanvasRenderer {
     private float nextLineScale = 1;
     /** 还原版自定义项：背景元素强度、逐字旋转、歌词浮动幅度、逐字间距、字幕字号、歌曲信息。 */
     private float backgroundOpacity = 1f;
+    /** 还原版背景模式：空字符串表示沿用纯色背景。 */
+    private String backgroundMode = "";
     private boolean wordRotation = true;
     private float floatMultiplier = 1f;
     private float wordSpacingScale = 1f;
@@ -133,6 +136,11 @@ final class FoliaOriginalCanvasRenderer {
     void setLowResourceMode(boolean low) {
         if (lowResourceMode != low) { masks.evictAll(); lines.evictAll(); }
         lowResourceMode = low;
+    }
+
+    void setBackgroundMode(String value) {
+        backgroundMode = FoliaOriginalBackgroundRenderer.normalize(value);
+        background.clear();
     }
 
     void setLyricColorOverrides(boolean current, boolean inactive) {
@@ -236,6 +244,7 @@ final class FoliaOriginalCanvasRenderer {
             track = snapshot.sourceName + '\n' + snapshot.title + '\n' + snapshot.artist;
             articleBlocks = null;
             lines.evictAll();
+            background.clear();
             resetMotion();
         }
         int current = activeIndex(sourceLines, time);
@@ -279,6 +288,8 @@ final class FoliaOriginalCanvasRenderer {
         }
         bass = (float) audioBass.step(targetBass, dt / 1000.0, 150, 25, 1);
         clockworkMotion.step(dt / 1000.0, targetBass, !playing, strength);
+        background.draw(canvas, width, height, time, backgroundMode, snapshot.albumArt,
+                primary, accent, muted, backgroundOpacity);
         if (sourceLines.isEmpty()) {
             label(canvas, snapshot.lyrics.lyric.isEmpty() ? snapshot.active ? "正在匹配歌词" : "等待播放"
                     : snapshot.lyrics.lyric, width / 2, height / 2,

@@ -217,6 +217,7 @@ public final class FoliaRenderFixtureActivity extends Activity {
                 intent.getIntExtra("originalWordSpacing", 100),
                 intent.getIntExtra("originalSubtitleScale", 100),
                 intent.getBooleanExtra("originalHeader", true));
+        renderer.setBackgroundMode(intent.getStringExtra("backgroundMode"));
     }
 
     private static final class FixtureRenderer {
