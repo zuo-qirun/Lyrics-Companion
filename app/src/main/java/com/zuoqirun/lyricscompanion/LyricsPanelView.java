@@ -57,6 +57,18 @@ final class LyricsPanelView extends View {
     /** 星空底色（夜幕 + 星云）预渲染成的位图，只在尺寸或调色板变化时重建。 */
     private Bitmap starfieldBackdrop;
     private String starfieldBackdropKey = "";
+    /**
+     * 悬浮窗背景的渐变着色器按「单位坐标 + setLocalMatrix」复用，
+     * 避免每帧 new LinearGradient / RadialGradient 在原生堆里堆积 SkShader（长时间播放内存暴涨）。
+     */
+    private LinearGradient refinedGradientShader;
+    private String refinedGradientShaderKey = "";
+    private final RadialGradient[] refinedFluidShaders = new RadialGradient[4];
+    private String refinedFluidShaderKey = "";
+    private LinearGradient refinedFallbackShader;
+    private String refinedFallbackShaderKey = "";
+    private final Matrix refinedShaderMatrix = new Matrix();
+    private final float[] refinedShaderValues = new float[9];
     private float[] refinedLineHeights = new float[8];
     private float[] refinedLineTops = new float[8];
     private float textScale = 1f;
@@ -3988,8 +4000,7 @@ final class LyricsPanelView extends View {
                     ? (sceneClock % 120_000L) / 120_000f : 0.125f;
             float endX = getWidth() * (0.2f + phase * 0.8f);
             float endY = getHeight() * (1f - phase * 0.6f);
-            paint.setShader(new LinearGradient(0f, getHeight(), endX, endY,
-                    palette, null, Shader.TileMode.CLAMP));
+            paint.setShader(refinedGradient(endX, endY));
             canvas.drawRect(panelRect, paint);
         } else if ("fluid".equals(type)) {
             paint.setColor(mix(accent, light ? Color.WHITE : Color.BLACK, 0.62f));
@@ -4004,21 +4015,22 @@ final class LyricsPanelView extends View {
             float phase = refinedStaticFluid || !playing && !folia ? 0.23f
                     : (sceneClock % 150_000L) / 150_000f;
             float radiusValue = Math.max(getWidth(), getHeight()) * 0.72f;
+            ensureFluidShaders(radiusValue);
             for (int index = 0; index < 4; index++) {
                 double angle = phase * Math.PI * 2d + index * Math.PI / 2d;
                 float cx = getWidth() * 0.5f + (float) Math.cos(angle) * getWidth() * 0.33f;
                 float cy = getHeight() * 0.5f + (float) Math.sin(angle) * getHeight() * 0.28f;
-                paint.setShader(new RadialGradient(cx, cy, radiusValue,
-                        withAlpha(palette[index], 205), withAlpha(palette[index], 0),
-                        Shader.TileMode.CLAMP));
+                refinedShaderMatrix.setScale(1f / radiusValue, 1f / radiusValue);
+                refinedShaderMatrix.postTranslate(-cx / radiusValue, -cy / radiusValue);
+                refinedFluidShaders[index].setLocalMatrix(refinedShaderMatrix);
+                paint.setShader(refinedFluidShaders[index]);
                 canvas.drawRect(panelRect, paint);
             }
         } else if (art != null && !art.isRecycled()) {
             drawBitmapCrop(canvas, blurredPreview(art), panelRect, 255,
                     backgroundBrightnessFilter());
         } else {
-            paint.setShader(new LinearGradient(0f, 0f, getWidth(), getHeight(),
-                    palette[0], palette[3], Shader.TileMode.CLAMP));
+            paint.setShader(refinedFallbackGradient());
             canvas.drawRect(panelRect, paint);
         }
         paint.setShader(null);
@@ -4035,6 +4047,64 @@ final class LyricsPanelView extends View {
         canvas.restoreToCount(layer);
         paint.setShader(null);
         paint.setAlpha(255);
+    }
+
+    /**
+     * 动态线性渐变：着色器用单位坐标创建并复用，每帧只更新 local matrix。
+     * 以前每帧 new 一个 LinearGradient，长时间播放会把 SkShader 原生内存堆高。
+     */
+    private Shader refinedGradient(float endX, float endY) {
+        String key = Integer.toHexString(palette[0]) + Integer.toHexString(palette[1])
+                + Integer.toHexString(palette[2]) + Integer.toHexString(palette[3])
+                + ":" + getWidth() + "x" + getHeight();
+        if (refinedGradientShader == null || !key.equals(refinedGradientShaderKey)) {
+            refinedGradientShader = new LinearGradient(0f, 0f, 1f, 0f,
+                    palette, null, Shader.TileMode.CLAMP);
+            refinedGradientShaderKey = key;
+        }
+        float dx = endX;
+        float dy = endY - getHeight();
+        float lengthSquared = Math.max(1f, dx * dx + dy * dy);
+        float[] values = refinedShaderValues;
+        values[Matrix.MSCALE_X] = dx / lengthSquared;
+        values[Matrix.MSKEW_X] = dy / lengthSquared;
+        values[Matrix.MTRANS_X] = -dy * getHeight() / lengthSquared;
+        values[Matrix.MSKEW_Y] = 0f;
+        values[Matrix.MSCALE_Y] = 1f;
+        values[Matrix.MTRANS_Y] = 0f;
+        values[Matrix.MPERSP_0] = 0f;
+        values[Matrix.MPERSP_1] = 0f;
+        values[Matrix.MPERSP_2] = 1f;
+        refinedShaderMatrix.setValues(values);
+        refinedGradientShader.setLocalMatrix(refinedShaderMatrix);
+        return refinedGradientShader;
+    }
+
+    /** fluid 背景的 4 个径向渐变：单位圆着色器 + 每帧 local matrix 平移缩放。 */
+    private void ensureFluidShaders(float radiusValue) {
+        float radius = Math.max(1f, radiusValue);
+        String key = Integer.toHexString(palette[0]) + Integer.toHexString(palette[1])
+                + Integer.toHexString(palette[2]) + Integer.toHexString(palette[3])
+                + ":" + Math.round(radius);
+        if (refinedFluidShaders[0] != null && key.equals(refinedFluidShaderKey)) return;
+        for (int index = 0; index < 4; index++) {
+            refinedFluidShaders[index] = new RadialGradient(0f, 0f, 1f,
+                    withAlpha(palette[index], 205), withAlpha(palette[index], 0),
+                    Shader.TileMode.CLAMP);
+        }
+        refinedFluidShaderKey = key;
+    }
+
+    /** 无封面兜底的斜向渐变：坐标固定，按调色板与尺寸缓存。 */
+    private Shader refinedFallbackGradient() {
+        String key = Integer.toHexString(palette[0]) + Integer.toHexString(palette[3])
+                + ":" + getWidth() + "x" + getHeight();
+        if (refinedFallbackShader == null || !key.equals(refinedFallbackShaderKey)) {
+            refinedFallbackShader = new LinearGradient(0f, 0f, getWidth(), getHeight(),
+                    palette[0], palette[3], Shader.TileMode.CLAMP);
+            refinedFallbackShaderKey = key;
+        }
+        return refinedFallbackShader;
     }
 
     /**

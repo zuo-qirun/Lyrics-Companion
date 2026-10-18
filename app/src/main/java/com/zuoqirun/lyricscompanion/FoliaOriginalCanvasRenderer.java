@@ -15,6 +15,8 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.os.Debug;
+import android.util.Log;
 import android.util.LruCache;
 
 import java.util.Collections;
@@ -66,6 +68,9 @@ final class FoliaOriginalCanvasRenderer {
     private float articleWidth, articleHeight;
     /** Debug-only switch used by the fixture activity to dump fume layout numbers. */
     static boolean debugLayout;
+    /** Temporary instrumentation for tracking down native heap growth during playback. */
+    static boolean debugMemory;
+    private long probeFrames, probeBg, probeMode, probeSub;
     private List<LrcTimeline.Line> sourceLines = Collections.emptyList();
     private String track = "";
     private String mode = "claddagh";
@@ -331,8 +336,10 @@ final class FoliaOriginalCanvasRenderer {
         }
         bass = (float) audioBass.step(targetBass, dt / 1000.0, 150, 25, 1);
         clockworkMotion.step(dt / 1000.0, targetBass, !playing, strength);
+        long probeStart = debugMemory ? Debug.getNativeHeapAllocatedSize() : 0L;
         background.draw(canvas, width, height, time, backgroundMode, snapshot.albumArt,
                 primary, accent, muted, backgroundOpacity);
+        long probeAfterBackground = debugMemory ? Debug.getNativeHeapAllocatedSize() : 0L;
         if (sourceLines.isEmpty()) {
             label(canvas, snapshot.lyrics.lyric.isEmpty() ? snapshot.active ? "正在匹配歌词" : "等待播放"
                     : snapshot.lyrics.lyric, width / 2, height / 2,
@@ -364,8 +371,24 @@ final class FoliaOriginalCanvasRenderer {
         } else {
             drawTypographyTransition(canvas);
         }
+        long probeAfterMode = debugMemory ? Debug.getNativeHeapAllocatedSize() : 0L;
         if (!"monet".equals(mode) && !"lumiere".equals(mode) && !"cappella".equals(mode)
                 && !"still".equals(mode) && !"pendolo".equals(mode) && !"fume".equals(mode)) subtitle(canvas);
+        if (debugMemory) {
+            long probeAfterSubtitle = Debug.getNativeHeapAllocatedSize();
+            probeBg += probeAfterBackground - probeStart;
+            probeMode += probeAfterMode - probeAfterBackground;
+            probeSub += probeAfterSubtitle - probeAfterMode;
+            probeFrames++;
+            if (probeFrames % 60 == 0) {
+                Log.i("FoliaMem", String.format(Locale.US,
+                        "frames=%d native=%dKB %dx%d mode=%s bg=%s d(bg=%d mode=%d sub=%d KB)",
+                        probeFrames, Debug.getNativeHeapAllocatedSize() / 1024,
+                        Math.round(width), Math.round(height), mode, backgroundMode,
+                        probeBg / 1024, probeMode / 1024, probeSub / 1024));
+                probeBg = probeMode = probeSub = 0;
+            }
+        }
         shape.setShader(null);
         shape.setColorFilter(null);
         shape.setStyle(Paint.Style.FILL);
@@ -562,12 +585,17 @@ final class FoliaOriginalCanvasRenderer {
     }
 
     private void drawSoftMask(Canvas canvas, PreparedLine line, int index, int color, float opacity, float blur, int layer) {
-        if (gpuText.draw(canvas, line.index + ":" + index + ':' + layer, line.timeline.glyphs[index], line.font, line.size, line.baseline,
-                color, opacity, blur)) return;
+        // 统一走 CPU 遮罩位图：缓存有界（2MiB/面板）且淘汰时立即 recycle。
+        // API 31 的 RenderNode/RenderEffect 路径会按「字色 × 模糊半径」新建原生对象与 GPU 纹理，
+        // 而 GC 不会因原生压力及时触发，连续播放时原生堆 / GL / Ashmem 会单调增长（实测约 25MB/分钟，
+        // 内存反馈即来源于此）。位图路径在硬件画布上同样由 GPU 合成，观感与本机软件截图一致。
         drawMask(canvas, line, index, color, opacity, blur);
     }
 
     private void drawMask(Canvas canvas, PreparedLine line, int index, int color, float opacity, float sigma) {
+        // 模糊半径在过渡动画里逐帧变化，量化到 0.5px（视觉差 ≤0.25px）后再进缓存键，
+        // 否则每帧都会为每个字形重建一张遮罩位图，原生堆随播放时长持续增长。
+        sigma = Math.round(sigma * 2f) / 2f;
         // RenderEffect/CSS blur use sigma. BlurMaskFilter's public radius is converted by Skia:
         // https://skia.googlesource.com/skia/+/refs/heads/android/10-release/src/core/SkBlurMask.cpp
         float radius = sigma > 0.5f ? (sigma - 0.5f) / 0.57735f : 0;

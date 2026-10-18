@@ -58,7 +58,10 @@ final class FoliaGpuText {
                 cached = new Glyph(node, PADDING + width / 2, PADDING - metrics.ascent);
                 glyphs.put(key, cached);
             }
-            float radius = Math.max(0.0001f, blur);
+            // 模糊半径在动画里逐帧变化；如果直接拿它做 key，每帧都会新建一个 RenderEffect
+            // （Skia 原生分配 + 模糊纹理），GC 又迟迟不触发，原生堆会随时间单调增长。
+            // 半径量化到 1px（视觉差 ≤0.5px）后，同一段动画只需缓存少量 effect。
+            int radius = Math.max(1, Math.round(Math.max(0.0001f, blur)));
             String effectKey = color + ":" + radius;
             android.graphics.RenderEffect effect = effects.get(effectKey);
             if (effect == null) {

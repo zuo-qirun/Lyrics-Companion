@@ -54,6 +54,12 @@ final class FoliaOriginalBackgroundRenderer {
     private final Rect dst = new Rect();
     private final Path path = new Path();
     private final Matrix matrix = new Matrix();
+    /**
+     * Monet 叠加层的 6 个渐变按 (尺寸, 透明度, 主题色) 缓存：它们每帧完全相同，
+     * 之前逐帧 new 会在长时间播放中堆积 SkShader 原生内存。
+     */
+    private final Shader[] monetShaders = new Shader[6];
+    private String monetShaderKey = "";
 
     private int primaryColor = 0xFFF5F8FF;
     private int accentColor = 0xFFFF984B;
@@ -334,26 +340,14 @@ final class FoliaOriginalBackgroundRenderer {
 
         // paintMonetOverlay(): upstream bakes this into the 1920x1080 poster bitmap.
         float overlay = 0.74f;
-        fill.setShader(null);
-        fill.setShader(new LinearGradient(0, 0, width, height,
-                new int[]{withAlpha(accentColor, (0.08f + overlay * 0.62f) * alpha),
-                        withAlpha(THEME_BACKGROUND, (0.16f + overlay * 0.58f) * alpha),
-                        withAlpha(primaryColor, (0.06f + overlay * 0.36f) * alpha)},
-                new float[]{0f, 0.44f, 1f}, Shader.TileMode.CLAMP));
+        ensureMonetShaders(width, height, alpha);
+        fill.setShader(monetShaders[0]);
         canvas.drawRect(0, 0, width, height, fill);
-        fill.setShader(new RadialGradient(width * 0.18f, height * 0.34f, width * 0.55f,
-                new int[]{withAlpha(accentColor, overlay * 0.52f * alpha), Color.TRANSPARENT},
-                new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+        fill.setShader(monetShaders[1]);
         canvas.drawRect(0, 0, width, height, fill);
-        fill.setShader(new LinearGradient(0, 0, width * 0.5f, height * 0.6f,
-                new int[]{withAlpha(blend(accentColor, Color.WHITE, 0.2f), 0.2f * alpha),
-                        Color.TRANSPARENT},
-                new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+        fill.setShader(monetShaders[2]);
         canvas.drawRect(0, 0, width, height, fill);
-        fill.setShader(new LinearGradient(width * 0.45f, 0, width, 0,
-                new int[]{withAlpha(THEME_BACKGROUND, 0f),
-                        withAlpha(THEME_BACKGROUND, (0.18f + overlay * 0.38f) * alpha)},
-                new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+        fill.setShader(monetShaders[3]);
         canvas.drawRect(0, 0, width, height, fill);
         // 18 faint vertical streaks.
         fill.setShader(null);
@@ -363,20 +357,50 @@ final class FoliaOriginalBackgroundRenderer {
             float y = ((index * 211) % Math.max(1f, height)) - 40;
             canvas.drawRect(x, y, x + 1, y + height * 0.28f, fill);
         }
-        // readabilityGradient.
-        fill.setShader(new LinearGradient(0, 0, width, 0,
+        // readabilityGradient + theme flatten + vignette.
+        fill.setShader(monetShaders[4]);
+        canvas.drawRect(0, 0, width, height, fill);
+        fill.setShader(null);
+        fill.setColor(withAlpha(THEME_BACKGROUND, 0.38f * alpha));
+        canvas.drawRect(0, 0, width, height, fill);
+        fill.setShader(monetShaders[5]);
+        canvas.drawRect(0, 0, width, height, fill);
+        fill.setShader(null);
+    }
+
+    private void ensureMonetShaders(float width, float height, float alpha) {
+        String key = Math.round(width) + "x" + Math.round(height) + ":"
+                + Math.round(alpha * 100f) + ":"
+                + Integer.toHexString(accentColor) + Integer.toHexString(primaryColor);
+        if (key.equals(monetShaderKey) && monetShaders[0] != null) return;
+        float overlay = 0.74f;
+        monetShaders[0] = new LinearGradient(0, 0, width, height,
+                new int[]{withAlpha(accentColor, (0.08f + overlay * 0.62f) * alpha),
+                        withAlpha(THEME_BACKGROUND, (0.16f + overlay * 0.58f) * alpha),
+                        withAlpha(primaryColor, (0.06f + overlay * 0.36f) * alpha)},
+                new float[]{0f, 0.44f, 1f}, Shader.TileMode.CLAMP);
+        monetShaders[1] = new RadialGradient(width * 0.18f, height * 0.34f, width * 0.55f,
+                new int[]{withAlpha(accentColor, overlay * 0.52f * alpha), Color.TRANSPARENT},
+                new float[]{0f, 1f}, Shader.TileMode.CLAMP);
+        monetShaders[2] = new LinearGradient(0, 0, width * 0.5f, height * 0.6f,
+                new int[]{withAlpha(blend(accentColor, Color.WHITE, 0.2f), 0.2f * alpha),
+                        Color.TRANSPARENT},
+                new float[]{0f, 1f}, Shader.TileMode.CLAMP);
+        monetShaders[3] = new LinearGradient(width * 0.45f, 0, width, 0,
+                new int[]{withAlpha(THEME_BACKGROUND, 0f),
+                        withAlpha(THEME_BACKGROUND, (0.18f + overlay * 0.38f) * alpha)},
+                new float[]{0f, 1f}, Shader.TileMode.CLAMP);
+        monetShaders[4] = new LinearGradient(0, 0, width, 0,
                 new int[]{withAlpha(THEME_BACKGROUND, 0.18f * alpha),
                         withAlpha(THEME_BACKGROUND, 0.32f * alpha),
                         withAlpha(THEME_BACKGROUND, 0.66f * alpha),
                         withAlpha(THEME_BACKGROUND, 0.82f * alpha)},
-                new float[]{0f, 0.34f, 0.7f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
-        // The browser reference keeps the wash dimmer than the raw cover: flatten it with one
-        // more theme-coloured pass and a soft vignette.
-        fill.setShader(null);
-        fill.setColor(withAlpha(THEME_BACKGROUND, 0.38f * alpha));
-        canvas.drawRect(0, 0, width, height, fill);
-        drawVignette(canvas, width, height, 0.3f * alpha);
+                new float[]{0f, 0.34f, 0.7f, 1f}, Shader.TileMode.CLAMP);
+        float vignette = 0.3f * alpha;
+        monetShaders[5] = new RadialGradient(width / 2, height / 2, Math.max(width, height) * 0.75f,
+                new int[]{Color.TRANSPARENT, Color.TRANSPARENT, withAlpha(Color.BLACK, vignette)},
+                new float[]{0f, 0.4f, 1f}, Shader.TileMode.CLAMP);
+        monetShaderKey = key;
     }
 
     /**
