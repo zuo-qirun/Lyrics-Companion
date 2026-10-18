@@ -775,10 +775,17 @@ final class FoliaCanvasRenderer {
     private void article(Canvas canvas) {
         int center = Math.max(0, anchor);
         if (articleBlocks == null || articleWidth != width || articleHeight != height) {
-            text.setTypeface(regularFace); text.setTextSize(32);
-            float[] emWidths = new float[sourceLines.size()];
-            for (int i = 0; i < sourceLines.size(); i++) emWidths[i] = text.measureText(sourceLines.get(i).text) / 32;
-            articleBlocks = FoliaArticleLayout.build(sourceLines, width, height, fontScale, "Folia", emWidths);
+            FoliaArticleLayout.Article layout = FoliaArticleLayout.build(sourceLines, width, height,
+                    fontScale, "Folia", new FoliaArticleLayout.Measure() {
+                        @Override
+                        public int lineCount(String value, float fontSize, float innerWidth) {
+                            text.setTypeface(regularFace);
+                            text.setTextSize(Math.max(1f, fontSize));
+                            return Math.max(1, (int) Math.ceil(text.measureText(value)
+                                    / Math.max(1f, innerWidth)));
+                        }
+                    });
+            articleBlocks = layout == null ? null : layout.blocks;
             articleWidth = width; articleHeight = height;
         }
         FoliaArticleLayout.Block focus = articleBlocks[center];

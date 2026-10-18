@@ -79,6 +79,11 @@ final class FoliaCameraMotion {
         private boolean initialized;
 
         void clear() { initialized = false; source = Integer.MIN_VALUE; velocityX = velocityY = velocityScale = 0; }
+        /** Freezes the camera at the article center until the player actually advances time. */
+        void ensureInitialized(double targetX, double targetY) {
+            if (initialized) return;
+            snap(targetX, targetY, 1.18);
+        }
         void snap(double targetX, double targetY, double targetScale) {
             x = focusX = targetX; y = focusY = targetY; scale = focusScale = targetScale;
             velocityX = velocityY = velocityScale = 0; initialized = true;

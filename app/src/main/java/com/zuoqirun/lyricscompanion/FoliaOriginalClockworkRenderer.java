@@ -14,6 +14,7 @@ final class FoliaOriginalClockworkRenderer {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int primary, accent;
+    private float decor = 1f;
 
     void draw(Canvas canvas, float radius, float cy, FoliaOriginalClockworkMotion motion,
               float lyricRadius, double angle) {
@@ -48,12 +49,12 @@ final class FoliaOriginalClockworkRenderer {
             circle(canvas, radius * 0.96f * (float) Math.cos(a), radius * 0.96f * (float) Math.sin(a), 2.2f, primary, 0.25f, 0.8f);
         }
         gear(canvas, 0, 0, radius * 0.22f, 12, 6, -angle * 2.5, accent, 0.72f, 2.1f, 0);
-        jewel(canvas, 0, 0, 4.5f, 2.5f);
+        jewel(canvas, 0, 0, 4.5f, 2.5f, 1.2f, 0.8f);
         for (int i = 0; i < 3; i++) {
             double a = angle * 0.4 + i * Math.PI * 2 / 3;
             float x = radius * 0.52f * (float) Math.cos(a), y = radius * 0.52f * (float) Math.sin(a);
             gear(canvas, x, y, radius * 0.16f, 14, 5, -angle * 3 + i * 0.5, primary, 0.24f, 1.7f, 0);
-            jewel(canvas, x, y, 3.5f, 1.8f);
+            jewel(canvas, x, y, 3.5f, 1.8f, 1f, 0.7f);
         }
         float bx = radius * 0.2f, by = -radius * 0.75f, br = radius * 0.28f;
         gear(canvas, bx, by, br, 20, 7, phase * 0.1, accent, 0.72f, 2.1f, 0.10f);
@@ -70,7 +71,7 @@ final class FoliaOriginalClockworkRenderer {
         }
         stroke(canvas, accent, 0.3f, 0.8f);
         canvas.restoreToCount(spring);
-        jewel(canvas, bx, by, 3.5f, 1.8f);
+        jewel(canvas, bx, by, 3.5f, 1.8f, 1f, 0.7f);
         float tx = radius * 0.32f, ty = radius * 0.78f, tr = radius * 0.34f;
         gear(canvas, tx, ty, tr, 24, 7, -angle * 1.4, primary, 0.42f, 1.8f, 0);
         wheel(canvas, tx, ty, tr * 0.25f, tr * 0.85f, 5, -angle * 1.4, primary, 0.32f, 1.5f);
@@ -79,24 +80,30 @@ final class FoliaOriginalClockworkRenderer {
         path.reset(); path.addCircle(0, 0, tr * 0.8f, Path.Direction.CW); canvas.clipPath(path);
         for (int i = 1; i <= 9; i++) line(canvas, -tr, -tr * 0.8f + i * tr * 0.16f,
                 tr, -tr * 0.8f + i * tr * 0.16f, primary, i % 2 == 0 ? 0.1f : 0.06f, 0.7f);
-        canvas.restoreToCount(stripes); jewel(canvas, tx, ty, 3.5f, 1.8f);
+        canvas.restoreToCount(stripes); jewel(canvas, tx, ty, 3.5f, 1.8f, 1f, 0.7f);
         float sx = radius * 0.68f, sy = radius * 0.76f, sr = radius * 0.16f;
         double secondAngle = motion.secondGearAngle;
         gear(canvas, sx, sy, sr, 15, 5, secondAngle, accent, 0.58f, 1.8f, 0.06f);
         wheel(canvas, sx, sy, sr * 0.28f, sr * 0.76f, 4, -secondAngle, primary, 0.32f, 1.3f);
-        jewel(canvas, sx, sy, 2.8f, 1.5f);
+        jewel(canvas, sx, sy, 2.8f, 1.5f, 0.8f, 0.6f);
         float ix = (tx + sx) / 2 + radius * 0.04f, iy = (ty + sy) / 2 - radius * 0.02f;
         gear(canvas, ix, iy, radius * 0.08f, 10, 3.5f, angle * 2.2, primary, 0.28f, 1.3f, 0);
         circle(canvas, ix, iy, radius * 0.08f * 0.45f, primary, 0.18f, 0.8f);
-        jewel(canvas, ix, iy, 2.2f, 1.2f);
+        jewel(canvas, ix, iy, 2.2f, 1.2f, 0.7f, 0.5f);
         float end = lyricRadius - Math.max(14, radius * 0.025f);
         line(canvas, radius * 0.8f, 0, end, 0, accent, 0.72f, 2);
         path.reset(); path.moveTo(end, -4); path.lineTo(end + 8, 0); path.lineTo(end, 4); path.close();
         paint.setStyle(Paint.Style.FILL); paint.setColor(alpha(accent, 0.72f)); canvas.drawPath(path, paint);
+        // VisualizerPendolo.tsx draws a lucide star over the balance wheel (theme has no lyric icons).
+        star(canvas, radius * 0.2f, -radius * 0.75f, Math.max(14f, radius * 0.13f));
         canvas.restoreToCount(save);
     }
 
-    void colors(int primary, int accent) { this.primary = primary; this.accent = accent; }
+    void colors(int primary, int accent, float decor) {
+        this.primary = primary;
+        this.accent = accent;
+        this.decor = decor;
+    }
 
     private void gear(Canvas c, float x, float y, float radius, int teeth, float depth, double rotation,
                       int color, float opacity, float width, float fill) {
@@ -125,8 +132,33 @@ final class FoliaOriginalClockworkRenderer {
         c.restoreToCount(save);
     }
 
-    private void jewel(Canvas c, float x, float y, float outer, float inner) {
-        circle(c, x, y, outer, accent, 0.65f, 1); circle(c, x, y, inner, accent, 0.28f, 0.7f);
+    private void jewel(Canvas c, float x, float y, float outer, float inner, float outerWidth, float innerWidth) {
+        circle(c, x, y, outer, accent, 0.65f, outerWidth);
+        circle(c, x, y, inner, accent, 0.28f, innerWidth);
+    }
+
+    /** lucide Star icon drawn over the balance wheel at accent@0.62. */
+    private void star(Canvas c, float x, float y, float size) {
+        float k = size / 24f;
+        int save = c.save();
+        c.translate(x, y);
+        c.scale(k, k);
+        c.translate(-12, -12);
+        path.reset();
+        float[] points = {12, 2, 15.09f, 8.26f, 22, 9.27f, 17, 14.14f, 18.18f, 21.02f, 12, 17.77f,
+                5.82f, 21.02f, 7, 14.14f, 2, 9.27f, 8.91f, 8.26f};
+        for (int i = 0; i < points.length; i += 2) {
+            if (i == 0) path.moveTo(points[i], points[i + 1]);
+            else path.lineTo(points[i], points[i + 1]);
+        }
+        path.close();
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor(alpha(accent, 0.62f));
+        paint.setStrokeWidth(1.2f / k);
+        c.drawPath(path, paint);
+        c.restoreToCount(save);
     }
     private void circle(Canvas c, float x, float y, float r, int color, float alpha, float width) {
         paint.setStyle(Paint.Style.STROKE); paint.setColor(alpha(color, alpha)); paint.setStrokeWidth(width); c.drawCircle(x, y, r, paint);
@@ -137,5 +169,5 @@ final class FoliaOriginalClockworkRenderer {
     private void stroke(Canvas c, int color, float alpha, float width) {
         paint.setStyle(Paint.Style.STROKE); paint.setColor(alpha(color, alpha)); paint.setStrokeWidth(width); c.drawPath(path, paint);
     }
-    private static int alpha(int color, float value) { return (color & 0x00ffffff) | Math.round((color >>> 24) * value) << 24; }
+    private int alpha(int color, float value) { return (color & 0x00ffffff) | Math.round(value * decor * (color >>> 24)) << 24; }
 }

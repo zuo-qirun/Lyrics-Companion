@@ -135,9 +135,18 @@ final class FoliaOriginalLumiereRenderer {
         drawParagraph(canvas, program.get(current), (float) enter, bass);
         drawOverlay(canvas);
         if (showTranslation && anchor >= 0 && anchor < lines.size() && !lines.get(anchor).translated.isEmpty()) {
-            text.setTextSize(Math.max(12, Math.min(24, width * 0.0275f)) * fontScale);
+            // Shared subtitle overlay: 20px / 30px line box anchored 34px above the viewport bottom.
+            float subtitleSize = 20 * fontScale;
+            float subtitleLineHeight = 30 * fontScale;
+            float subtitleTop = height - 34 - subtitleLineHeight;
+            text.setTextSize(subtitleSize);
+            Paint.FontMetrics subtitleMetrics = text.getFontMetrics();
+            float subtitleBaseline = subtitleTop
+                    + (subtitleLineHeight - (subtitleMetrics.descent - subtitleMetrics.ascent)) / 2f
+                    - subtitleMetrics.ascent;
             text.setColor(color(litColor)); text.setAlpha(190);
-            canvas.drawText(lines.get(anchor).translated, width / 2, height - Math.max(32, height * 0.1f), text);
+            text.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(lines.get(anchor).translated, width / 2f, subtitleBaseline, text);
         }
     }
 

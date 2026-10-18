@@ -53,7 +53,14 @@ final class FoliaOriginalCanvasRenderer {
         @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
     };
     private FoliaArticleLayout.Block[] articleBlocks;
+    private FoliaArticleLayout.Article articleArticle;
+    private FoliaFumeBackground.Scene articleBackground;
+    private String articleSeed = "";
+    private String themeName = "Folia";
+    private String geometrySeed = "";
     private float articleWidth, articleHeight;
+    /** Debug-only switch used by the fixture activity to dump fume layout numbers. */
+    static boolean debugLayout;
     private List<LrcTimeline.Line> sourceLines = Collections.emptyList();
     private String track = "";
     private String mode = "claddagh";
@@ -86,10 +93,15 @@ final class FoliaOriginalCanvasRenderer {
     }
 
     void setGeometrySeed(String seed) {
+        geometrySeed = seed == null ? "" : seed;
         tempera.setGeometrySeed(seed);
         sonnet.setGeometrySeed(seed);
         lumiere.setGeometrySeed(seed);
         diorama.setGeometrySeed(seed);
+    }
+
+    void setThemeName(String name) {
+        themeName = name == null || name.isEmpty() ? "Folia" : name;
     }
 
     void configureNextLine(boolean show, float scale) {
@@ -278,7 +290,7 @@ final class FoliaOriginalCanvasRenderer {
             drawTypographyTransition(canvas);
         }
         if (!"monet".equals(mode) && !"lumiere".equals(mode) && !"cappella".equals(mode)
-                && !"still".equals(mode) && !"pendolo".equals(mode)) subtitle(canvas);
+                && !"still".equals(mode) && !"pendolo".equals(mode) && !"fume".equals(mode)) subtitle(canvas);
         shape.setShader(null);
         shape.setColorFilter(null);
         shape.setStyle(Paint.Style.FILL);
@@ -407,6 +419,16 @@ final class FoliaOriginalCanvasRenderer {
         char code = glyph.charAt(0);
         return code >= 0x4e00 && code <= 0x9fa5 || code >= 0x3040 && code <= 0x30ff
                 || code >= 0xac00 && code <= 0xd7af;
+    }
+
+    private static boolean hasCjk(String text) {
+        if (text == null) return false;
+        for (int i = 0; i < text.length(); i++) {
+            char code = text.charAt(i);
+            if (code >= 0x4e00 && code <= 0x9fa5 || code >= 0x3040 && code <= 0x30ff
+                    || code >= 0xac00 && code <= 0xd7af) return true;
+        }
+        return false;
     }
 
     private static double visualLength(String text) {
@@ -936,12 +958,50 @@ final class FoliaOriginalCanvasRenderer {
 
     private void article(Canvas canvas) {
         int center = Math.max(0, anchor);
-        if (articleBlocks == null || articleWidth != width || articleHeight != height) {
-            text.setTypeface(regularFace); text.setTextSize(32);
-            float[] emWidths = new float[sourceLines.size()];
-            for (int i = 0; i < sourceLines.size(); i++) emWidths[i] = text.measureText(sourceLines.get(i).text) / 32;
-            articleBlocks = FoliaArticleLayout.build(sourceLines, width, height, fontScale, "Folia", emWidths);
-            articleWidth = width; articleHeight = height;
+        String layoutSeed = themeName.isEmpty() ? "Folia" : themeName;
+        if (articleArticle == null || articleWidth != width || articleHeight != height
+                || !layoutSeed.equals(articleSeed)) {
+            articleArticle = FoliaArticleLayout.build(sourceLines, width, height, fontScale, layoutSeed,
+                    new FoliaArticleLayout.Measure() {
+                        @Override
+                        public int lineCount(String value, float fontSize, float innerWidth) {
+                            text.setTypeface(regularFace);
+                            text.setTextSize(Math.max(1f, fontSize));
+                            return Math.max(1, (int) Math.ceil(text.measureText(value)
+                                    / Math.max(1f, innerWidth)));
+                        }
+                    });
+            articleBlocks = articleArticle == null ? null : articleArticle.blocks;
+            articleSeed = layoutSeed;
+            articleWidth = width;
+            articleHeight = height;
+            String identitySeed = geometrySeed.isEmpty() ? "Folia" : geometrySeed;
+            articleBackground = articleArticle == null ? null : FoliaFumeBackground.build(
+                    width, height, articleArticle.width, articleArticle.height,
+                    articleArticle.paperLeft, articleArticle.paperTop,
+                    articleArticle.paperRight, articleArticle.paperBottom,
+                    identitySeed + ':' + layoutSeed);
+            if (debugLayout && articleBackground != null) {
+                for (int s = 0; s < articleBackground.shapes.length; s++) {
+                    FoliaFumeBackground.Shape shape = articleBackground.shapes[s];
+                    android.util.Log.i("FoliaFixture", "fume bg " + s + " kind=" + shape.kind
+                            + " x=" + shape.x + " y=" + shape.y + " w=" + shape.width
+                            + " rot=" + shape.rotation + " op=" + shape.opacity
+                            + " accent=" + shape.accent + " depth=" + shape.depth);
+                }
+            }
+            articleCamera.clear();
+        }
+        if (articleArticle == null || articleBlocks == null) return;
+        if (debugLayout) {
+            for (FoliaArticleLayout.Block debugBlock : articleBlocks) {
+                if (debugBlock != null) {
+                    android.util.Log.i("FoliaFixture", "fume block line=" + debugBlock.line
+                            + " hero=" + debugBlock.hero + " x=" + debugBlock.x + " y=" + debugBlock.y
+                            + " w=" + debugBlock.width + " h=" + debugBlock.height
+                            + " font=" + debugBlock.font + " lh=" + debugBlock.lineHeight);
+                }
+            }
         }
         FoliaArticleLayout.Block focus = articleBlocks[center];
         if (focus == null) {
@@ -984,100 +1044,245 @@ final class FoliaOriginalCanvasRenderer {
                 width / Math.max(1, maxX - minX + 2 * FoliaCameraMotion.clamp(width * 0.2, 120, 280)),
                 height / Math.max(1, maxY - minY + 2 * FoliaCameraMotion.clamp(height * 0.2, 96, 220))), 0.22, 0.72);
         boolean overview = time >= prepare(sourceLines.size() - 1, 32, width).timeline.renderEnd;
+        articleCamera.ensureInitialized(articleArticle.width / 2f, articleArticle.height / 2f);
         articleCamera.step(overview ? -2 : center, overview ? overviewX : focusX,
                 overview ? overviewY : focusY, overview ? overviewScale : targetScale,
                 focus.x, focus.y + focus.lineHeight / 2, overviewX, overviewY, overviewScale,
                 width, height, animationClock / 1000.0, frameDelta / 1000.0,
-                playing, motionClock.seek || !animate, strength);
+                playing, motionClock.seek, strength);
+        articleCamera.x = FoliaCameraMotion.clamp(articleCamera.x, 0, articleArticle.width);
+        articleCamera.y = FoliaCameraMotion.clamp(articleCamera.y, 0, articleArticle.height);
+        if (debugLayout) {
+            android.util.Log.i("FoliaFixture", "fume camera x=" + articleCamera.x + " y="
+                    + articleCamera.y + " scale=" + articleCamera.scale + " focus=" + focus.line
+                    + " hero=" + focus.hero + " article=" + articleArticle.width + "x"
+                    + articleArticle.height + " paper=" + articleArticle.paperLeft + ','
+                    + articleArticle.paperTop + ',' + articleArticle.paperRight + ','
+                    + articleArticle.paperBottom);
+        }
         float cameraX = (float) articleCamera.x, cameraY = (float) articleCamera.y;
         float cameraScale = (float) articleCamera.scale;
+        if (articleBackground != null) {
+            float backgroundX = (float) FoliaCameraMotion.mix(articleArticle.width / 2f, cameraX, 0.9);
+            float backgroundY = (float) (FoliaCameraMotion.mix(articleArticle.height / 2f, cameraY, 0.74)
+                    - FoliaCameraMotion.clamp(height * 0.22f / Math.max(cameraScale, 0.001f), 48, 180));
+            float backgroundScale = (float) FoliaCameraMotion.clamp(cameraScale * 0.94f, 0.22, 2.24);
+            FoliaFumeBackground.draw(canvas, articleBackground, shape, time / 1000f,
+                    width, height, backgroundScale, backgroundX, backgroundY,
+                    articleArticle.width / 2f, articleArticle.height / 2f, 0.72f, accent, muted);
+        }
         int save = canvas.save();
         canvas.translate(width / 2, height / 2);
         canvas.scale(cameraScale, cameraScale);
         canvas.translate(-cameraX, -cameraY);
-        shape.setColor(alpha(muted, 0.1f)); shape.setStrokeWidth(0.7f);
-        // Paper rules and registration marks live in world space and move with the article.
-        canvas.drawLine(minX, minY - 28, maxX, minY - 28, shape);
-        canvas.drawLine(minX, maxY + 28, maxX, maxY + 28, shape);
-        label(canvas, "FOLIA  /  " + sourceLines.size(), minX, minY - 42, 11,
-                alpha(muted, 0.35f), Paint.Align.LEFT, regularFace);
         for (FoliaArticleLayout.Block block : articleBlocks) {
             if (block == null) continue;
-            if ((block.x + block.width - cameraX) * cameraScale < -width / 2 - 64
-                    || (block.x - cameraX) * cameraScale > width / 2 + 64
-                    || (block.y + block.height - cameraY) * cameraScale < -height / 2 - 64
-                    || (block.y - cameraY) * cameraScale > height / 2 + 64) continue;
-            PreparedLine line = prepare(block.line, block.font, width, block.hero ? face : regularFace, 0);
-            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, block.width, line.spacing);
-            int first = 0;
-            for (int r = 0; r < rows.length; r++) {
-                int end = rows[r];
-                for (int g = first; g < end; g++) {
-                    float printed = animate ? (float) FoliaRingMath.clamp((time - line.timeline.starts[g]) / 180.0, 0, 1) : 1;
-                    float opacity = overview ? 0.72f : block.line == center ? printed : block.line < center ? 0.18f : 0.06f;
-                    int glyphSave = canvas.save();
-                    canvas.translate(block.x + line.offsets[g] - line.offsets[first] + line.widths[g] / 2,
-                            block.y + r * block.lineHeight + block.lineHeight / 2);
-                    glyph(canvas, line, g, primary, opacity, 0,
-                            animate && block.line == center ? printed * 10 * strength : 0);
-                    canvas.restoreToCount(glyphSave);
-                }
-                first = end;
-            }
+            if ((block.x + block.width - cameraX) * cameraScale < -width / 2 - 96
+                    || (block.x - cameraX) * cameraScale > width / 2 + 96
+                    || (block.y + block.height - cameraY) * cameraScale < -height / 2 - 96
+                    || (block.y - cameraY) * cameraScale > height / 2 + 96) continue;
+            drawArticleBlock(canvas, block, center);
         }
         canvas.restoreToCount(save);
+        if (focus != null) articleSubtitle(canvas, focus);
+    }
+
+    /** One fume article block: text is clipped to the paper and stamped in as it is printed. */
+    private void drawArticleBlock(Canvas canvas, FoliaArticleLayout.Block block, int center) {
+        LrcTimeline.Line source = sourceLines.get(block.line);
+        PreparedLine line = prepare(block.line, block.font, width,
+                block.hero ? face : regularFace, 0);
+        text.setTypeface(line.font);
+        text.setTextSize(line.size);
+        text.getFontMetrics(metrics);
+        float baselineOffset = block.lineHeight * (hasCjk(source.text) ? 0.52f : 0.5f);
+        long start = source.timeMs;
+        long end = start + Math.max(40, source.durationMs);
+        boolean passed = animate && time >= end;
+        boolean live = animate && !passed && time >= start;
+        float waitingOpacity = block.hero ? 0.06f : 0.035f;
+        float passedOpacity = block.hero ? 0.74f : 0.58f;
+        float liveOpacity = block.hero ? 0.985f : 0.92f;
+        int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, block.width, line.spacing);
+        int first = 0;
+        int top = canvas.save();
+        canvas.clipRect(block.x, block.y - block.lineHeight, block.x + block.width,
+                block.y + rows.length * block.lineHeight + block.lineHeight);
+        for (int r = 0; r < rows.length; r++) {
+            int rowEnd = rows[r];
+            float rowWidth = line.offsets[rowEnd - 1] + line.widths[rowEnd - 1] - line.offsets[first];
+            float rowLeft = block.hero ? Math.max((block.width - rowWidth) * 0.08f, 0f) : 0f;
+            float baseline = block.y + r * block.lineHeight + baselineOffset - line.baseline;
+            for (int g = first; g < rowEnd; g++) {
+                float opacity;
+                int color = primary;
+                float glow = 0f;
+                if (live) {
+                    if (!animate || time < line.timeline.starts[g]) {
+                        opacity = waitingOpacity;
+                    } else {
+                        opacity = liveOpacity;
+                        float trail = (float) FoliaRingMath.clamp(
+                                (time - line.timeline.ends[g]) / 700f, 0, 1);
+                        color = mix(accent, primary,
+                                0.18f + 0.82f * (float) Math.pow(trail, 1.35));
+                        glow = (1f - trail) * 12f * strength;
+                    }
+                } else {
+                    opacity = passed ? passedOpacity : waitingOpacity;
+                }
+                int glyphSave = canvas.save();
+                canvas.translate(block.x + rowLeft + line.offsets[g] - line.offsets[first]
+                                + line.widths[g] / 2f,
+                        baseline);
+                glyph(canvas, line, g, color, opacity, 0, glow);
+                canvas.restoreToCount(glyphSave);
+            }
+            first = rowEnd;
+        }
+        canvas.restoreToCount(top);
+    }
+
+    /** fume draws its own 17.6px subtitle instead of the shared bottom caption. */
+    private void articleSubtitle(Canvas canvas, FoliaArticleLayout.Block focus) {
+        LrcTimeline.Line source = sourceLines.get(focus.line);
+        if (source.translated == null || source.translated.isEmpty()) return;
+        float size = 17.6f * fontScale;
+        float lineHeight = size * 1.5f;
+        text.setTypeface(regularFace);
+        text.setTextSize(size);
+        text.getFontMetrics(metrics);
+        float baseline = height - 34f - lineHeight + (lineHeight - (metrics.descent - metrics.ascent)) / 2f
+                - metrics.ascent;
+        label(canvas, source.translated, width / 2f, baseline, size,
+                alpha(muted, 0.36f), Paint.Align.CENTER, regularFace);
     }
 
     private void clockwork(Canvas canvas) {
-        float radius = Math.min(width, height) * 0.42f;
-        float lyricRadius = Math.min(width, height) * 0.48f;
-        float cx = 0, cy = height * 0.5f;
-        clockwork.colors(primary, accent);
-        clockwork.draw(canvas, radius, cy, clockworkMotion, lyricRadius,
-                ringOffset / Math.PI * Math.toRadians(12.5));
+        float min = Math.min(width, height);
+        float radius = min * 0.42f;
+        float lyricRadius = min * 0.48f;
+        float cy = height * 0.5f;
+        float stepRad = (float) Math.toRadians(12.5);
+        // showGearDecor defaults to 'subtle' (0.6x) upstream, so every decoration alpha shrinks.
+        clockwork.colors(primary, accent, 0.6f);
+        clockwork.draw(canvas, radius, cy, clockworkMotion, lyricRadius, ringOffset / Math.PI * stepRad);
         float camera = (float) (ringOffset / Math.PI);
-        double[] angles = new double[sourceLines.size()];
-        float maxWidth = Math.max(140, Math.min(width * 0.46f, width - radius - 48)) / 1.25f;
-        float[] heights = new float[sourceLines.size()];
-        for (int i = Math.max(0, anchor - 9); i < Math.min(sourceLines.size(), anchor + 10); i++) {
-            PreparedLine line = prepare(i, 28 * fontScale, width);
-            heights[i] = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxWidth, line.spacing).length * 34 * fontScale;
-            if (showTranslation && !sourceLines.get(i).translated.isEmpty()) heights[i] += 27;
-            heights[i] *= 1.25f;
+        float availableTextWidth = Math.max(140f, Math.min(width * 0.46f, width - radius - 48f));
+        int count = sourceLines.size();
+        if (count == 0) return;
+        int focal = Math.max(0, Math.min(count - 1, anchor));
+        int from = Math.max(0, focal - 8), to = Math.min(count, focal + 9);
+        float mainFocalPx = Math.round(28 * fontScale);
+        float mainIdlePx = Math.round(22 * fontScale);
+        float focalLineHeight = Math.round(mainFocalPx * 1.2f);
+        float idleLineHeight = Math.round(mainIdlePx * 1.5f);
+        float subFocalPx = Math.round(16 * fontScale);
+        float subIdlePx = Math.round(12 * fontScale);
+        float subFocalLineHeight = Math.round(subFocalPx * 1.5f);
+        float subIdleLineHeight = Math.round(subIdlePx * 1.5f);
+        // Upstream lineBlockHeight is always measured at the focal size, independent of the
+        // rendered size, which keeps the angular spacing between lines stable.
+        float[] heights = new float[count];
+        float[] angles = new float[count];
+        for (int i = from; i < to; i++) {
+            PreparedLine measure = prepare(i, mainFocalPx, width, regularFace, 0.01f);
+            int[] rows = FoliaSceneMath.wrap(measure.timeline.glyphs, measure.offsets,
+                    availableTextWidth / 1.25f, measure.spacing);
+            float height = rows.length * focalLineHeight;
+            if (showTranslation && !sourceLines.get(i).translated.isEmpty()) {
+                height += subFocalLineHeight + Math.round(0.25f * subFocalPx);
+            }
+            heights[i] = height * 1.25f;
         }
-        int focal = Math.max(0, anchor);
-        for (int i = focal + 1; i < Math.min(sourceLines.size(), focal + 9); i++) angles[i] = angles[i - 1]
-                + Math.max(Math.toRadians(12.5), (heights[i - 1] + heights[i] + 24) / (2 * lyricRadius));
-        for (int i = focal - 1; i >= Math.max(0, focal - 8); i--) angles[i] = angles[i + 1]
-                - Math.max(Math.toRadians(12.5), (heights[i + 1] + heights[i] + 24) / (2 * lyricRadius));
-        for (int i = Math.max(0, anchor - 8); i < Math.min(sourceLines.size(), anchor + 9); i++) {
-            double angle = angles[i] + (anchor - camera) * Math.toRadians(12.5);
-            if (Math.abs(angle) >= Math.PI / 2) continue;
-            float x = cx + lyricRadius * (float) Math.cos(angle);
-            float y = cy + lyricRadius * (float) Math.sin(angle);
+        for (int i = focal + 1; i < to; i++) angles[i] = angles[i - 1]
+                + Math.max(stepRad, (heights[i - 1] + heights[i] + 24f) / (2 * lyricRadius));
+        for (int i = focal - 1; i >= from; i--) angles[i] = angles[i + 1]
+                - Math.max(stepRad, (heights[i + 1] + heights[i] + 24f) / (2 * lyricRadius));
+        for (int i = from; i < to; i++) {
+            if (Math.abs(angles[i]) >= Math.PI / 2) continue;
+            float display = angles[i] + (anchor - camera) * stepRad;
+            boolean focus = i == anchor;
             float distance = Math.abs(i - camera);
-            float opacity = Math.max(0.12f, (float) Math.pow(Math.cos(angle * 0.75), 2.5) * (1 - distance * 0.18f));
-            PreparedLine line = prepare(i, 28 * fontScale, width);
-            float scale = i == anchor ? 1.25f : Math.max(0.7f, 1 - distance * 0.08f);
-            int save = canvas.save();
-            canvas.translate(x, y);
-            canvas.rotate((float) Math.toDegrees(angle) * 0.35f);
-            canvas.scale(scale, scale);
+            float scale = focus ? 1.25f : Math.max(0.7f, 1 - Math.abs(i - focal) * 0.08f);
+            float opacity = (float) Math.max(0.12f, Math.pow(Math.max(0, Math.cos(display * 0.75f)), 2.5)
+                    * (1 - distance * 0.18f));
+            opacity *= FoliaRingMath.clamp((110 - Math.toDegrees(Math.abs(display))) / 28f, 0, 1);
+            if (opacity <= 0.01f) continue;
+            float fontSize = focus ? mainFocalPx : mainIdlePx;
+            float lineHeight = focus ? focalLineHeight : idleLineHeight;
+            float subSize = focus ? subFocalPx : subIdlePx;
+            float subLineHeight = focus ? subFocalLineHeight : subIdleLineHeight;
+            float maxWidth = availableTextWidth / scale;
+            PreparedLine line = prepare(i, fontSize, width, regularFace, 0.01f);
             int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxWidth, line.spacing);
+            boolean hasSub = showTranslation && !sourceLines.get(i).translated.isEmpty();
+            float contentHeight = rows.length * lineHeight
+                    + (hasSub ? Math.round(0.25f * subSize) + subLineHeight : 0);
+            int save = canvas.save();
+            canvas.translate(lyricRadius * (float) Math.cos(display), cy + lyricRadius * (float) Math.sin(display)
+                    + contentHeight / 2f);
+            canvas.rotate((float) Math.toDegrees(0.35f * display));
+            canvas.scale(scale, scale);
             int first = 0;
-            float top = -(rows.length - 1) * line.size * 1.2f / 2;
             for (int r = 0; r < rows.length; r++) {
                 int end = rows[r];
-                float extent = line.extent(first, end);
-                slice(canvas, line, first, end, extent / 2, top + r * line.size * 1.2f,
-                        maxWidth, opacity, primary, false, 0, 0);
+                float centerY = -contentHeight + lineHeight / 2f + r * lineHeight;
+                if (focus) {
+                    pendoloSweepRow(canvas, line, first, end, centerY, lineHeight, opacity);
+                } else {
+                    for (int g = first; g < end; g++) {
+                        int glyphSave = canvas.save();
+                        canvas.translate(line.offsets[g] - line.offsets[first] + line.widths[g] / 2f, centerY);
+                        glyph(canvas, line, g, primary, 0.75f * opacity, 0, 0);
+                        canvas.restoreToCount(glyphSave);
+                    }
+                }
                 first = end;
             }
-            if (showTranslation && !sourceLines.get(i).translated.isEmpty()) label(canvas,
-                    sourceLines.get(i).translated, 0, top + rows.length * line.size * 1.2f + 12,
-                    16 * fontScale, alpha(muted, opacity), Paint.Align.LEFT);
+            if (hasSub) {
+                float subCenter = -contentHeight + rows.length * lineHeight
+                        + Math.round(0.25f * subSize) + subLineHeight / 2f;
+                text.setTypeface(regularFace);
+                text.setTextSize(subSize);
+                text.getFontMetrics(metrics);
+                float baseline = -(metrics.ascent + metrics.descent) / 2f;
+                label(canvas, sourceLines.get(i).translated, 0, subCenter + baseline, subSize,
+                        focus ? alpha(muted, opacity) : alpha(muted, 0.6f * opacity), Paint.Align.LEFT);
+            }
             canvas.restoreToCount(save);
         }
+    }
+
+    /**
+     * PendoloActiveLyricSweep: a cool primary@0.52 base layer with a warm mask-revealed fill.
+     */
+    private void pendoloSweepRow(Canvas canvas, PreparedLine line, int first, int end,
+                                 float centerY, float lineHeight, float opacity) {
+        for (int g = first; g < end; g++) {
+            int save = canvas.save();
+            canvas.translate(line.offsets[g] - line.offsets[first] + line.widths[g] / 2f, centerY);
+            glyph(canvas, line, g, primary, 0.52f * opacity, 0, 0);
+            canvas.restoreToCount(save);
+        }
+        float fillWidth = 0;
+        for (int g = first; g < end; g++) {
+            double progress = line.timeline.progress(g, time);
+            if (progress <= 0) break;
+            fillWidth = line.offsets[g] - line.offsets[first] + line.widths[g] * (float) Math.min(1, progress);
+            if (progress < 1) break;
+        }
+        if (fillWidth <= 0.5f) return;
+        int fill = mix(primary, accent, 0.32f);
+        int save = canvas.save();
+        canvas.clipRect(0, centerY - lineHeight * 0.62f, fillWidth, centerY + lineHeight * 0.38f);
+        for (int g = first; g < end; g++) {
+            int glyphSave = canvas.save();
+            canvas.translate(line.offsets[g] - line.offsets[first] + line.widths[g] / 2f, centerY);
+            glyph(canvas, line, g, fill, opacity, 0, 0);
+            canvas.restoreToCount(glyphSave);
+        }
+        canvas.restoreToCount(save);
     }
 
     private void conversation(Canvas canvas, MusicSnapshot snapshot) {

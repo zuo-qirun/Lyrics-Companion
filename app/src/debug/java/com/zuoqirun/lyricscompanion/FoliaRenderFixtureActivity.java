@@ -54,7 +54,7 @@ public final class FoliaRenderFixtureActivity extends Activity {
         String mode = FoliaModeCatalog.normalize(getIntent().getStringExtra("mode"));
         FixtureRenderer renderer = new FixtureRenderer(getAssets(), original, mode,
                 getIntent().getBooleanExtra("lowResource", false), false, fps, 0, true, true, 100,
-                getIntent().getStringExtra("seed"));
+                getIntent().getStringExtra("seed"), getIntent().getStringExtra("themeName"));
         long started = android.os.SystemClock.elapsedRealtime();
         View view = new View(this) {
             private boolean logged;
@@ -89,6 +89,7 @@ public final class FoliaRenderFixtureActivity extends Activity {
         int height = Math.max(150, Math.min(4096, getIntent().getIntExtra("height", 600)));
         long at = Math.max(0, getIntent().getLongExtra("time", 6700));
         int fps = getIntent().getIntExtra("fps", 30);
+        FoliaOriginalCanvasRenderer.debugLayout = getIntent().getBooleanExtra("debugLayout", false);
         boolean translations = getIntent().getBooleanExtra("translations", true);
         int tracking = Math.max(0, Math.min(30, getIntent().getIntExtra("tracking", 0)));
         boolean nextLine = getIntent().getBooleanExtra("nextLine", true);
@@ -132,7 +133,8 @@ public final class FoliaRenderFixtureActivity extends Activity {
             Canvas canvas = new Canvas(image);
             canvas.drawColor(0xFF09090B);
             FixtureRenderer renderer = new FixtureRenderer(getAssets(), original, mode, low, randomColors, fps,
-                    tracking, translations, nextLine, nextScale, getIntent().getStringExtra("seed"));
+                    tracking, translations, nextLine, nextScale, getIntent().getStringExtra("seed"),
+                    getIntent().getStringExtra("themeName"));
             if (history) {
                 for (long time = 0; time < at; time += historyStep) {
                     canvas.drawColor(0xFF09090B);
@@ -212,12 +214,14 @@ public final class FoliaRenderFixtureActivity extends Activity {
         private final FoliaOriginalCanvasRenderer original;
 
         FixtureRenderer(android.content.res.AssetManager assets, boolean useOriginal, String mode, boolean lowResource, boolean random,
-                        int fps, int tracking, boolean translations, boolean nextLine, int nextScale, String seed) {
+                        int fps, int tracking, boolean translations, boolean nextLine, int nextScale, String seed,
+                        String themeName) {
             low = useOriginal ? null : new FoliaCanvasRenderer();
             original = useOriginal ? new FoliaOriginalCanvasRenderer() : null;
             if (original != null) {
                 original.setAssets(assets);
                 original.setGeometrySeed(seed);
+                original.setThemeName(themeName);
                 original.setLowResourceMode(lowResource);
                 original.setLyricColorOverrides(random, random);
                 original.configure(mode, null, 1, 50, fps, 1, 1.65f, 45, true, tracking, translations, false);
