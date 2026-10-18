@@ -56,6 +56,7 @@ final class FoliaOriginalLumiereRenderer {
     private final Beam[] candidates = new Beam[12];
     private Typeface face;
     private float fontScale = 1, strength = 0.5f, tracking;
+    private float subtitleScale = 1;
     private boolean showTranslation = true, animate = true, lowResource;
     private List<LrcTimeline.Line> lines = Collections.emptyList();
     private List<FoliaLumiereMath.Paragraph> program = Collections.emptyList();
@@ -80,6 +81,10 @@ final class FoliaOriginalLumiereRenderer {
     void setTracking(float value) {
         value = Math.max(0, Math.min(30, value));
         if (tracking != value) { tracking = value; prepared.evictAll(); windows.evictAll(); }
+    }
+
+    void setSubtitleScale(float value) {
+        subtitleScale = Math.max(0.5f, Math.min(2f, value));
     }
 
     void setGeometrySeed(String seed) {
@@ -136,8 +141,8 @@ final class FoliaOriginalLumiereRenderer {
         drawOverlay(canvas);
         if (showTranslation && anchor >= 0 && anchor < lines.size() && !lines.get(anchor).translated.isEmpty()) {
             // Shared subtitle overlay: 20px / 30px line box anchored 34px above the viewport bottom.
-            float subtitleSize = 20 * fontScale;
-            float subtitleLineHeight = 30 * fontScale;
+            float subtitleSize = 20 * fontScale * subtitleScale;
+            float subtitleLineHeight = 30 * fontScale * subtitleScale;
             float subtitleTop = height - 34 - subtitleLineHeight;
             text.setTextSize(subtitleSize);
             Paint.FontMetrics subtitleMetrics = text.getFontMetrics();
@@ -422,7 +427,7 @@ final class FoliaOriginalLumiereRenderer {
                 FoliaOriginalGraphemeTiming timing = new FoliaOriginalGraphemeTiming(line, i + 1 < lines.size() ? lines.get(i + 1).timeMs : -1, false);
                 FoliaLumiereEchoMath.Input input = new FoliaLumiereEchoMath.Input();
                 input.glyphs = timing.glyphs; input.starts = new double[timing.starts.length];
-                input.offsets = new double[timing.glyphs.length + 1]; input.words = words(offsets, line.text);
+                input.offsets = new double[timing.glyphs.length + 1]; input.words = words(offsets, line);
                 StringBuilder prefix = new StringBuilder();
                 for (int g = 0; g < timing.glyphs.length; g++) {
                     input.starts[g] = timing.starts[g] / 1000.0;
@@ -719,7 +724,7 @@ final class FoliaOriginalLumiereRenderer {
         int skip = 0;
         for (int i = paragraph.first; i < index; i++) skip += FoliaGlyphTimeline.split(lines.get(i).text).length * 19 + 4;
         FoliaLumiereMath.Random rng = new FoliaLumiereMath.Random(unitSeed + ":window"); rng.skip(skip);
-        List<int[]> words = words(timing, line.text);
+        List<int[]> words = words(timing, line);
         String wordSeed = unitSeed + ':' + (index - paragraph.first) + ':' + line.text;
         FoliaLumiereMath.Random scales = new FoliaLumiereMath.Random(wordSeed + ":words"), jags = new FoliaLumiereMath.Random(wordSeed + ":jags");
         int heroWord = -1, longest = 0;
@@ -804,8 +809,11 @@ final class FoliaOriginalLumiereRenderer {
         prepared.put(key, data); return data;
     }
 
-    private static List<int[]> words(FoliaGlyphTimeline timing, String value) {
+    private static List<int[]> words(FoliaGlyphTimeline timing, LrcTimeline.Line line) {
+        List<int[]> real = FoliaLyricWords.ranges(line, timing.glyphs.length, timing.offsets);
+        if (real != null) return real;
         List<int[]> words = new ArrayList<>();
+        String value = line.text;
         if (Build.VERSION.SDK_INT >= 24) {
             android.icu.text.BreakIterator iterator = android.icu.text.BreakIterator.getWordInstance(Locale.SIMPLIFIED_CHINESE);
             iterator.setText(value); int previous = iterator.first();

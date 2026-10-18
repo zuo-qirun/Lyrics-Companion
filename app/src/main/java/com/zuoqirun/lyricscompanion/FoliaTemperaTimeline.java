@@ -24,7 +24,7 @@ final class FoliaTemperaTimeline {
                     "startTime", word.startMs / 1000d, "endTime", (word.startMs + word.durationMs) / 1000d));
             List<Object> glyphs = timeline(line.text, start, end, words);
             output.add(object("fullText", line.text, "startTime", start, "endTime", end, "words", words,
-                    "renderEndTime", renderEnd(start, end, words), "nativeSegments", segments(line.text, glyphs)));
+                    "renderEndTime", renderEnd(start, end, words), "nativeSegments", segments(line, glyphs)));
         }
         return output;
     }
@@ -82,6 +82,41 @@ final class FoliaTemperaTimeline {
             if (word >= 0) glyph.put("wordIndex", (double) word);
             out.set(first + i, glyph);
         }
+    }
+
+    /** Groups timed glyphs into the player's real word units when that data exists. */
+    static List<Object> segments(LrcTimeline.Line line, List<Object> glyphs) {
+        String[] chars = new String[glyphs.size()];
+        int[] offsets = new int[glyphs.size() + 1];
+        for (int i = 0; i < glyphs.size(); i++) {
+            chars[i] = string(get(glyphs.get(i), "char"));
+            offsets[i + 1] = offsets[i] + chars[i].length();
+        }
+        List<int[]> spans = FoliaLyricWords.spans(line, glyphs.size(), offsets);
+        if (spans != null) {
+            List<Object> output = new ArrayList<>();
+            int previous = 0;
+            for (int[] span : spans) {
+                if (span[0] > previous) output.add(segment(line, glyphs, offsets, previous, span[0], false));
+                output.add(segment(line, glyphs, offsets, span[0], span[1], true));
+                previous = span[1];
+            }
+            if (previous < glyphs.size()) output.add(segment(line, glyphs, offsets, previous, glyphs.size(), false));
+            return output;
+        }
+        return segments(line.text, glyphs);
+    }
+
+    private static Object segment(LrcTimeline.Line line, List<Object> glyphs, int[] offsets,
+                                  int first, int end, boolean word) {
+        List<Object> selected = new ArrayList<>();
+        for (int i = first; i < end; i++) selected.add(new java.util.LinkedHashMap<>(map(glyphs.get(i))));
+        return object("text", line.text.substring(offsets[first], offsets[end]),
+                "startOffset", (double) offsets[first], "endOffset", (double) offsets[end],
+                "graphemes", selected,
+                "startTime", selected.isEmpty() ? 0d : number(get(selected.get(0), "startTime")),
+                "endTime", selected.isEmpty() ? 0d : number(get(selected.get(selected.size() - 1), "endTime")),
+                "isWordLike", word);
     }
 
     static List<Object> segments(String text, List<Object> glyphs) {

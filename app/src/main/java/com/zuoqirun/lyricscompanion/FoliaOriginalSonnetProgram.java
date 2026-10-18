@@ -185,6 +185,24 @@ final class FoliaOriginalSonnetProgram {
     static List<Segment> segments(LrcTimeline.Line line, long next, int sourceIndex) {
         List<Segment> output = new ArrayList<>();
         FoliaGlyphTimeline timeline = new FoliaGlyphTimeline(line, next < Long.MAX_VALUE ? next : -1);
+        List<int[]> spans = FoliaLyricWords.spans(line, timeline.glyphs.length, timeline.offsets);
+        if (spans != null) {
+            int previous = 0;
+            for (int[] span : spans) {
+                if (span[0] > previous) {
+                    output.add(new Segment(line.text.substring(timeline.offsets[previous], timeline.offsets[span[0]]),
+                            timeline, previous, span[0], sourceIndex, false));
+                }
+                output.add(new Segment(line.text.substring(timeline.offsets[span[0]], timeline.offsets[span[1]]),
+                        timeline, span[0], span[1], sourceIndex, true));
+                previous = span[1];
+            }
+            if (previous < timeline.glyphs.length) {
+                output.add(new Segment(line.text.substring(timeline.offsets[previous]),
+                        timeline, previous, timeline.glyphs.length, sourceIndex, false));
+            }
+            return output;
+        }
         BreakIterator iterator = BreakIterator.getWordInstance(Locale.SIMPLIFIED_CHINESE);
         iterator.setText(line.text);
         int start = iterator.first();
