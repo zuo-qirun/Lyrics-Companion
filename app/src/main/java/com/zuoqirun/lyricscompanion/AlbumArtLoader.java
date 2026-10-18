@@ -75,11 +75,15 @@ final class AlbumArtLoader {
 
     static int cachedKiB() { return MEMORY_CACHE.size(); }
 
-    /** The bitmap may belong to a MediaSession or live snapshot: never recycle it. */
+    /**
+     * The bitmap may belong to a MediaSession or live snapshot: never recycle it. Oversized
+     * artwork is downscaled for every resource profile: a single 3000px cover is ~36 MB of
+     * native heap and the panel never draws the cover larger than the art cache target.
+     */
     static synchronized Bitmap limitShared(Bitmap bitmap, boolean low) {
-        if (bitmap == null || bitmap.isRecycled() || !low) return bitmap;
+        if (bitmap == null || bitmap.isRecycled()) return bitmap;
+        int side = ResourceProfile.artSide(low);
         int largest = Math.max(bitmap.getWidth(), bitmap.getHeight());
-        int side = ResourceProfile.artSide(true);
         if (largest <= side) return bitmap;
         Bitmap cached = sharedScaled.get();
         if (sharedSource.get() == bitmap && cached != null && !cached.isRecycled()) return cached;

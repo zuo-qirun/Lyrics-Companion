@@ -201,6 +201,8 @@ final class FoliaOriginalLumiereRenderer {
     private Canvas beginGraphics() {
         int w = Math.max(1, Math.round(width)), h = Math.max(1, Math.round(height));
         if (graphicsBuffer == null || graphicsBuffer.getWidth() != w || graphicsBuffer.getHeight() != h) {
+            if (graphicsBuffer != null && !graphicsBuffer.isRecycled()) graphicsBuffer.recycle();
+            if (bloomBuffer != null && !bloomBuffer.isRecycled()) bloomBuffer.recycle();
             graphicsBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             graphicsCanvas = new Canvas(graphicsBuffer);
             int sw = Math.max(1, w / 4), sh = Math.max(1, h / 4);

@@ -4056,6 +4056,7 @@ final class LyricsPanelView extends View {
                 && !starfieldBackdrop.isRecycled()) {
             return starfieldBackdrop;
         }
+        if (starfieldBackdrop != null && !starfieldBackdrop.isRecycled()) starfieldBackdrop.recycle();
         starfieldBackdrop = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         starfieldBackdropKey = key;
         Canvas offscreen = new Canvas(starfieldBackdrop);
@@ -4424,6 +4425,7 @@ final class LyricsPanelView extends View {
                 && !panelShadowHaloBitmap.isRecycled()) {
             return panelShadowHaloBitmap;
         }
+        if (panelShadowHaloBitmap != null && !panelShadowHaloBitmap.isRecycled()) panelShadowHaloBitmap.recycle();
         panelShadowHaloBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         panelShadowHaloKey = key;
         Canvas offscreen = new Canvas(panelShadowHaloBitmap);
@@ -4790,9 +4792,7 @@ final class LyricsPanelView extends View {
         Choreographer.getInstance().removeFrameCallback(backgroundFrameCallback);
         backgroundFramePosted = false;
         blurredLineCache.evictAll();
-        blurScratch = null;
-        starfieldBackdrop = null;
-        starfieldBackdropKey = "";
+        recycleOffscreenBitmaps();
         recycleBlurPreview();
         recycleCoverFadePreview();
         blurPreview = null;
@@ -5687,9 +5687,17 @@ final class LyricsPanelView extends View {
         ellipsizedTextCache.evictAll();
         // 模糊歌词位图与星空底色位图都跟字号 / 尺寸 / 调色板绑死，尺寸或设置一变就丢掉重画。
         blurredLineCache.evictAll();
+        recycleOffscreenBitmaps();
+    }
+
+    /** Releases the full-panel offscreen bitmaps so a style or size change can lower native heap. */
+    private void recycleOffscreenBitmaps() {
+        if (blurScratch != null && !blurScratch.isRecycled()) blurScratch.recycle();
         blurScratch = null;
+        if (starfieldBackdrop != null && !starfieldBackdrop.isRecycled()) starfieldBackdrop.recycle();
         starfieldBackdrop = null;
         starfieldBackdropKey = "";
+        if (panelShadowHaloBitmap != null && !panelShadowHaloBitmap.isRecycled()) panelShadowHaloBitmap.recycle();
         panelShadowHaloBitmap = null;
         panelShadowHaloKey = "";
     }
@@ -5834,7 +5842,10 @@ final class LyricsPanelView extends View {
             if (dissolving) {
                 if (blurScratch == null || blurScratch.isRecycled()
                         || blurScratch.getWidth() < bitmapWidth
-                        || blurScratch.getHeight() < bitmapHeight) {
+                        || blurScratch.getHeight() < bitmapHeight
+                        || blurScratch.getWidth() > bitmapWidth * 2
+                        && blurScratch.getHeight() > bitmapHeight * 2) {
+                    if (blurScratch != null && !blurScratch.isRecycled()) blurScratch.recycle();
                     blurScratch = Bitmap.createBitmap(bitmapWidth, bitmapHeight,
                             Bitmap.Config.ARGB_8888);
                 }

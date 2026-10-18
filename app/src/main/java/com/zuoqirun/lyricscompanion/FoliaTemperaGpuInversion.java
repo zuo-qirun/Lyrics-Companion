@@ -79,13 +79,23 @@ final class FoliaTemperaGpuInversion {
         private Bitmap back, front;
         private int[] pixels = new int[0], masks = new int[0], output = new int[0];
         private float[] premultiplied = new float[0], alphas = new float[0];
-        private final android.util.LruCache<String, Bitmap> results = new android.util.LruCache<>(2);
+        private final android.util.LruCache<String, Bitmap> results =
+                new android.util.LruCache<String, Bitmap>(8 * 1024 * 1024) {
+                    @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
+
+                    @Override protected void entryRemoved(boolean evicted, String key, Bitmap oldValue, Bitmap newValue) {
+                        if (oldValue != null && oldValue != newValue && !oldValue.isRecycled()) oldValue.recycle();
+                    }
+                };
 
         void draw(Canvas target, String instance, int ink, int paper, Layer artwork, Layer mask) {
             Rect bounds = target.getClipBounds(); bounds.inset(-3, -3);
             int width = Math.max(1, bounds.width()), height = Math.max(1, bounds.height()), size = width * height;
-            if (back == null || back.getWidth() < width || back.getHeight() < height) {
-                int reservedWidth = (width + 63) / 64 * 64, reservedHeight = (height + 63) / 64 * 64;
+            int reservedWidth = (width + 63) / 64 * 64, reservedHeight = (height + 63) / 64 * 64;
+            boolean tooSmall = back == null || back.getWidth() < reservedWidth || back.getHeight() < reservedHeight;
+            boolean oversized = back != null && (back.getWidth() > reservedWidth * 2 || back.getHeight() > reservedHeight * 2);
+            if (tooSmall || oversized) {
+                if (back != null) { back.recycle(); front.recycle(); }
                 back = Bitmap.createBitmap(reservedWidth, reservedHeight, Bitmap.Config.ARGB_8888);
                 front = Bitmap.createBitmap(reservedWidth, reservedHeight, Bitmap.Config.ARGB_8888);
                 int capacity = reservedWidth * reservedHeight;
@@ -134,6 +144,10 @@ final class FoliaTemperaGpuInversion {
             return paperLum * (1 - weight) + straight * weight;
         }
         private static float luminance(int color) { return (Color.red(color) * .2126f + Color.green(color) * .7152f + Color.blue(color) * .0722f) / 255; }
-        void clear() { back = front = null; pixels = masks = output = new int[0]; premultiplied = alphas = new float[0]; results.evictAll(); }
+        void clear() {
+            if (back != null && !back.isRecycled()) back.recycle();
+            if (front != null && !front.isRecycled()) front.recycle();
+            back = front = null; pixels = masks = output = new int[0]; premultiplied = alphas = new float[0]; results.evictAll();
+        }
     }
 }

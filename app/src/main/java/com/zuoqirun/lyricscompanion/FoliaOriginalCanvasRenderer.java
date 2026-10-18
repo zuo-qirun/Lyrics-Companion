@@ -73,6 +73,7 @@ final class FoliaOriginalCanvasRenderer {
     private double ringOffset, ringFrom;
     private long transitionAge, lastClock = -1, lastPosition = -1;
     private float width, height, fontScale = 1, strength = 0.5f;
+    private float lastDrawWidth, lastDrawHeight;
     private float radiusScale = 1, focusRatio = 0.65f, tilt = 45, tracking;
     private int primary = Color.WHITE, accent = 0xFFFF984B, muted = 0xFFB9BBC5;
     private float bass;
@@ -157,15 +158,25 @@ final class FoliaOriginalCanvasRenderer {
         lightFace = face == null ? Typeface.create("sans-serif-light", Typeface.NORMAL) : face;
         italicFace = Typeface.create(lightFace, Typeface.ITALIC);
         mediumFace = face == null ? Typeface.create("sans-serif-medium", Typeface.NORMAL) : face;
-        if (!normalized.equals(this.mode) || !resolvedFace.equals(this.face) || this.fontScale != fontScale
+        boolean modeChanged = !normalized.equals(this.mode);
+        if (modeChanged || !resolvedFace.equals(this.face) || this.fontScale != fontScale
                 || this.radiusScale != radiusScale || this.focusRatio != focusScale - 1
                 || this.tracking != tracking) {
             articleBlocks = null;
             lines.evictAll();
             chatPositions.evictAll();
             masks.evictAll();
+            colors.evictAll();
+            gpuText.clear();
         }
-        if (!normalized.equals(this.mode)) resetMotion();
+        if (modeChanged) {
+            diorama.clear();
+            tempera.clear();
+            lumiere.clear();
+            sonnet.clear();
+            background.clear();
+            resetMotion();
+        }
         this.mode = normalized;
         this.face = resolvedFace;
         this.fontScale = fontScale;
@@ -203,7 +214,25 @@ final class FoliaOriginalCanvasRenderer {
         sourceLines = Collections.emptyList();
         track = "";
         diorama.clear(); tempera.clear(); lumiere.clear(); sonnet.clear();
+        background.clear();
+        lastDrawWidth = 0;
+        lastDrawHeight = 0;
         resetMotion();
+    }
+
+    /**
+     * A panel that grows for a rotation or a preview can leave full-resolution offscreen buffers
+     * (Tempera CPU inversion, Lumiere bloom layers, background posters, glyph masks) allocated.
+     * Drop them when the drawing surface changes size by a noticeable margin.
+     */
+    private void trimForResize() {
+        articleBlocks = null;
+        lines.evictAll();
+        masks.evictAll();
+        colors.evictAll();
+        gpuText.clear();
+        diorama.clear(); tempera.clear(); lumiere.clear(); sonnet.clear();
+        background.clear();
     }
 
     private void resetMotion() {
@@ -231,6 +260,12 @@ final class FoliaOriginalCanvasRenderer {
         canvas.scale(density, density);
         width = canvas.getWidth() / density;
         height = canvas.getHeight() / density;
+        if (lastDrawWidth > 0 && (Math.abs(width - lastDrawWidth) > Math.max(8f, lastDrawWidth * 0.15f)
+                || Math.abs(height - lastDrawHeight) > Math.max(8f, lastDrawHeight * 0.15f))) {
+            trimForResize();
+        }
+        lastDrawWidth = width;
+        lastDrawHeight = height;
         this.primary = primary;
         this.accent = accent;
         this.muted = muted;
