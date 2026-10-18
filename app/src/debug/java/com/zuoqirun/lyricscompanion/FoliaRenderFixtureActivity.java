@@ -85,8 +85,8 @@ public final class FoliaRenderFixtureActivity extends Activity {
 
     @androidx.annotation.WorkerThread
     private void renderFixture() {
-        int width = Math.max(200, Math.min(2400, getIntent().getIntExtra("width", 800)));
-        int height = Math.max(150, Math.min(1600, getIntent().getIntExtra("height", 600)));
+        int width = Math.max(200, Math.min(3840, getIntent().getIntExtra("width", 800)));
+        int height = Math.max(150, Math.min(4096, getIntent().getIntExtra("height", 600)));
         long at = Math.max(0, getIntent().getLongExtra("time", 6700));
         int fps = getIntent().getIntExtra("fps", 30);
         boolean translations = getIntent().getBooleanExtra("translations", true);

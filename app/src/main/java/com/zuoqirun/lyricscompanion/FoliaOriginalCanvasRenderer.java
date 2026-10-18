@@ -20,6 +20,7 @@ import android.util.LruCache;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** Independent Canvas renderer: the old Folia renderer remains the low-resource edition. */
 final class FoliaOriginalCanvasRenderer {
@@ -1159,55 +1160,288 @@ final class FoliaOriginalCanvasRenderer {
             }
     }
 
+    /**
+     * Monet rail layout, ported from VisualizerMonet.tsx / MonetLyricsRail.tsx / monetRailLayout.ts.
+     * The upstream page is a flexbox column (artist/header, title+album, rail, description capsule)
+     * vertically centred in the left column; the rail itself is a translated stack whose active line
+     * is pinned at 46% of the rail height.
+     */
     private void portrait(Canvas canvas, MusicSnapshot snapshot) {
-        boolean hasPortrait = width >= 768;
-        float column = hasPortrait ? Math.max(220, Math.min(width * 0.28f, 430)) : 0;
-        float artSize = hasPortrait ? Math.min(Math.max(210, Math.min(width * 0.26f, 380)), column - 44) * 1.35135f : 0;
-        float left = width - 32 - artSize;
-        float top = (height - artSize) / 2;
-        if (hasPortrait && snapshot.albumArt != null && !snapshot.albumArt.isRecycled()) {
-            source.set(0, 0, snapshot.albumArt.getWidth(), snapshot.albumArt.getHeight());
-            rect.set(left, top, left + artSize, top + artSize);
-            shape.setColor(Color.WHITE);
-            int coverClip = canvas.save();
-            path.reset(); path.addRoundRect(rect, 32, 32, Path.Direction.CW); canvas.clipPath(path);
-            canvas.drawBitmap(snapshot.albumArt, source, rect, shape);
-            canvas.restoreToCount(coverClip);
-            shape.setColor(0xFF09090B);
-            rect.set(left + artSize - 44, top - 12, left + artSize - 32, top + 44);
-            canvas.drawRoundRect(rect, 6, 6, shape);
-        }
-        float margin = width >= 1024 ? 56 : width >= 640 ? 32 : 20;
-        float lyricWidth = Math.max(1, width - column - margin * 2);
-        float x = margin;
-        float headerTop = Math.max(24, height / 2 - 236);
-        label(canvas, snapshot.artist, x, headerTop,
-                FoliaSceneMath.clampFont(width, 16, 1.8f, 28.8f, 1), alpha(primary, 0.96f), Paint.Align.LEFT, italicFace);
-        shape.setShader(new LinearGradient(0, headerTop + 10, 0, headerTop + 66,
-                alpha(primary, 0.72f), Color.TRANSPARENT, Shader.TileMode.CLAMP));
-        canvas.drawRect(x, headerTop + 10, x + 1, headerTop + 66, shape);
+        float ls = width <= 1536f ? 1f : width >= 2200f ? 1.16f : 1f + 0.16f * (width - 1536f) / 664f;
+        float padY = width >= 1024 ? 32 : width >= 640 ? 24 : 20;
+        float padX = width >= 1024 ? 56 : width >= 640 ? 32 : 20;
+        float padRight = width >= 1280 ? 48 : width >= 1024 ? 40 : width >= 640 ? 32 : 20;
+        float artistFont = FoliaSceneMath.clampFont(width, 16 * ls, 1.8f * ls, 28.8f * ls, 1);
+        float titleFont = FoliaSceneMath.clampFont(width, 23.2f * ls, 3.3f * ls, 44.8f * ls, 1);
+        float lyricFont = FoliaSceneMath.clampFont(width, 21.44f * ls, 2.75f * ls, 36.48f * ls, 1.2f * fontScale);
+        float inactiveFont = FoliaSceneMath.clampFont(width, 17.28f * ls, 2f * ls, 23.68f * ls, 1.2f * fontScale);
+        float translationFont = FoliaSceneMath.clampFont(width, 15.04f * ls, 1.28f * ls, 18.24f * ls, 1.2f * fontScale);
+        float albumFont = 14 * ls;
+        float rowWidth = Math.min(width, 1520 * ls);
+        float rowLeft = (width - rowWidth) / 2;
+        float portraitColumn = width >= 768 ? Math.max(220 * ls, Math.min(width * 0.28f, 430 * ls)) : 0;
+        float columnWidth = rowWidth - portraitColumn;
+        float contentWidth = Math.max(1, columnWidth - padX * 2);
+        float artistLineHeight = artistFont * 1.5f;
+        float headerHeight = artistLineHeight + 62;
+        float titleLineHeight = titleFont * 1.06f;
+        float titleLead = titleFont * 1.19f;
+        float titleBlock = titleLead + 44;
+        float railHeight = Math.min(Math.max(280, height * 0.52f), 520 * ls);
+        float contentHeight = padY * 2 + headerHeight + 12 + titleBlock + railHeight + 50;
+        float columnTop = (height - contentHeight) / 2;
+        float x = rowLeft + padX;
+        float artistTop = columnTop + padY;
+
+        monetDecor(canvas);
+        monetPortrait(canvas, snapshot, rowLeft + rowWidth, portraitColumn, padRight, ls);
+
+        text.setTypeface(italicFace);
+        text.setTextSize(artistFont);
+        text.getFontMetrics(metrics);
+        float artistBaseline = artistTop + (artistLineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+        label(canvas, snapshot.artist, x, artistBaseline, artistFont, alpha(primary, 0.96f), Paint.Align.LEFT, italicFace);
+        shape.setShader(new LinearGradient(0, artistTop + artistLineHeight + 6, 0,
+                artistTop + artistLineHeight + 62, alpha(primary, 0.72f), Color.TRANSPARENT, Shader.TileMode.CLAMP));
+        canvas.drawRect(x, artistTop + artistLineHeight + 6, x + 1, artistTop + artistLineHeight + 62, shape);
         shape.setShader(null);
+
+        float titleFlowTop = artistTop + headerHeight + 12;
         text.setTypeface(face);
-        text.setTextSize(FoliaSceneMath.clampFont(width, 23.2f, 3.3f, 44.8f, 1));
-        float titleSize = text.getTextSize() * Math.min(1, lyricWidth / Math.max(1, text.measureText(snapshot.title)));
-        label(canvas, snapshot.title, x, headerTop + 94, titleSize, primary, Paint.Align.LEFT);
-        int center = Math.max(0, anchor);
-        for (int i = Math.max(0, center - 2); i < Math.min(sourceLines.size(), center + 3); i++) {
-            float size = FoliaSceneMath.clampFont(width, i == center ? 21.44f : 17.28f,
-                    i == center ? 2.75f : 2, i == center ? 36.48f : 23.68f, 1.2f * fontScale);
-            PreparedLine line = prepare(i, size, width, i == center ? face : regularFace, 0);
-            float opacity = i == center ? 1 : i < center ? 0.45f : 0.24f;
-            float y = headerTop + 270 + (i - (float) (ringOffset / Math.PI)) * 64
-                    + (i > center && showTranslation && !sourceLines.get(center).translated.isEmpty() ? 32 : 0);
-            int clip = canvas.save();
-            canvas.clipRect(x, headerTop + 136, x + lyricWidth, height - 36);
-            slice(canvas, line, 0, line.timeline.glyphs.length, x + Math.min(line.total, lyricWidth) / 2, y,
-                    lyricWidth, opacity, primary, false, 0, i == center ? 6 * strength : 0);
-            if (i == center && showTranslation) label(canvas, sourceLines.get(i).translated, x, y + 42,
-                    FoliaSceneMath.clampFont(width, 15.04f, 1.28f, 18.24f, 1.2f * fontScale),
-                    alpha(muted, 0.84f), Paint.Align.LEFT);
-            canvas.restoreToCount(clip);
+        text.setTextSize(titleFont);
+        text.getFontMetrics(metrics);
+        float titleBaseline = titleFlowTop + (titleLineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+        label(canvas, snapshot.title, x, titleBaseline, titleFont, primary, Paint.Align.LEFT, face);
+        float albumTop = titleFlowTop + titleLead;
+        text.setTypeface(regularFace);
+        text.setTextSize(albumFont);
+        text.getFontMetrics(metrics);
+        float albumBaseline = albumTop + (20 * ls - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+        label(canvas, "MONET", x, albumBaseline, albumFont, alpha(muted, 0.84f), Paint.Align.LEFT);
+
+        float railTop = titleFlowTop + titleBlock;
+        if (!sourceLines.isEmpty()) {
+            int center = Math.max(0, Math.min(sourceLines.size() - 1, anchor));
+            boolean hasTranslation = showTranslation && !sourceLines.get(center).translated.isEmpty();
+            float lineHeight = lyricFont * 1.18f;
+            float textPadTop = Math.max(lyricFont * 0.16f, 8);
+            float textPadBottom = Math.max(lyricFont * 0.34f, 14);
+            float textBox = lineHeight + textPadTop + textPadBottom;
+            float transLineHeight = translationFont * 1.28f;
+            float transPadTop = Math.max(translationFont * 0.45f, 7);
+            float transPadBottom = Math.max(translationFont * 0.18f, 5);
+            float translationBlock = hasTranslation ? transLineHeight + transPadTop + transPadBottom : 0;
+            float activeHeight = textBox + translationBlock;
+            float focus = railHeight * 0.46f;
+            float inactiveScale = Math.max(0.72f, Math.min(0.92f, inactiveFont / Math.max(1, lyricFont)));
+            int first = Math.max(0, center - 2);
+            int last = Math.min(sourceLines.size() - 1, center + 2);
+            int count = last - first + 1;
+            int centerSlot = center - first;
+            float[] tops = new float[count];
+            float[] scales = new float[count];
+            float[] opacities = new float[count];
+            float[] blurs = new float[count];
+            float[] heights = new float[count];
+            boolean[] actives = new boolean[count];
+            for (int i = first; i <= last; i++) {
+                int slot = i - first;
+                int distance = Math.abs(i - center);
+                actives[slot] = distance == 0;
+                if (distance == 0) {
+                    scales[slot] = 1;
+                    opacities[slot] = 1;
+                    blurs[slot] = 0;
+                } else {
+                    scales[slot] = Math.max(0.68f, inactiveScale * (float) Math.pow(0.9, distance - 1));
+                    if (i < center) {
+                        opacities[slot] = Math.max(0.28f, 0.52f - (distance - 1) * 0.12f);
+                        blurs[slot] = 1.1f + (distance - 1) * 0.7f;
+                    } else {
+                        opacities[slot] = Math.max(0.36f, 0.72f - (distance - 1) * 0.18f);
+                        blurs[slot] = distance == 1 ? 0.7f : 1.8f + (distance - 2) * 0.8f;
+                    }
+                }
+                heights[slot] = (distance == 0 ? activeHeight : textBox) * scales[slot];
+            }
+            float activeGap = Math.max(18, lyricFont * 0.49f);
+            float idleGap = Math.max(14, lyricFont * 0.38f);
+            tops[centerSlot] = focus - heights[centerSlot] / 2;
+            for (int slot = centerSlot + 1; slot < count; slot++) {
+                tops[slot] = tops[slot - 1] + heights[slot - 1] + (slot - 1 == centerSlot ? activeGap : idleGap);
+            }
+            for (int slot = centerSlot - 1; slot >= 0; slot--) {
+                tops[slot] = tops[slot + 1] - heights[slot] - (slot + 1 == centerSlot ? activeGap : idleGap);
+            }
+            int railClip = canvas.save();
+            canvas.clipRect(rowLeft, railTop, rowLeft + columnWidth, railTop + railHeight);
+            for (int slot = 0; slot < count; slot++) {
+                int index = first + slot;
+                boolean active = actives[slot];
+                PreparedLine line = prepare(index, lyricFont, width, active ? face : regularFace, 0);
+                text.setTypeface(line.font);
+                text.setTextSize(line.size);
+                text.getFontMetrics(metrics);
+                float baseline = textPadTop + (lineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+                int lineSave = canvas.save();
+                canvas.translate(x, railTop + tops[slot]);
+                canvas.scale(scales[slot], scales[slot]);
+                if (active) {
+                    // Monet word-sweep: soft accent glow trailing each revealed grapheme, then the
+                    // grapheme fill mixes base -> keyword colour while it is being sung.
+                    int glowColor = mix(accent, primary, 0.3f);
+                    float glowRadiusA = lyricFont * 0.28f;
+                    float glowRadiusB = lyricFont * 0.65f;
+                    for (int i = 0; i < line.timeline.glyphs.length; i++) {
+                        float glow = monetGlow(line, i);
+                        if (glow <= 0.02f) continue;
+                        for (int layer = 0; layer < 2; layer++) {
+                            int glyphSave = canvas.save();
+                            canvas.translate(line.offsets[i] + line.widths[i] / 2f, baseline - line.baseline);
+                            drawSoftMask(canvas, line, i, glowColor, 0.88f * glow,
+                                    layer == 0 ? glowRadiusA : glowRadiusB, 3 + layer);
+                            canvas.restoreToCount(glyphSave);
+                        }
+                    }
+                    for (int i = 0; i < line.timeline.glyphs.length; i++) {
+                        float progress = (float) line.timeline.progress(i, time);
+                        int color;
+                        if (progress <= 0) color = alpha(primary, 0.34f);
+                        else if (progress >= 1) color = alpha(primary, 0.98f);
+                        else color = mix(alpha(primary, 0.98f), alpha(accent, 0.98f), progress);
+                        canvas.drawText(line.timeline.glyphs[i], line.offsets[i], baseline, textColor(color));
+                    }
+                    if (hasTranslation) {
+                        monetRailTranslation(canvas, sourceLines.get(index).translated, contentWidth,
+                                textBox + transPadTop, transLineHeight, translationFont);
+                    }
+                } else {
+                    int color = alpha(primary, opacities[slot] * (index < center ? 0.98f : 0.46f));
+                    float blur = blurs[slot];
+                    for (int i = 0; i < line.timeline.glyphs.length; i++) {
+                        if (blur > 0.2f) {
+                            int glyphSave = canvas.save();
+                            canvas.translate(line.offsets[i] + line.widths[i] / 2f, baseline - line.baseline);
+                            drawSoftMask(canvas, line, i, color, 1, blur, 2);
+                            canvas.restoreToCount(glyphSave);
+                        } else {
+                            canvas.drawText(line.timeline.glyphs[i], line.offsets[i], baseline, textColor(color));
+                        }
+                    }
+                }
+                canvas.restoreToCount(lineSave);
+            }
+            canvas.restoreToCount(railClip);
         }
+
+        float descTop = columnTop + padY + headerHeight + 12 + titleBlock + railHeight + 16;
+        String capsule = (snapshot.sourceName == null || snapshot.sourceName.isEmpty()
+                ? "Monet" : snapshot.sourceName).toUpperCase(Locale.ROOT);
+        text.setTypeface(regularFace);
+        text.setTextSize(12 * ls);
+        float capsuleWidth = 16 * 2 + 10 + 12 + text.measureText(capsule);
+        rect.set(x, descTop, x + capsuleWidth, descTop + 34);
+        shape.setStyle(Paint.Style.FILL);
+        shape.setColor(0x2E09090B);
+        canvas.drawRoundRect(rect, 17, 17, shape);
+        shape.setStyle(Paint.Style.STROKE);
+        shape.setStrokeWidth(1);
+        shape.setColor(alpha(primary, 0.16f));
+        canvas.drawRoundRect(rect, 17, 17, shape);
+        shape.setStyle(Paint.Style.FILL);
+        shape.setColor(accent);
+        canvas.drawCircle(x + 16 + 5, descTop + 17, 5, shape);
+        text.getFontMetrics(metrics);
+        float capsuleBaseline = descTop + 17 + (16 - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+        label(canvas, capsule, x + 16 + 10 + 12, capsuleBaseline, 12 * ls, alpha(primary, 0.9f), Paint.Align.LEFT);
+        shape.setColor(Color.WHITE);
+    }
+
+    /** monetLyricMotion.resolveMonetGlow: rise to a peak shortly after the grapheme, then decay. */
+    private float monetGlow(PreparedLine line, int glyph) {
+        long start = line.timeline.starts[glyph];
+        long end = line.timeline.ends[glyph];
+        double rise = Math.max(1, end - start) * 1.18;
+        double peak = start + rise;
+        double tail = Math.max(line.timeline.renderEnd, end + 1050);
+        if (time <= start) return 0;
+        if (time < peak) return smooth((time - start) / rise);
+        return smooth((tail - time) / Math.max(1, tail - peak));
+    }
+
+    private static float smooth(double value) {
+        double t = Math.max(0, Math.min(1, value));
+        return (float) (t * t * (3 - 2 * t));
+    }
+
+    private void monetRailTranslation(Canvas canvas, String value, float maxWidth,
+                                      float lineTop, float lineHeight, float size) {
+        if (value == null || value.isEmpty()) return;
+        text.setTypeface(regularFace);
+        text.setTextSize(size);
+        text.getFontMetrics(metrics);
+        float baseline = lineTop + (lineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+        int save = canvas.save();
+        canvas.clipRect(0, lineTop, maxWidth, lineTop + lineHeight);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setShader(null);
+        text.clearShadowLayer();
+        text.setColor(alpha(primary, 0.68f));
+        canvas.drawText(value, 0, baseline, text);
+        canvas.restoreToCount(save);
+    }
+
+    /** MonetFloatingDecor: ten very dim theme-icon petals drifting behind the column. */
+    private void monetDecor(Canvas canvas) {
+        if (width < 640) return;
+        int base = alpha(muted, 0.55f);
+        shape.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < 10; i++) {
+            float px = (((i * 127 + 43) % 80) + 10) / 100f * width;
+            float py = (((i * 211 + 17) % 80) + 5) / 100f * height;
+            float size = 46 + (i * 53) % 40;
+            float rotation = (i * 97) % 360;
+            float opacity = 0.06f + ((i * 31) % 12) / 100f;
+            shape.setColor(alpha(base, opacity));
+            int save = canvas.save();
+            canvas.translate(px, py);
+            canvas.rotate(rotation);
+            rect.set(-size * 0.22f, -size * 0.10f, size * 0.22f, size * 0.10f);
+            canvas.drawOval(rect, shape);
+            canvas.restoreToCount(save);
+        }
+        shape.setColor(Color.WHITE);
+    }
+
+    /** MonetPortraitImage square: 135.135% of the inner column, bleeding left, with the dark hanger. */
+    private void monetPortrait(Canvas canvas, MusicSnapshot snapshot, float columnRight,
+                               float portraitColumn, float padRight, float ls) {
+        if (portraitColumn <= 0 || snapshot.albumArt == null || snapshot.albumArt.isRecycled()) return;
+        float inner = Math.max(1, portraitColumn - 12 - padRight);
+        float artSize = inner * 1.35135f;
+        float left = columnRight - portraitColumn + 12 - inner * 0.35135f;
+        float top = (height - artSize) / 2;
+        source.set(0, 0, snapshot.albumArt.getWidth(), snapshot.albumArt.getHeight());
+        rect.set(left, top, left + artSize, top + artSize);
+        int coverClip = canvas.save();
+        path.reset();
+        path.addRoundRect(rect, 32 * ls, 32 * ls, Path.Direction.CW);
+        canvas.clipPath(path);
+        shape.setColor(Color.WHITE);
+        canvas.drawBitmap(snapshot.albumArt, source, rect, shape);
+        canvas.restoreToCount(coverClip);
+        rect.set(left + artSize - 32 - 12, top - 12, left + artSize - 32, top + 44);
+        shape.setColor(0xDB09090B);
+        canvas.drawRoundRect(rect, 6, 6, shape);
+        shape.setColor(Color.WHITE);
+    }
+
+    private Paint textColor(int color) {
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setShader(null);
+        text.clearShadowLayer();
+        text.setColor(color);
+        return text;
     }
 
     private static int alpha(int color, float opacity) {

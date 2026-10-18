@@ -4,8 +4,8 @@ import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const [upstream, destination, mode = 'claddagh', time = '6.7', width = '800', height = '600'] = process.argv.slice(2);
-if (!upstream || !destination) throw new Error('Usage: node capture-reference.mjs UPSTREAM OUTPUT [mode time width height]');
+const [upstream, destination, mode = 'claddagh', time = '6.7', width = '800', height = '600', playback = '0'] = process.argv.slice(2);
+if (!upstream || !destination) throw new Error('Usage: node capture-reference.mjs UPSTREAM OUTPUT [mode time width height playback]');
 const require = createRequire(pathToFileURL(path.join(upstream, 'package.json')));
 const { chromium } = require('playwright');
 await fs.mkdir(destination, { recursive: true });
@@ -17,7 +17,15 @@ try {
     await page.goto(`http://127.0.0.1:6170/folia-reference.html?mode=${encodeURIComponent(mode)}&time=${Number(time)}`, { waitUntil: 'networkidle' });
     await page.waitForFunction(() => Boolean(window.foliaReference));
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(2500);
+    if (playback === '1') {
+        // Clock-driven modes never leave their pre-entry state when currentTime stops
+        // updating, so replay the timeline in real time before capturing the frame.
+        await page.waitForTimeout(400);
+        await page.evaluate(async (target) => { await window.foliaReference.playTo(target); }, Number(time));
+        await page.waitForTimeout(120);
+    } else {
+        await page.waitForTimeout(2500);
+    }
     const prefix = `${mode}-${Math.round(Number(time) * 1000)}-${width}x${height}`;
     await page.screenshot({ path: path.join(destination, `${prefix}.png`) });
     const spans = await page.locator('span').evaluateAll(elements => elements.map(element => {
