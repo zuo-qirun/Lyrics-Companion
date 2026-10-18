@@ -848,7 +848,13 @@ final class FoliaOriginalLumiereRenderer {
             }, width, height, lead.cx * width / height, lead.cy, lead.regionWidth * width / height, lead.hero * height * fontScale);
             windows.put(unitSeed, window);
         }
-        return window.transform(index - base, at);
+        Transform result = window.transform(index - base, at);
+        // The browser reference clears the previous line by ~0.22 * height while the stack formula
+        // yields ~0.15; the extra gap is a scene-level calibration, so it stays out of the math port.
+        if (result.current >= 0 && index < base + result.current) {
+            result.y -= lead.hero * height * fontScale * .88;
+        }
+        return result;
     }
 
     private float[] local(LineData line, Glyph glyph, Transform t, double at) {
