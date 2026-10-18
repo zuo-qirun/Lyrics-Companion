@@ -459,15 +459,24 @@ final class FoliaOriginalCanvasRenderer {
         text.setTextAlign(Paint.Align.CENTER);
         text.setColor(alpha(color, opacity));
         if (glow > 0.5f) {
-            float fade = (float) FoliaRingMath.clamp((glow - 0.5f) / 2, 0, 1);
-            if ("claddagh".equals(mode)) drawSoftMask(canvas, line, index, color, opacity * fade,
-                    (float) Math.hypot(glow * 0.5, blur), 1);
-            else {
-                // Upstream glow has its own accent layer, separate from the body's progress colour.
-                // Fade its alpha at a constant CSS-shadow radius; this also avoids raster-cache churn.
-                float glowOpacity = opacity * fade * Math.min(1.6f, glow / 20);
-                drawSoftMask(canvas, line, index, accent, glowOpacity, 33.8f, 1);
-                drawSoftMask(canvas, line, index, accent, glowOpacity * 0.92f, 33.8f, 2);
+            if ("claddagh".equals(mode)) {
+                float fade = (float) FoliaRingMath.clamp((glow - 0.5f) / 2, 0, 1);
+                drawSoftMask(canvas, line, index, color, opacity * fade,
+                        (float) Math.hypot(glow * 0.5, blur), 1);
+            } else if ("cadenza".equals(mode)) {
+                // CSS blur radius 40px -> Gaussian sigma 20; three stacked shadows alpha 1 / 0.92 / 0.26.
+                float intensity = (float) FoliaRingMath.clamp(glow / 40f, 0, 1) * opacity;
+                drawSoftMask(canvas, line, index, color, intensity, 20f, 1);
+                drawSoftMask(canvas, line, index, color, intensity * 0.92f, 20f, 2);
+                drawSoftMask(canvas, line, index, color, intensity * 0.26f, 20f, 3);
+            } else {
+                // GlowWord text-shadow: two layers, CSS blur 20 / 40px (sigma 10 / 20), scaled on
+                // screens wider than 1536px. The halo carries the word's active colour at full alpha.
+                float large = width <= 1536 ? 1
+                        : width >= 2200 ? 1.5f : 1 + 0.5f * (width - 1536) / 664f;
+                float intensity = (float) FoliaRingMath.clamp(glow / 18f, 0, 1) * opacity;
+                drawSoftMask(canvas, line, index, accent, intensity * 0.95f, 10 * large, 1);
+                drawSoftMask(canvas, line, index, accent, intensity * 0.88f, 20 * large, 2);
             }
         }
         if (blur > 0.2f) {
@@ -569,6 +578,12 @@ final class FoliaOriginalCanvasRenderer {
         if (showTranslation && !value.isEmpty()) {
             if ("claddagh".equals(mode)) {
                 claddaghSubtitle(canvas, value);
+            } else if ("classic".equals(mode)) {
+                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale), mediumFace);
+            } else if ("partita".equals(mode)) {
+                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 16.8f, 2.2f, 19.2f, fontScale), mediumFace);
+            } else if ("tilt".equals(mode) || "cadenza".equals(mode)) {
+                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale), mediumFace);
             } else {
                 float size = FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale);
                 text.setTypeface(face);
@@ -583,6 +598,23 @@ final class FoliaOriginalCanvasRenderer {
             slice(canvas, next, 0, next.timeline.glyphs.length, width / 2,
                     height - 36, width * 0.84f, 0.6f, muted, false, 0, 0);
         }
+    }
+
+    /**
+     * Shared upstream subtitle overlay for the typography modes: bottom = 32px plus the 2px box
+     * padding, line-height 1.5, weight 500, secondary colour and a 0 1px 2px background shadow.
+     */
+    private void typographySubtitle(Canvas canvas, String value, float size, Typeface typeface) {
+        float lineHeight = size * 1.5f;
+        float top = height - 34 - lineHeight;
+        text.setTypeface(typeface);
+        text.setTextSize(Math.max(1, size));
+        text.getFontMetrics(metrics);
+        float baseline = top + (lineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+        text.setShader(null);
+        text.setShadowLayer(1, 0, 2, alpha(0x09090b, 0.24f));
+        label(canvas, value, width / 2, baseline, size, alpha(muted, 0.62f), Paint.Align.CENTER, typeface);
+        text.setShadowLayer(0, 0, 0, Color.TRANSPARENT);
     }
 
     /**
@@ -713,48 +745,123 @@ final class FoliaOriginalCanvasRenderer {
 
     private void tiltTypography(Canvas canvas) {
         int index = Math.max(0, anchor);
-        long seed = sourceLines.get(index).timeMs;
-        int rows = FoliaSceneMath.tiltRowCount(sourceLines.get(index).text.trim().length(), seed);
-        int tilted = FoliaSceneMath.tiltAccentRow(rows, seed);
+        LrcTimeline.Line source = sourceLines.get(index);
+        double lineSeed = source.timeMs / 1000.0;
+        int charCount = FoliaGlyphTimeline.split(source.text).length;
+        int rows = tiltLineCount(charCount, lineSeed);
         float size = FoliaSceneMath.clampFont(width, 50, 6.875f, 90, fontScale);
         PreparedLine normal = prepare(index, size, width, regularFace, 0.08f);
         PreparedLine italic = prepare(index, size, width, italicFace, 0.15f);
-        int count = normal.timeline.glyphs.length;
-        rows = Math.min(rows, Math.max(1, count));
-        int perRow = (int) Math.ceil(count / (double) rows);
-        float rowStep = size * 1.35f + 16;
-        // The upstream main container occupies 70vh and is centered in the shell.
-        float firstY = height / 2 - (rows - 1) * rowStep / 2;
-        for (int r = 0; r < rows; r++) {
-            int first = r * perRow, end = Math.min(count, first + perRow);
-            if (first >= end) continue;
-            boolean isTilt = r == tilted;
-            PreparedLine line = isTilt ? italic : normal;
-            float extent = line.extent(first, end);
-            float fit = Math.min(1, width * 0.85f / Math.max(1, extent));
+        // Upstream splits the line into sentence segments; for CJK fixtures this is an even split
+        // over the non-space glyphs (9 chars -> 4 + 4 with the inter-word space dropped).
+        List<Integer> glyphs = new ArrayList<>();
+        for (int g = 0; g < normal.timeline.glyphs.length; g++) {
+            if (!normal.timeline.glyphs[g].trim().isEmpty()) glyphs.add(g);
+        }
+        if (glyphs.isEmpty()) {
+            rows = 1;
+        } else {
+            rows = Math.max(1, Math.min(rows, glyphs.size()));
+        }
+        List<int[]> segments = new ArrayList<>();
+        if (glyphs.isEmpty()) {
+            segments.add(new int[]{0, Math.max(0, normal.timeline.glyphs.length - 1)});
+        } else if (rows <= 1) {
+            segments.add(new int[]{glyphs.get(0), glyphs.get(glyphs.size() - 1)});
+        } else {
+            int base = glyphs.size() / rows;
+            int remainder = glyphs.size() % rows;
+            int cursor = 0;
+            for (int r = 0; r < rows; r++) {
+                int length = base + (r < remainder ? 1 : 0);
+                if (length <= 0) continue;
+                int first = glyphs.get(cursor), last = glyphs.get(cursor + length - 1);
+                segments.add(new int[]{first, last});
+                cursor += length;
+            }
+        }
+        // Italic accent row: candidates where seededRandom(seed, 100 + row) < 0.35, then pick one.
+        int tilted = -1;
+        List<Integer> candidates = new ArrayList<>();
+        for (int r = 0; r < segments.size(); r++) {
+            if (tiltSeededRandom(lineSeed, 100 + r) < 0.35) candidates.add(r);
+        }
+        if (!candidates.isEmpty()) {
+            tilted = candidates.get((int) Math.floor(tiltSeededRandom(lineSeed, 200) * candidates.size()) % candidates.size());
+        }
+        float gap = width < 640 ? 12 : 16;
+        float contentTop = height * 0.15f;
+        float innerTop = contentTop + 32;
+        float innerHeight = height * 0.70f - 64;
+        float total = 0;
+        for (int r = 0; r < segments.size(); r++) {
+            total += (r == tilted ? 1.25f : 1.35f) * size;
+        }
+        total += gap * (segments.size() - 1);
+        float rowTop = innerTop + (innerHeight - total) / 2;
+        for (int r = 0; r < segments.size(); r++) {
+            int[] segment = segments.get(r);
+            int first = segment[0];
+            int last = segment[1];
+            PreparedLine line = r == tilted ? italic : normal;
+            float rowHeight = (r == tilted ? 1.25f : 1.35f) * size;
+            float centerY = rowTop + rowHeight / 2;
+            boolean visible = line.timeline.starts[first] <= time + 250;
+            if (!visible) {
+                rowTop += rowHeight + gap;
+                continue;
+            }
+            float extent = line.offsets[last] - line.offsets[first] + line.widths[last];
+            float rowWidth = extent + line.spacing;
+            float left = (width - rowWidth) / 2;
             float entry = animate ? (float) FoliaSceneMath.easeOut(
-                    (time - line.timeline.starts[first] + 250) / (isTilt ? 600.0 : 550.0)) : 1;
+                    (time - line.timeline.starts[first] + 250) / (r == tilted ? 600.0 : 550.0)) : 1;
             int save = canvas.save();
-            canvas.translate(width / 2, firstY + r * rowStep + (1 - entry) * (isTilt ? 24 : 20));
-            canvas.scale(fit * (isTilt ? 0.92f + 0.08f * entry : 1), fit);
+            canvas.translate(0, centerY + size * 0.036f + (1 - entry) * (r == tilted ? 24 : 20));
             int visual = 0;
-            for (int g = first; g < end; g++) {
-                float reveal = animate ? (float) FoliaSceneMath.easeOut(
-                        (time - line.timeline.starts[first] + 250 - visual * (isTilt ? 50 : 40)) / 500.0) : 1;
-                float duration = Math.max(200, Math.min(900, line.timeline.ends[g] - line.timeline.starts[g]));
-                float pulse = animate ? (float) Math.sin(Math.PI * FoliaRingMath.clamp(
-                        (time - line.timeline.starts[g]) / duration, 0, 1)) : 0;
+            for (int i = first; i <= last; i++) {
+                if (line.timeline.glyphs[i].trim().isEmpty()) continue;
+                float reveal = animate ? (float) FoliaRingMath.clamp(
+                        (time - line.timeline.starts[first] + 250 - visual * (r == tilted ? 50 : 40)) / 500.0, 0, 1) : 1;
+                if (reveal <= 0) continue;
+                float duration = (float) FoliaRingMath.clamp(line.timeline.ends[i] - line.timeline.starts[i], 200, 900);
+                double elapsed = time - line.timeline.starts[i];
+                double intensity;
+                if (elapsed < 0) {
+                    intensity = 0;
+                } else if (elapsed <= duration) {
+                    intensity = Math.sin(Math.PI * elapsed / duration);
+                } else {
+                    double after = duration * 1.2;
+                    intensity = elapsed - duration < after ? 0.25 * (elapsed - duration) / after : 0.25;
+                }
+                float scale = (float) (1 + intensity * (r == tilted ? 0.18 : 0.15));
                 int glyphSave = canvas.save();
-                canvas.translate(line.offsets[g] - line.offsets[first] + line.widths[g] / 2 - extent / 2,
-                        isTilt ? (visual % 2 == 0 ? -1 : 1) * size / 6 * (2 - reveal) : 0);
-                float scale = 1 + pulse * (isTilt ? 0.18f : 0.15f);
+                canvas.translate(left + line.offsets[i] - line.offsets[first] + line.widths[i] / 2,
+                        r == tilted ? (visual % 2 == 0 ? -1 : 1) * size / 6 * (2 - reveal) : 0);
                 canvas.scale(scale, scale);
-                glyph(canvas, line, g, isTilt ? accent : primary, reveal * entry, 0, 0);
+                glyph(canvas, line, i, r == tilted ? accent : primary, reveal * entry, 0, 0);
                 canvas.restoreToCount(glyphSave);
-                if (!line.timeline.glyphs[g].trim().isEmpty()) visual++;
+                visual++;
             }
             canvas.restoreToCount(save);
+            rowTop += rowHeight + gap;
         }
+    }
+
+    /** Rows used by the upstream tilt layout (1..4) from the char count and line seed. */
+    private int tiltLineCount(int charCount, double seed) {
+        double normalized = Math.log(charCount + 4) / Math.log(24);
+        double jitter = tiltSeededRandom(seed, 1) * 0.6 + 0.7;
+        double score = normalized * jitter * 0.75;
+        if (score < 0.45) return 1;
+        if (score < 1.05) return 2;
+        if (score < 1.7) return 3;
+        return 4;
+    }
+
+    private double tiltSeededRandom(double seed, double offset) {
+        return FoliaSceneMath.random(seed * 1000 + offset);
     }
 
     private int[] wordEnds(PreparedLine line, int index) {
@@ -821,7 +928,9 @@ final class FoliaOriginalCanvasRenderer {
         int rowCount = 1;
         float used = 0;
         for (float advance : advances) { if (used > 0 && used + advance > available) { rowCount++; used = 0; } used += advance; }
-        float y = height / 2 - (rowCount - 1) * size * 1.65f / 2;
+        float rowStep = size * 1.22f;
+        // content-center in the 70vh container: the row block is centred on the viewport.
+        float y = height / 2 - rowCount * rowStep / 2 + rowStep / 2;
         while (rowFirst < words.length) {
             int rowEnd = rowFirst;
             float extent = 0;
@@ -834,26 +943,42 @@ final class FoliaOriginalCanvasRenderer {
                 float x = (float) (FoliaSceneMath.random(wordSeed + 1) - 0.5) * 40;
                 float dy = (float) (FoliaSceneMath.random(wordSeed + 2) - 0.5) * 40;
                 float rotation = (float) (FoliaSceneMath.random(wordSeed + 3) - 0.5) * 10;
+                float passedRotate = (float) (FoliaSceneMath.random(wordSeed + 8) - 0.5) * 45;
                 float wordWidth = line.extent(glyphFirst, end);
                 long start = line.timeline.starts[Math.min(glyphFirst, line.timeline.starts.length - 1)];
                 long finish = line.timeline.ends[end - 1];
                 float entered = animate ? (float) FoliaSceneMath.spring(Math.max(0, time - start + 150) / 1000.0, 200, 20, 1) : 1;
-                float passed = animate ? (float) FoliaSceneMath.easeOut((time - finish) / 500.0) : 0;
+                float passedFast = animate ? (float) FoliaSceneMath.easeOut((time - finish) / 500.0) : 0;
+                // The rotate delta uses its own 5s linear transition, much slower than the other fields.
+                float passedLinear = animate ? (float) FoliaRingMath.clamp((time - finish) / 5000.0, 0, 1) : 0;
+                float displayDuration = Math.max(100, finish - start);
+                int wordColor;
+                if (!animate) {
+                    wordColor = accent;
+                } else if (time < start - 150) {
+                    wordColor = primary;
+                } else if (time <= finish) {
+                    wordColor = mix(primary, accent,
+                            (float) FoliaRingMath.clamp((time - start) / (double) displayDuration, 0, 1));
+                } else {
+                    float fade = (float) FoliaRingMath.clamp((time - finish) / 800.0, 0, 1);
+                    wordColor = mix(accent, primary, fade * fade * (3 - 2 * fade));
+                }
                 float scale = 0.5f + (baseScale * 1.4f - 0.5f) * entered;
-                scale += (baseScale - baseScale * 1.4f) * passed;
-                float opacity = animate ? (float) FoliaRingMath.clamp((time - start + 150) / 100.0, 0, 1) * (1 - 0.18f * passed) : 1;
+                scale += (baseScale - baseScale * 1.4f) * passedFast;
+                float opacity = animate ? (float) FoliaRingMath.clamp((time - start + 150) / 100.0, 0, 1) * (1 - 0.18f * passedFast) : 1;
                 int save = canvas.save();
                 canvas.translate(left + wordWidth / 2 + x + (1 - entered) * (float) Math.sin(dy) * 100,
                         y + dy + (1 - entered) * (float) Math.cos(x) * 50);
-                canvas.rotate(rotation + (1 - entered) * 20 + passed * (float) (FoliaSceneMath.random(wordSeed + 8) - 0.5) * 45);
+                canvas.rotate(rotation + (1 - entered) * 20 + passedLinear * passedRotate);
                 canvas.scale(scale, scale);
                 slice(canvas, line, glyphFirst, end, 0, 0, Float.MAX_VALUE, opacity,
-                        mix(accent, primary, passed), false, 0, animate ? (1 - passed) * 18 * strength : 0);
+                        wordColor, false, 0, animate ? (1 - passedFast) * 18 : 0);
                 canvas.restoreToCount(save);
                 left += advances[w];
                 glyphFirst = end;
             }
-            y += size * 1.65f;
+            y += rowStep;
             rowFirst = rowEnd;
         }
     }
@@ -865,19 +990,23 @@ final class FoliaOriginalCanvasRenderer {
         PreparedLine line = current(FoliaSceneMath.clampFont(width, 40, 5.5f, 72, fontScale * densityScale));
         int[] words = wordEnds(line, index);
         if (line.chunks == null) line.chunks = FoliaSceneMath.partitaChunks(words.length, height, sourceLines.get(index).timeMs / 1000.0);
-        float step = line.size * 1.22f + 6.4f + 9.6f;
+        float chunkHeight = line.size * 1.22f + 6.4f;
+        float marginBottom = 9.6f;
+        float step = chunkHeight + marginBottom;
+        // The upstream column centres the whole block group; the trailing margin participates too.
+        float groupOffset = -marginBottom / 2;
         for (int r = 0; r < line.chunks.size(); r++) {
             FoliaSceneMath.PartitaChunk chunk = line.chunks.get(r);
             int first = chunk.first == 0 ? 0 : words[chunk.first - 1], end = words[chunk.end - 1];
             long start = line.timeline.starts[first], finish = line.timeline.ends[end - 1];
             float entry = animate ? (float) FoliaSceneMath.spring(Math.max(0, time - start + 150) / 1000.0, 200, 20, 1) : 1;
             float opacity = animate ? (float) FoliaRingMath.clamp((time - start + 150) / 100.0, 0, 1) : 1;
-            float extent = line.extent(first, end) + (chunk.end - chunk.first) * 12.8f;
-            float fit = Math.min(1, (width - 64 - Math.abs(chunk.x) * 2) / Math.max(1, extent));
+            float extent = line.extent(first, end) + (chunk.end - chunk.first) * 12.8f + 16;
             int save = canvas.save();
             canvas.translate(width / 2 + chunk.x + (1 - entry) * (r % 2 == 0 ? -40 : 40),
-                    height / 2 + (r - (line.chunks.size() - 1) / 2f) * step + chunk.y);
-            canvas.scale(fit * (0.85f + 0.15f * entry), fit * (0.85f + 0.15f * entry));
+                    height / 2 - line.chunks.size() * step / 2 + r * step + chunkHeight / 2
+                            + groupOffset + chunk.y);
+            canvas.scale(0.85f + 0.15f * entry, 0.85f + 0.15f * entry);
             float left = -extent / 2;
             int glyphFirst = first;
             for (int w = chunk.first; w < chunk.end; w++) {
@@ -905,15 +1034,30 @@ final class FoliaOriginalCanvasRenderer {
                 float colorPass = animate ? (float) FoliaSceneMath.easeOut((time - line.timeline.ends[glyphEnd - 1]) / 800.0) : 0;
                 slice(canvas, line, glyphFirst, glyphEnd, 0, 0, Float.MAX_VALUE, opacity * wordOpacity,
                         mix(primary, accent, colorProgress * (1 - colorPass)), false, 0,
-                        animate ? 20 * (1 - colorPass) * strength : 0);
+                        animate ? 20 * (1 - colorPass) : 0);
                 canvas.restoreToCount(wordSave);
                 left += wordWidth + 12.8f; glyphFirst = glyphEnd;
             }
-            shape.setColor(alpha(time <= finish ? accent : primary, opacity * (time <= finish ? 1 : 0.22f)));
-            float side = (r % 2 == 0 ? -1 : 1) * (extent / 2 + 16);
-            float bottom = line.size * 1.22f / 2 + 3.2f;
-            canvas.drawRect(side, bottom - 16, side + 1, bottom + 16, shape);
-            canvas.drawRect(-extent / 2 - 24, bottom + 8, extent / 2 + 28, bottom + 9, shape);
+            boolean active = time <= finish;
+            int guideColor = active ? accent : (time > finish ? alpha(Color.WHITE, 0.22f) : alpha(Color.WHITE, 0.14f));
+            float guideOpacity = opacity;
+            shape.setColor(alpha(guideColor, guideOpacity));
+            shape.setStrokeWidth(1);
+            float chunkWidth = extent;
+            float vX = (r % 2 == 0 ? -1 : 1) * (chunkWidth / 2 + 8);
+            float vTop = chunkHeight / 2 + 16 - 32;
+            float vBottom = chunkHeight / 2 + 16;
+            canvas.drawRect(vX, vTop, vX + 1, vBottom, shape);
+            float hY = chunkHeight / 2 + 8;
+            canvas.drawRect(-(chunkWidth / 2 + 16), hY, chunkWidth / 2 + 20, hY + 1, shape);
+            if (active) {
+                // Upstream active guides carry a boxShadow-ish halo (0 0 10px).
+                shape.setColor(alpha(accent, 0.20f * guideOpacity));
+                shape.setStrokeWidth(3);
+                canvas.drawRect(vX - 1, vTop, vX + 2, vBottom, shape);
+                canvas.drawRect(-(chunkWidth / 2 + 16), hY - 1, chunkWidth / 2 + 20, hY + 2, shape);
+                shape.setStrokeWidth(1);
+            }
             canvas.restoreToCount(save);
         }
     }
@@ -946,12 +1090,13 @@ final class FoliaOriginalCanvasRenderer {
             int save = canvas.save();
             canvas.translate(width / 2 + (float) (p.x + p.width / 2 + p.driftX * drift),
                     focusY + (float) (p.y - p.height * 0.42 + p.driftY * drift));
-            canvas.rotate((float) p.rotation * drift);
+            // The first frame starts 16 degrees past the resting rotation and eases in.
+            canvas.rotate((float) p.rotation * drift + (1 - entry) * 16);
             canvas.scale(scale, scale);
             float opacity = entry * (passed ? 0.82f : 1);
             slice(canvas, line, p.first, p.end, 0, (float) p.height * 0.42f - line.baseline,
                     Float.MAX_VALUE, opacity, mix(primary, accent, progress * (1 - colorPass)), false, 0,
-                    animate ? (float) FoliaSceneMath.cadenzaGlow(time, p.start, p.finish) * 40 * strength : 0);
+                    animate ? (float) FoliaSceneMath.cadenzaGlow(time, p.start, p.finish) * 40 : 0);
             canvas.restoreToCount(save);
         }
     }
