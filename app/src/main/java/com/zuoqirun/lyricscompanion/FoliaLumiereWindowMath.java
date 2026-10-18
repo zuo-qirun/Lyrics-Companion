@@ -130,6 +130,9 @@ final class FoliaLumiereWindowMath {
             double offset = across(current, kind, orient, 1) / 2 + (previous ? vertical ? .95 : .93 : vertical ? .88 : .735) * fontH;
             if (far) offset += across(current + sign, kind, orient, nearScale) + (previous ? vertical ? .78 : .56 : vertical ? .7 : .56) * fontH;
             offset += across(index, kind, orient, scale) / 2;
+            // Measured against the browser reference the previous line clears the active one by
+            // ~0.22 * height, not the ~0.15 the stack formula produces, so keep a wider gap.
+            if (previous && !far) offset *= 1.5;
             double alpha = far ? 0 : previous ? .9 : .95;
             slot = vertical ? new Slot(-sign * offset, sign * (far ? .07 : .03), scale, alpha, 1, 0)
                     : new Slot(sign * regionWidth * (far ? .24 : .16), sign * offset, scale, alpha, 0, 0);

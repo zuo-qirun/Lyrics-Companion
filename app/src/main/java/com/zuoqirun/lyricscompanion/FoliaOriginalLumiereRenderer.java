@@ -6,6 +6,7 @@ package com.zuoqirun.lyricscompanion;
 
 import android.graphics.Canvas;
 import android.graphics.Bitmap;
+import android.graphics.BlurMaskFilter;
 import android.graphics.ColorFilter;
 import android.graphics.Color;
 import android.graphics.Matrix;
@@ -13,9 +14,12 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.os.Build;
+import android.util.Log;
 import android.util.LruCache;
 
 import org.json.JSONArray;
@@ -46,14 +50,27 @@ final class FoliaOriginalLumiereRenderer {
     private final float[] echoValues = new float[9];
     private final FoliaLumiereWindowMath.ProtectBox[] protectBoxes = new FoliaLumiereWindowMath.ProtectBox[4];
     private int protectCount;
+    private int debugGlyphs;
+    private int mutedColor = 0xffb9bbc5;
     private double windowVisibility = 1;
     private final LruCache<String, Particle[]> particles = new LruCache<>(4);
     private final LruCache<Integer, ColorFilter> tints = new LruCache<>(16);
+    private final LruCache<Integer, BlurMaskFilter> blurFilters = new LruCache<>(8);
     private final Paint spritePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final RectF spriteBounds = new RectF();
     private final double[] camera = new double[4];
     private final float[] lightColor = new float[3], litColor = new float[3], coldColor = new float[3], starColor = new float[3];
     private final Beam[] candidates = new Beam[12];
+    private Bitmap graphicsBuffer;
+    private Canvas graphicsCanvas;
+    private Bitmap bloomBuffer;
+    private Canvas bloomCanvas;
+    private final Paint bufferPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint bloomPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Rect bloomSource = new Rect();
+    private final Rect bloomDest = new Rect();
+    private final RectF bloomArea = new RectF();
+    private int[] bloomPixels, bloomScratch;
     private Typeface face;
     private float fontScale = 1, strength = 0.5f, tracking;
     private float subtitleScale = 1;
@@ -69,6 +86,7 @@ final class FoliaOriginalLumiereRenderer {
     private float paragraphAlpha = 1;
     private FoliaLumiereMath.Paragraph paragraph;
     private Profile lead;
+    private Profile unitLead;
     private String unitSeed;
 
     FoliaOriginalLumiereRenderer() {
@@ -76,6 +94,7 @@ final class FoliaOriginalLumiereRenderer {
         for (int i = 0; i < protectBoxes.length; i++) protectBoxes[i] = new FoliaLumiereWindowMath.ProtectBox();
         text.setTextAlign(Paint.Align.CENTER);
         ink.setStrokeCap(Paint.Cap.ROUND); ink.setStrokeJoin(Paint.Join.ROUND);
+        bloomPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
     }
 
     void setTracking(float value) {
@@ -120,6 +139,7 @@ final class FoliaOriginalLumiereRenderer {
             track = identity; lines = incoming;
             programSeed = geometrySeed.isEmpty() ? identity : geometrySeed;
             program = FoliaLumiereMath.compile(lines, snapshot.durationMs, programSeed);
+            unitLead = null;
             profiles.evictAll(); prepared.evictAll(); windows.evictAll(); echoes.evictAll(); particles.evictAll(); field.clear();
         }
         if (this.width != width || this.height != height) {
@@ -149,10 +169,101 @@ final class FoliaOriginalLumiereRenderer {
             float subtitleBaseline = subtitleTop
                     + (subtitleLineHeight - (subtitleMetrics.descent - subtitleMetrics.ascent)) / 2f
                     - subtitleMetrics.ascent;
-            text.setColor(color(litColor)); text.setAlpha(190);
+            text.setColor(mutedColor); text.setAlpha(92);
             text.setTextAlign(Paint.Align.CENTER);
             canvas.drawText(lines.get(anchor).translated, width / 2f, subtitleBaseline, text);
         }
+    }
+
+    /**
+     * Unit lead shot: the first shot of the whole scene that actually carries lyric lines
+     * (upstream {@code resolveLumiereLeadShot}).  Text region, hero size, camera, echo, motes,
+     * starfall and decay all follow this shot, not the paragraph that owns the current line.
+     */
+    private Profile unitLead() {
+        if (unitLead != null) return unitLead;
+        for (FoliaLumiereMath.Paragraph part : program) {
+            for (int i = 0; i < part.shots.size(); i++) {
+                FoliaLumiereMath.Shot shot = part.shots.get(i);
+                if (shot.last > shot.first) {
+                    String saved = unitSeed;
+                    unitSeed = programSeed + ":lumiere-p" + shot.paragraph;
+                    unitLead = profile(shot.profile, i);
+                    unitSeed = saved;
+                    return unitLead;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Off-screen buffer for the graphics group so the scene can add the upstream Pixi bloom pass. */
+    private Canvas beginGraphics() {
+        int w = Math.max(1, Math.round(width)), h = Math.max(1, Math.round(height));
+        if (graphicsBuffer == null || graphicsBuffer.getWidth() != w || graphicsBuffer.getHeight() != h) {
+            graphicsBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            graphicsCanvas = new Canvas(graphicsBuffer);
+            int sw = Math.max(1, w / 4), sh = Math.max(1, h / 4);
+            bloomBuffer = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
+            bloomCanvas = new Canvas(bloomBuffer);
+            bloomPixels = new int[sw * sh];
+            bloomScratch = new int[sw * sh];
+        }
+        graphicsCanvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        return graphicsCanvas;
+    }
+
+    private void compositeGraphics(Canvas canvas, float alpha) {
+        bufferPaint.setAlpha(Math.round(Math.max(0f, Math.min(1f, alpha)) * 255));
+        canvas.drawBitmap(graphicsBuffer, 0, 0, bufferPaint);
+        if (lowResource) return;
+        bloomSource.set(0, 0, graphicsBuffer.getWidth(), graphicsBuffer.getHeight());
+        bloomDest.set(0, 0, bloomBuffer.getWidth(), bloomBuffer.getHeight());
+        bloomCanvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        bloomCanvas.drawBitmap(graphicsBuffer, bloomSource, bloomDest, bufferPaint);
+        int w = bloomBuffer.getWidth(), h = bloomBuffer.getHeight();
+        bloomBuffer.getPixels(bloomPixels, 0, w, 0, 0, w, h);
+        blur(bloomPixels, w, h);
+        bloomBuffer.setPixels(bloomPixels, 0, w, 0, 0, w, h);
+        bloomPaint.setAlpha(Math.round(Math.min(1f, alpha) * 190));
+        bloomArea.set(0, 0, width, height);
+        canvas.drawBitmap(bloomBuffer, bloomSource, bloomArea, bloomPaint);
+    }
+
+    private void blur(int[] pixels, int w, int h) {
+        int radius = 2;
+        for (int y = 0; y < h; y++) {
+            int row = y * w;
+            for (int x = 0; x < w; x++) {
+                int sa = 0, sr = 0, sg = 0, sb = 0, n = 0;
+                for (int k = -radius; k <= radius; k++) {
+                    int xx = x + k;
+                    if (xx < 0 || xx >= w) continue;
+                    int c = pixels[row + xx];
+                    sa += c >>> 24; sr += (c >> 16) & 255; sg += (c >> 8) & 255; sb += c & 255; n++;
+                }
+                bloomScratch[row + x] = ((sa / n) << 24) | ((sr / n) << 16) | ((sg / n) << 8) | (sb / n);
+            }
+        }
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int sa = 0, sr = 0, sg = 0, sb = 0, n = 0;
+                for (int k = -radius; k <= radius; k++) {
+                    int yy = y + k;
+                    if (yy < 0 || yy >= h) continue;
+                    int c = bloomScratch[yy * w + x];
+                    sa += c >>> 24; sr += (c >> 16) & 255; sg += (c >> 8) & 255; sb += c & 255; n++;
+                }
+                pixels[y * w + x] = ((sa / n) << 24) | ((sr / n) << 16) | ((sg / n) << 8) | (sb / n);
+            }
+        }
+    }
+
+    private void applyCamera(Canvas target) {
+        target.translate((float) camera[0], (float) camera[1]);
+        target.rotate((float) Math.toDegrees(camera[3]));
+        target.scale((float) camera[2], (float) camera[2]);
+        target.translate(-width / 2, -height / 2);
     }
 
     private void drawParagraph(Canvas canvas, FoliaLumiereMath.Paragraph part, float alpha, float bass) {
@@ -161,7 +272,9 @@ final class FoliaOriginalLumiereRenderer {
         FoliaLumiereMath.Shot leadShot = part.shots.get(0);
         for (FoliaLumiereMath.Shot shot : part.shots) if (!shot.bridge) { leadShot = shot; break; }
         unitSeed = programSeed + ":lumiere-p" + leadShot.paragraph;
-        lead = profile(leadShot.profile, part.shots.indexOf(leadShot));
+        Profile paragraphLead = profile(leadShot.profile, part.shots.indexOf(leadShot));
+        lead = unitLead();
+        if (lead == null) lead = paragraphLead;
         int index = 0;
         for (int i = 1; i < part.shots.size(); i++) if (part.shots.get(i).start / 1000.0 <= time) index = i;
         FoliaLumiereMath.Shot shot = part.shots.get(index);
@@ -177,27 +290,42 @@ final class FoliaOriginalLumiereRenderer {
         double glareK = index > 0 ? FoliaLumiereMath.cubic((time - shot.start / 1000.0) / 1.6) : 1;
         buildLight(active, previous, handoff, glareK, intensity, flash, bass,
                 time - shot.start / 1000.0, index > 0 ? time - part.shots.get(index - 1).start / 1000.0 : 0);
+        if (FoliaOriginalCanvasRenderer.debugLayout) {
+            Log.i("FoliaFixture", String.format(Locale.US,
+                    "lumiere para=%d shots=%d lead=%s typo=%s region=%.3f,%.3f,%.3f,%.3f hero=%.4f light=%d beam=%.3f,%.3f,%.3f,%.3f half=%.3f,%.3f fog=%.2f glare=%.2f",
+                    leadShot.paragraph, part.shots.size(), lead.data.optString("kind"), lead.data.optString("typography"),
+                    lead.cx, lead.cy, lead.regionWidth, lead.regionHeight, lead.hero, light.count,
+                    light.a[0], light.a[1], light.a[2], light.a[3], light.b[0], light.b[1],
+                    light.fogA[0], light.glare[3]));
+        }
         FoliaLumiereMath.camera(camera, animate ? time : part.start / 1000.0, part.start / 1000.0,
                 part.end / 1000.0, lead.push, lead.driftX, lead.driftY, width, height);
-        int saved = canvas.save();
-        canvas.translate((float) camera[0], (float) camera[1]);
-        canvas.rotate((float) Math.toDegrees(camera[3])); canvas.scale((float) camera[2], (float) camera[2]);
-        canvas.translate(-width / 2, -height / 2);
-        if (alpha < 0.999f) canvas.saveLayerAlpha(-width, -height, width * 2, height * 2, (int) (alpha * 255), Canvas.ALL_SAVE_FLAG);
-        field.draw(canvas, width, height, light, lowResource);
-        drawEcho(canvas, part, intensity);
-        drawStars(canvas, opening ? local : local + openingLength + 20, openingLength);
+        Canvas gfx = beginGraphics();
+        int gfxSaved = gfx.save();
+        applyCamera(gfx);
+        field.draw(gfx, width, height, light, lowResource);
+        drawEcho(gfx, part, intensity);
+        drawStars(gfx, opening ? local : local + openingLength + 20, openingLength);
         for (int i = Math.max(0, index - 1); i <= Math.min(part.shots.size() - 1, index + 1); i++) {
             FoliaLumiereMath.Shot artShot = part.shots.get(i);
             double begin = i == 0 ? part.start / 1000.0 + ignition - 0.6 : artShot.start / 1000.0 - 0.6;
             double out = i == part.shots.size() - 1 ? 1 : 1 - FoliaLumiereMath.smooth((time - artShot.end / 1000.0) / 0.8);
-            drawArt(canvas, profile(artShot.profile, i), (time - begin) / 3.6,
+            drawArt(gfx, profile(artShot.profile, i), (time - begin) / 3.6,
                     FoliaLumiereMath.smooth((time - begin) / 1.2) * out);
         }
-        drawMotes(canvas, lead.motes, false);
-        drawWindow(canvas);
-        if (lead.front != null) drawMotes(canvas, lead.front, true);
-        canvas.restoreToCount(saved);
+        drawMotes(gfx, lead.motes, false);
+        gfx.restoreToCount(gfxSaved);
+        compositeGraphics(canvas, alpha);
+        // The upstream lyric window spans the whole lyric list (a single Pixi container), so only
+        // the dominant paragraph paints it; otherwise outgoing and incoming windows would overlap.
+        if (alpha >= 0.5f) {
+            int saved = canvas.save();
+            applyCamera(canvas);
+            if (alpha < 0.999f) canvas.saveLayerAlpha(-width, -height, width * 2, height * 2, (int) (alpha * 255), Canvas.ALL_SAVE_FLAG);
+            drawWindow(canvas);
+            if (lead.front != null) drawMotes(canvas, lead.front, true);
+            canvas.restoreToCount(saved);
+        }
     }
 
     private Profile profile(int index, int shotIndex) {
@@ -212,6 +340,7 @@ final class FoliaOriginalLumiereRenderer {
 
     private void palette(int primary, int accent, int muted) {
         float[] champagne = {1, 0.86f, 0.62f}, cool = {0.62f, 0.68f, 0.8f};
+        this.mutedColor = muted;
         float[] a = channels(accent), p = channels(primary), m = channels(muted);
         normalize(a); normalize(p); normalize(m);
         for (int i = 0; i < 3; i++) lightColor[i] = (float) FoliaLumiereMath.mix(FoliaLumiereMath.mix(champagne[i], channel(accent, i), 0.18), a[i], 0.3);
@@ -291,7 +420,7 @@ final class FoliaOriginalLumiereRenderer {
             out.b[2] = (float) number(b, "softness", 0.5);
             double reveal = b.has("reveal") ? 0.06 + 0.94 * FoliaLumiereMath.smooth(local / number(b, "reveal", 1)) : 1;
             out.b[3] = (float) (number(b, "length", 1) * reveal);
-            out.c[0] = (float) (number(b, "intensity", 1) * (1 + oscillate(b.optJSONObject("pulse"))) * weight * (1 + 0.15 * Math.pow(Math.max(0, bass), 1.5)));
+            out.c[0] = (float) (number(b, "intensity", 1) * (1 + oscillate(b.optJSONObject("pulse"))) * weight * (1 + 0.15 * Math.pow(Math.max(0, bass), 1.5)) * 2.0);
             out.c[1] = (float) number(b, "streaks", 0); out.c[2] = (float) number(b, "streakFreq", 0);
             out.c[3] = (float) (time * number(b, "streakSpeed", 0));
             JSONArray tint = b.optJSONArray("tint");
@@ -510,18 +639,38 @@ final class FoliaOriginalLumiereRenderer {
         sprite(canvas, ring ? FoliaLumiereSprites.BOKEH : FoliaLumiereSprites.DOT, x, y, radius * 2, radius * 2, color, alpha);
     }
 
+    private BlurMaskFilter blurFilter(float sigma) {
+        int key = Math.max(1, Math.round(sigma));
+        BlurMaskFilter filter = blurFilters.get(key);
+        if (filter == null) {
+            filter = new BlurMaskFilter(key, BlurMaskFilter.Blur.NORMAL);
+            blurFilters.put(key, filter);
+        }
+        return filter;
+    }
+
     private void star(Canvas canvas, float x, float y, float size, float[] color, double alpha) {
         sprite(canvas, FoliaLumiereSprites.STAR, x, y, size, size, color, alpha);
     }
 
     private void drawWindow(Canvas canvas) {
-        int cursor = paragraph.first - 1;
-        for (int i = paragraph.first; i < paragraph.last; i++) if (lines.get(i).timeMs / 1000.0 - 1.2 <= time) cursor = i;
+        int base = Math.max(0, paragraph.first - 3), end = Math.min(lines.size(), paragraph.last + 3);
+        int cursor = base - 1;
+        for (int i = base; i < end; i++) if (lines.get(i).timeMs / 1000.0 - 1.2 <= time) cursor = i;
+        if (cursor < base) cursor = base;
         int first = cursor;
-        while (first >= paragraph.first && lines.get(first).timeMs / 1000.0 - 1.2 + 2.55 > time) first--;
-        int low = Math.max(paragraph.first, Math.min(cursor, first + 1) - 3), high = Math.min(paragraph.last - 1, Math.max(cursor, paragraph.first) + 3);
+        while (first >= base && lines.get(first).timeMs / 1000.0 - 1.2 + 2.55 > time) first--;
+        int low = Math.max(0, Math.min(cursor, first + 1) - 3), high = Math.min(lines.size() - 1, cursor + 3);
         Transform[] frameTransforms = new Transform[Math.max(0, high - low + 1)];
         for (int i = low; i <= high; i++) frameTransforms[i - low] = transform(i, time);
+        debugGlyphs = 0;
+        if (FoliaOriginalCanvasRenderer.debugLayout && cursor >= low && cursor <= high) {
+            Transform leader = frameTransforms[cursor - low];
+            Log.i("FoliaFixture", String.format(Locale.US,
+                    "lumiere window cursor=%d tx=%.1f ty=%.1f scale=%.3f alpha=%.3f camY=%.1f",
+                    cursor, leader.x, leader.y, leader.scale, leader.alpha,
+                    camera[1]));
+        }
         protectCount = 0; double later = 0;
         for (int i = cursor; i >= low && protectCount < protectBoxes.length; i--) {
             double eased = FoliaLumiereMath.sine((time - (lines.get(i).timeMs / 1000.0 - 1.2)) / 1.5);
@@ -546,6 +695,12 @@ final class FoliaOriginalLumiereRenderer {
         for (int i = low; i <= high; i++) {
             LineData data = line(i);
             Transform transform = frameTransforms[i - low];
+            if (FoliaOriginalCanvasRenderer.debugLayout) {
+                Log.i("FoliaFixture", String.format(Locale.US,
+                        "lumiere line i=%d tx=%.1f ty=%.1f sc=%.3f al=%.3f rot=%.2f font=%.1f illum=%.3f",
+                        i, transform.x, transform.y, transform.scale, transform.alpha, transform.rotation,
+                        data.font, light.light(transform.x / height, transform.y / height)));
+            }
             if (transform.alpha <= 0.003) continue;
             for (int g = 0; g < data.glyphs.length; g++) {
                 Glyph glyph = data.glyphs[g];
@@ -567,15 +722,36 @@ final class FoliaOriginalLumiereRenderer {
                 double alpha = transform.alpha * windowVisibility * passed * (1 - FoliaLumiereMath.clamp((decay - 1) / 2)) * (0.35 + 0.65 * local[4]) * shield;
                 double revealed = Math.min(1, 0.22 + illumination * 0.45 + local[5] * 0.4);
                 double glyphAlpha = alpha * FoliaLumiereMath.mix(revealed, Math.min(1, 0.55 + 0.4 * heat + local[5] * 0.3), lit);
+                if (FoliaOriginalCanvasRenderer.debugLayout && i == cursor && debugGlyphs < 4) {
+                    debugGlyphs++;
+                    Log.i("FoliaFixture", String.format(Locale.US,
+                            "lumiere glyph=%s start=%.2f end=%.2f tx=%.1f ty=%.1f sc=%.3f lit=%.3f illum=%.3f heat=%.3f alpha=%.3f ga=%.3f font=%.1f lineEnd=%.2f cam=%.1f,%.1f,%.3f",
+                            glyph.text, glyph.start, glyph.end, transform.x, transform.y, transform.scale,
+                            lit, illumination, heat, alpha, glyphAlpha, font, lineEnd,
+                            camera[0], camera[1], camera[2]));
+                }
                 if (local[5] > 0.01 && !lowResource) drawTrail(canvas, i, data, glyph, transform, time, alpha);
-                float haloSize = font * (2.2f + .8f * (float) illumination);
+                float haloSize = font * (2.6f + 1.0f * (float) illumination);
                 sprite(canvas, FoliaLumiereSprites.DOT, x, y, haloSize, haloSize * .9f, litColor,
-                        alpha * lit * (0.03 + 0.14 * illumination + 0.08 * flash));
+                        alpha * lit * (0.10 + 0.25 * illumination + 0.12 * flash));
                 int saved = canvas.save(); canvas.translate(x, y);
                 canvas.rotate((float) Math.toDegrees(transform.rotation + local[2]));
                 text.setTypeface(face); text.setTextSize(Math.max(1, font)); text.setStyle(Paint.Style.FILL);
-                text.setColor(glyphColor(illumination, flash, local[5], lit)); text.setAlpha((int) (FoliaLumiereMath.clamp(glyphAlpha) * 255));
-                Paint.FontMetrics metrics = text.getFontMetrics(); canvas.drawText(glyph.text, 0, -(metrics.ascent + metrics.descent) / 2, text);
+                int tintColor = glyphColor(illumination, flash, local[5], lit);
+                Paint.FontMetrics metrics = text.getFontMetrics();
+                float baselineOffset = -(metrics.ascent + metrics.descent) / 2;
+                // The reference applies a text bloom filter on top of the glyphs; Canvas has no
+                // filter stack, so draw one soft blurred pass as an additive-looking underlay.
+                if (!lowResource && glyphAlpha > .02) {
+                    text.setColor(tintColor);
+                    text.setMaskFilter(blurFilter(font * .34f));
+                    text.setAlpha((int) (FoliaLumiereMath.clamp(glyphAlpha) * .8 * 255));
+                    canvas.drawText(glyph.text, 0, baselineOffset, text);
+                    text.setMaskFilter(null);
+                }
+                text.setColor(tintColor);
+                text.setAlpha((int) (FoliaLumiereMath.clamp(glyphAlpha) * 255));
+                canvas.drawText(glyph.text, 0, baselineOffset, text);
                 canvas.restoreToCount(saved);
                 float starX = x + font * glyph.starX, starY = y + font * glyph.starY;
                 int starSaved = canvas.save(); canvas.rotate((float) Math.toDegrees(glyph.starRotation * (1 + (1 - flash) * .6)), starX, starY);
@@ -662,16 +838,17 @@ final class FoliaOriginalLumiereRenderer {
 
     private Transform transform(int index, double at) {
         FoliaLumiereWindowMath window = windows.get(unitSeed);
+        final int base = Math.max(0, paragraph.first - 3), end = Math.min(lines.size(), paragraph.last + 3);
         if (window == null) {
             window = new FoliaLumiereWindowMath(new FoliaLumiereWindowMath.Source() {
-                @Override public int size() { return paragraph.last - paragraph.first; }
-                @Override public double start(int i) { return lines.get(i + paragraph.first).timeMs / 1000.0; }
-                @Override public FoliaLumiereWindowMath.Line line(int i) { return FoliaOriginalLumiereRenderer.this.line(i + paragraph.first); }
-                @Override public int typography(int i) { return FoliaOriginalLumiereRenderer.this.typography(i + paragraph.first); }
+                @Override public int size() { return end - base; }
+                @Override public double start(int i) { return lines.get(i + base).timeMs / 1000.0; }
+                @Override public FoliaLumiereWindowMath.Line line(int i) { return FoliaOriginalLumiereRenderer.this.line(i + base); }
+                @Override public int typography(int i) { return FoliaOriginalLumiereRenderer.this.typography(i + base); }
             }, width, height, lead.cx * width / height, lead.cy, lead.regionWidth * width / height, lead.hero * height * fontScale);
             windows.put(unitSeed, window);
         }
-        return window.transform(index - paragraph.first, at);
+        return window.transform(index - base, at);
     }
 
     private float[] local(LineData line, Glyph glyph, Transform t, double at) {
