@@ -54,7 +54,7 @@ public final class FoliaRenderFixtureActivity extends Activity {
         String mode = FoliaModeCatalog.normalize(getIntent().getStringExtra("mode"));
         FixtureRenderer renderer = new FixtureRenderer(getAssets(), original, mode,
                 getIntent().getBooleanExtra("lowResource", false), false, fps, 0, true, true, 100,
-                getIntent().getStringExtra("seed"), getIntent().getStringExtra("themeName"));
+                getIntent().getStringExtra("seed"), getIntent().getStringExtra("themeName"), getIntent());
         long started = android.os.SystemClock.elapsedRealtime();
         View view = new View(this) {
             private boolean logged;
@@ -134,7 +134,7 @@ public final class FoliaRenderFixtureActivity extends Activity {
             canvas.drawColor(0xFF09090B);
             FixtureRenderer renderer = new FixtureRenderer(getAssets(), original, mode, low, randomColors, fps,
                     tracking, translations, nextLine, nextScale, getIntent().getStringExtra("seed"),
-                    getIntent().getStringExtra("themeName"));
+                    getIntent().getStringExtra("themeName"), getIntent());
             if (history) {
                 for (long time = 0; time < at; time += historyStep) {
                     canvas.drawColor(0xFF09090B);
@@ -209,13 +209,23 @@ public final class FoliaRenderFixtureActivity extends Activity {
     }
 
     /** Both styles receive identical pixels, settings, timeline and clock histories. */
+    private static void applyOriginalOptions(FoliaOriginalCanvasRenderer renderer, android.content.Intent intent) {
+        renderer.setOriginalOptions(
+                intent.getIntExtra("originalBackground", 100),
+                intent.getBooleanExtra("originalWordRotation", true),
+                intent.getIntExtra("originalFloating", 100),
+                intent.getIntExtra("originalWordSpacing", 100),
+                intent.getIntExtra("originalSubtitleScale", 100),
+                intent.getBooleanExtra("originalHeader", true));
+    }
+
     private static final class FixtureRenderer {
         private final FoliaCanvasRenderer low;
         private final FoliaOriginalCanvasRenderer original;
 
         FixtureRenderer(android.content.res.AssetManager assets, boolean useOriginal, String mode, boolean lowResource, boolean random,
                         int fps, int tracking, boolean translations, boolean nextLine, int nextScale, String seed,
-                        String themeName) {
+                        String themeName, android.content.Intent intent) {
             low = useOriginal ? null : new FoliaCanvasRenderer();
             original = useOriginal ? new FoliaOriginalCanvasRenderer() : null;
             if (original != null) {
@@ -226,6 +236,7 @@ public final class FoliaRenderFixtureActivity extends Activity {
                 original.setLyricColorOverrides(random, random);
                 original.configure(mode, null, 1, 50, fps, 1, 1.65f, 45, true, tracking, translations, false);
                 original.configureNextLine(nextLine, nextScale / 100f);
+                applyOriginalOptions(original, intent);
             } else {
                 low.setLowResourceMode(lowResource);
                 low.setLyricColorOverrides(random, random);

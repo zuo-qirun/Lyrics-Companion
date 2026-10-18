@@ -267,8 +267,9 @@ final class FoliaFumeBackground {
                      float viewportWidth, float viewportHeight,
                      float bgScale, float bgCameraX, float bgCameraY,
                      float originX, float originY, float parallaxStrength,
-                     int accentColor, int secondaryColor) {
+                     int accentColor, int secondaryColor, float opacityScale) {
         if (scene == null || scene.shapes.length == 0) return;
+        float scaleDown = clamp(opacityScale, 0, 1.5f);
         int base = canvas.save();
         canvas.translate(viewportWidth / 2f, viewportHeight / 2f);
         canvas.scale(bgScale, bgScale);
@@ -291,12 +292,12 @@ final class FoliaFumeBackground {
                 buildShapePath(path, shape);
                 paint.setStrokeWidth(shape.strokeWidth);
                 paint.setStrokeCap(Paint.Cap.BUTT);
-                paint.setColor(withAlpha(color, clamp(shape.opacity, 0, 0.42f)));
-                paint.setShadowLayer(10f, 0, 0, withAlpha(color, shape.opacity * 0.75f));
+                paint.setColor(withAlpha(color, clamp(shape.opacity * scaleDown, 0, 0.42f)));
+                paint.setShadowLayer(10f, 0, 0, withAlpha(color, shape.opacity * scaleDown * 0.75f));
                 canvas.drawPath(path, paint);
                 paint.clearShadowLayer();
             } else {
-                float opacity = clamp(shape.opacity, 0, 0.42f);
+                float opacity = clamp(shape.opacity * scaleDown, 0, 0.42f);
                 paint.setStrokeCap(shape.kind == RING ? Paint.Cap.ROUND : Paint.Cap.BUTT);
                 buildShapePath(path, shape);
                 paint.setStrokeWidth(Math.max(shape.strokeWidth * 0.28f, 0.14f));

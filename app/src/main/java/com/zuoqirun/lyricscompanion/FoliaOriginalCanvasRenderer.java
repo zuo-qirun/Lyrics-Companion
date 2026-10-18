@@ -81,6 +81,13 @@ final class FoliaOriginalCanvasRenderer {
     private boolean lowResourceMode;
     private boolean overrideCurrentColor, overrideInactiveColor;
     private float nextLineScale = 1;
+    /** 还原版自定义项：背景元素强度、逐字旋转、歌词浮动幅度、逐字间距、字幕字号、歌曲信息。 */
+    private float backgroundOpacity = 1f;
+    private boolean wordRotation = true;
+    private float floatMultiplier = 1f;
+    private float wordSpacingScale = 1f;
+    private float subtitleScale = 1f;
+    private boolean showHeader = true;
     private boolean playing;
     private long animationClock, frameDelta;
     private int outgoingAnchor = -1;
@@ -107,6 +114,20 @@ final class FoliaOriginalCanvasRenderer {
     void configureNextLine(boolean show, float scale) {
         showNextLine = show;
         nextLineScale = Math.max(0.5f, Math.min(4, scale));
+    }
+
+    /**
+     * Folia 还原版自定义项。数值都用百分比表达，越界值在这里收敛，避免设置页与渲染器各算一半。
+     */
+    void setOriginalOptions(int background, boolean rotation, int floating, int spacing,
+                            int subtitle, boolean header) {
+        backgroundOpacity = Math.max(0f, Math.min(1.5f, background / 100f));
+        wordRotation = rotation;
+        floatMultiplier = Math.max(0f, Math.min(2f, floating / 100f));
+        wordSpacingScale = Math.max(0.5f, Math.min(2f, spacing / 100f));
+        subtitleScale = Math.max(0.5f, Math.min(2f, subtitle / 100f));
+        showHeader = header;
+        lumiere.setSubtitleScale(subtitleScale);
     }
 
     void setLowResourceMode(boolean low) {
@@ -579,13 +600,13 @@ final class FoliaOriginalCanvasRenderer {
             if ("claddagh".equals(mode)) {
                 claddaghSubtitle(canvas, value);
             } else if ("classic".equals(mode)) {
-                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale), mediumFace);
+                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale) * subtitleScale, mediumFace);
             } else if ("partita".equals(mode)) {
-                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 16.8f, 2.2f, 19.2f, fontScale), mediumFace);
+                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 16.8f, 2.2f, 19.2f, fontScale) * subtitleScale, mediumFace);
             } else if ("tilt".equals(mode) || "cadenza".equals(mode)) {
-                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale), mediumFace);
+                typographySubtitle(canvas, value, FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale) * subtitleScale, mediumFace);
             } else {
-                float size = FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale);
+                float size = FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale) * subtitleScale;
                 text.setTypeface(face);
                 text.setTextSize(size);
                 size *= Math.min(1, width * 0.84f / Math.max(1, text.measureText(value)));
@@ -622,7 +643,7 @@ final class FoliaOriginalCanvasRenderer {
      * font-size clamp(1.1rem, 2.2vw, 1.45rem), font-weight 500.
      */
     private void claddaghSubtitle(Canvas canvas, String value) {
-        float size = Math.max(17.6f, Math.min(width * 0.022f, 23.2f)) * fontScale;
+        float size = Math.max(17.6f, Math.min(width * 0.022f, 23.2f)) * fontScale * subtitleScale;
         float lineHeight = size * 1.5f;
         float top = height - 112f - 2f - lineHeight;
         text.setTypeface(mediumFace);
@@ -708,7 +729,7 @@ final class FoliaOriginalCanvasRenderer {
         containerBlur = (1 - entry) * 10;
         if ("classic".equals(mode) || "partita".equals(mode)) {
             double duration = strength < 0.34f ? 8.5 : strength > 0.66f ? 5.8 : 7;
-            float distance = strength < 0.34f ? 10 : strength > 0.66f ? 18 : 14;
+            float distance = (strength < 0.34f ? 10 : strength > 0.66f ? 18 : 14) * floatMultiplier;
             double phase = animationClock / (duration * 1000) % 1 * 4;
             int segment = (int) phase;
             double p = FoliaCameraMotion.ease(phase - segment);
@@ -919,8 +940,9 @@ final class FoliaOriginalCanvasRenderer {
             float nextScale = w + 1 < words.length ? 1.1f + (float) FoliaSceneMath.random(seed + w + 5) * 0.2f : 1;
             float x = (float) (FoliaSceneMath.random(seed + w + 1) - 0.5) * 40;
             float nextX = w + 1 < words.length ? (float) (FoliaSceneMath.random(seed + w + 2) - 0.5) * 40 : 0;
-            float margin = Math.max(size * 0.12f * 0.7f,
-                    (extent * (s * 1.4f - 1) / 2 + nextWidth * (nextScale * 1.4f - 1) / 2 + x - nextX + size * 0.05f) * 0.7f);
+            float margin = Math.max(size * 0.12f * 0.7f * wordSpacingScale,
+                    (extent * (s * 1.4f - 1) / 2 + nextWidth * (nextScale * 1.4f - 1) / 2 + x - nextX
+                            + size * 0.05f) * 0.7f * wordSpacingScale);
             advances[w] = extent + Math.round(margin * 10) / 10f;
             first = words[w];
         }
@@ -970,7 +992,7 @@ final class FoliaOriginalCanvasRenderer {
                 int save = canvas.save();
                 canvas.translate(left + wordWidth / 2 + x + (1 - entered) * (float) Math.sin(dy) * 100,
                         y + dy + (1 - entered) * (float) Math.cos(x) * 50);
-                canvas.rotate(rotation + (1 - entered) * 20 + passedLinear * passedRotate);
+                canvas.rotate(wordRotation ? rotation + (1 - entered) * 20 + passedLinear * passedRotate : 0);
                 canvas.scale(scale, scale);
                 slice(canvas, line, glyphFirst, end, 0, 0, Float.MAX_VALUE, opacity,
                         wordColor, false, 0, animate ? (1 - passedFast) * 18 : 0);
@@ -1214,7 +1236,8 @@ final class FoliaOriginalCanvasRenderer {
             float backgroundScale = (float) FoliaCameraMotion.clamp(cameraScale * 0.94f, 0.22, 2.24);
             FoliaFumeBackground.draw(canvas, articleBackground, shape, time / 1000f,
                     width, height, backgroundScale, backgroundX, backgroundY,
-                    articleArticle.width / 2f, articleArticle.height / 2f, 0.72f, accent, muted);
+                    articleArticle.width / 2f, articleArticle.height / 2f, 0.72f, accent, muted,
+                    backgroundOpacity);
         }
         int save = canvas.save();
         canvas.translate(width / 2, height / 2);
@@ -1292,7 +1315,7 @@ final class FoliaOriginalCanvasRenderer {
     private void articleSubtitle(Canvas canvas, FoliaArticleLayout.Block focus) {
         LrcTimeline.Line source = sourceLines.get(focus.line);
         if (source.translated == null || source.translated.isEmpty()) return;
-        float size = 17.6f * fontScale;
+        float size = 17.6f * fontScale * subtitleScale;
         float lineHeight = size * 1.5f;
         text.setTypeface(regularFace);
         text.setTextSize(size);
@@ -1916,28 +1939,30 @@ final class FoliaOriginalCanvasRenderer {
         monetDecor(canvas);
         monetPortrait(canvas, snapshot, rowLeft + rowWidth, portraitColumn, padRight, ls);
 
-        text.setTypeface(italicFace);
-        text.setTextSize(artistFont);
-        text.getFontMetrics(metrics);
-        float artistBaseline = artistTop + (artistLineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
-        label(canvas, snapshot.artist, x, artistBaseline, artistFont, alpha(primary, 0.96f), Paint.Align.LEFT, italicFace);
-        shape.setShader(new LinearGradient(0, artistTop + artistLineHeight + 6, 0,
-                artistTop + artistLineHeight + 62, alpha(primary, 0.72f), Color.TRANSPARENT, Shader.TileMode.CLAMP));
-        canvas.drawRect(x, artistTop + artistLineHeight + 6, x + 1, artistTop + artistLineHeight + 62, shape);
-        shape.setShader(null);
-
         float titleFlowTop = artistTop + headerHeight + 12;
-        text.setTypeface(face);
-        text.setTextSize(titleFont);
-        text.getFontMetrics(metrics);
-        float titleBaseline = titleFlowTop + (titleLineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
-        label(canvas, snapshot.title, x, titleBaseline, titleFont, primary, Paint.Align.LEFT, face);
-        float albumTop = titleFlowTop + titleLead;
-        text.setTypeface(regularFace);
-        text.setTextSize(albumFont);
-        text.getFontMetrics(metrics);
-        float albumBaseline = albumTop + (20 * ls - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
-        label(canvas, "MONET", x, albumBaseline, albumFont, alpha(muted, 0.84f), Paint.Align.LEFT);
+        if (showHeader) {
+            text.setTypeface(italicFace);
+            text.setTextSize(artistFont);
+            text.getFontMetrics(metrics);
+            float artistBaseline = artistTop + (artistLineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+            label(canvas, snapshot.artist, x, artistBaseline, artistFont, alpha(primary, 0.96f), Paint.Align.LEFT, italicFace);
+            shape.setShader(new LinearGradient(0, artistTop + artistLineHeight + 6, 0,
+                    artistTop + artistLineHeight + 62, alpha(primary, 0.72f), Color.TRANSPARENT, Shader.TileMode.CLAMP));
+            canvas.drawRect(x, artistTop + artistLineHeight + 6, x + 1, artistTop + artistLineHeight + 62, shape);
+            shape.setShader(null);
+
+            text.setTypeface(face);
+            text.setTextSize(titleFont);
+            text.getFontMetrics(metrics);
+            float titleBaseline = titleFlowTop + (titleLineHeight - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+            label(canvas, snapshot.title, x, titleBaseline, titleFont, primary, Paint.Align.LEFT, face);
+            float albumTop = titleFlowTop + titleLead;
+            text.setTypeface(regularFace);
+            text.setTextSize(albumFont);
+            text.getFontMetrics(metrics);
+            float albumBaseline = albumTop + (20 * ls - (metrics.descent - metrics.ascent)) / 2 - metrics.ascent;
+            label(canvas, "MONET", x, albumBaseline, albumFont, alpha(muted, 0.84f), Paint.Align.LEFT);
+        }
 
         float railTop = titleFlowTop + titleBlock;
         if (!sourceLines.isEmpty()) {
@@ -2113,7 +2138,7 @@ final class FoliaOriginalCanvasRenderer {
 
     /** MonetFloatingDecor: ten very dim theme-icon petals drifting behind the column. */
     private void monetDecor(Canvas canvas) {
-        if (width < 640) return;
+        if (width < 640 || backgroundOpacity <= 0.001f) return;
         int base = alpha(muted, 0.55f);
         shape.setStyle(Paint.Style.FILL);
         for (int i = 0; i < 10; i++) {
@@ -2121,7 +2146,8 @@ final class FoliaOriginalCanvasRenderer {
             float py = (((i * 211 + 17) % 80) + 5) / 100f * height;
             float size = 46 + (i * 53) % 40;
             float rotation = (i * 97) % 360;
-            float opacity = 0.06f + ((i * 31) % 12) / 100f;
+            float opacity = (0.06f + ((i * 31) % 12) / 100f) * backgroundOpacity;
+            if (opacity <= 0.001f) continue;
             shape.setColor(alpha(base, opacity));
             int save = canvas.save();
             canvas.translate(px, py);

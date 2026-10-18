@@ -124,6 +124,21 @@ public final class FoliaSettingsActivity extends AppCompatActivity {
         appearance.addView(colors, new LinearLayout.LayoutParams(-1, dp(50)));
         addCard(root, appearance);
 
+        if (original) {
+            LinearLayout custom = card("还原版自定义");
+            seek(custom, "背景元素强度", AppPreferences.KEY_FOLIA_ORIGINAL_BACKGROUND, 0, 150, 100, "%");
+            seek(custom, "歌词浮动幅度", AppPreferences.KEY_FOLIA_ORIGINAL_FLOAT, 0, 200, 100, "%");
+            seek(custom, "逐字间距", AppPreferences.KEY_FOLIA_ORIGINAL_WORD_SPACING, 80, 160, 100, "%");
+            seek(custom, "字幕字号", AppPreferences.KEY_FOLIA_ORIGINAL_SUBTITLE_SCALE, 75, 150, 100, "%");
+            toggle(custom, "逐字旋转", AppPreferences.KEY_FOLIA_ORIGINAL_WORD_ROTATION,
+                    AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_ORIGINAL_WORD_ROTATION, true));
+            toggle(custom, "显示歌曲信息", AppPreferences.KEY_FOLIA_ORIGINAL_HEADER,
+                    AppPreferences.displayBoolean(this, secondary, AppPreferences.KEY_FOLIA_ORIGINAL_HEADER, true));
+            custom.addView(text("背景元素强度作用于莫奈花瓣与浮名纸面装饰；浮动幅度作用于流光/云阶的整行漂浮；逐字旋转只影响流光。",
+                    12, 0xFF8392A8, false));
+            addCard(root, custom);
+        }
+
         LinearLayout audio = card("真实律动");
         toggle(audio, "跟随真实频谱", AppPreferences.KEY_SPECTRUM_ENABLED,
                 AppPreferences.spectrumEnabled(this, secondary));

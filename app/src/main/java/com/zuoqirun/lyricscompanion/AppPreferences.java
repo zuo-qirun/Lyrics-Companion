@@ -37,6 +37,12 @@ final class AppPreferences {
     static final String KEY_FOLIA_RANDOM_POOL = "folia_random_pool";
     static final String KEY_FOLIA_SHOW_NEXT = "folia_show_next";
     static final String KEY_FOLIA_NEXT_SCALE = "folia_next_scale";
+    static final String KEY_FOLIA_ORIGINAL_BACKGROUND = "folia_original_background";
+    static final String KEY_FOLIA_ORIGINAL_WORD_ROTATION = "folia_original_word_rotation";
+    static final String KEY_FOLIA_ORIGINAL_FLOAT = "folia_original_float";
+    static final String KEY_FOLIA_ORIGINAL_WORD_SPACING = "folia_original_word_spacing";
+    static final String KEY_FOLIA_ORIGINAL_SUBTITLE_SCALE = "folia_original_subtitle_scale";
+    static final String KEY_FOLIA_ORIGINAL_HEADER = "folia_original_header";
     static final String KEY_PLAYBACK_FADE = "playback_auto_fade";
     static final String KEY_PLAYBACK_FADE_SECONDS = "playback_fade_seconds";
     static final String KEY_OVERLAY_STYLE = "overlay_style";
@@ -478,6 +484,9 @@ final class AppPreferences {
                     KEY_FOLIA_FOCUS, KEY_FOLIA_RADIUS, KEY_FOLIA_TILT, KEY_FOLIA_AXIS,
                     KEY_FOLIA_TRACKING, KEY_FOLIA_FPS, KEY_FOLIA_STRENGTH, KEY_FOLIA_MODE,
                     KEY_FOLIA_RANDOM, KEY_FOLIA_RANDOM_POOL, KEY_FOLIA_SHOW_NEXT, KEY_FOLIA_NEXT_SCALE,
+                    KEY_FOLIA_ORIGINAL_BACKGROUND, KEY_FOLIA_ORIGINAL_WORD_ROTATION,
+                    KEY_FOLIA_ORIGINAL_FLOAT, KEY_FOLIA_ORIGINAL_WORD_SPACING,
+                    KEY_FOLIA_ORIGINAL_SUBTITLE_SCALE, KEY_FOLIA_ORIGINAL_HEADER,
                     KEY_REFINED_SHOW_TRANSLATION,
                     KEY_LYRIC_EFFECT, KEY_LYRIC_EFFECT_STRENGTH, KEY_LYRIC_EFFECT_SPEED,
                     KEY_LYRIC_EFFECT_FPS,

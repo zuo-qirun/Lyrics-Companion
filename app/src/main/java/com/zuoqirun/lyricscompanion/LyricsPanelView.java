@@ -551,6 +551,13 @@ final class LyricsPanelView extends View {
             foliaOriginalRenderer.configureNextLine(
                     AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_SHOW_NEXT, true),
                     AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_NEXT_SCALE, 100) / 100f);
+            foliaOriginalRenderer.setOriginalOptions(
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_ORIGINAL_BACKGROUND, 100),
+                    AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_ORIGINAL_WORD_ROTATION, true),
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_ORIGINAL_FLOAT, 100),
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_ORIGINAL_WORD_SPACING, 100),
+                    AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_ORIGINAL_SUBTITLE_SCALE, 100),
+                    AppPreferences.displayBoolean(getContext(), secondary, AppPreferences.KEY_FOLIA_ORIGINAL_HEADER, true));
             return;
         }
         if (foliaOriginalRenderer != null) { foliaOriginalRenderer.clear(); foliaOriginalRenderer = null; }
