@@ -7,8 +7,8 @@ import android.os.Debug;
 final class ResourceProfile {
     private ResourceProfile() { }
     static int artSide(boolean low) { return low ? 350 : 700; }
-    static int artCacheKiB(boolean low) { return low ? 2 * 1024 : 8 * 1024; }
-    static int maskCacheBytes(boolean low) { return low ? 512 * 1024 : 8 * 1024 * 1024; }
+    static int artCacheKiB(boolean low) { return low ? 1024 : 4 * 1024; }
+    static int maskCacheBytes(boolean low) { return low ? 512 * 1024 : 2 * 1024 * 1024; }
     static long frameDelay(boolean low, long requestedMs) { return low ? Math.max(84, requestedMs) : requestedMs; }
 
     static String describe(Context context) {

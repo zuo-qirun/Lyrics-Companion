@@ -4802,6 +4802,20 @@ final class LyricsPanelView extends View {
         super.onDetachedFromWindow();
     }
 
+    @Override protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == VISIBLE) return;
+        // 悬浮窗与主界面预览窗通常同时存在，但只有当前可见的那个需要持有整面板位图和逐帧缓存。
+        // 窗口不可见时主动交还，避免两个面板各留一份（还原版的大字遮罩缓存尤其可观）。
+        blurredLineCache.evictAll();
+        recycleOffscreenBitmaps();
+        recycleBlurPreview();
+        recycleCoverFadePreview();
+        clearTextCaches();
+        foliaRenderer.clear();
+        if (foliaOriginalRenderer != null) foliaOriginalRenderer.clear();
+    }
+
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         if (width != oldWidth || height != oldHeight) clearTextCaches();
         super.onSizeChanged(width, height, oldWidth, oldHeight);

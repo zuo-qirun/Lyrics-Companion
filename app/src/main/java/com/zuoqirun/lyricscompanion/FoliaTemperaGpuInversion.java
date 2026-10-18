@@ -75,12 +75,15 @@ final class FoliaTemperaGpuInversion {
 
     /** Same threshold and premultiplied bilinear five taps when RuntimeShader is unavailable. */
     private static final class Cpu {
+        private static final int RING = 5;
         private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
         private Bitmap back, front;
-        private int[] pixels = new int[0], masks = new int[0], output = new int[0];
-        private float[] premultiplied = new float[0], alphas = new float[0];
+        private int[] rowBack = new int[0], rowFront = new int[0], rowOut = new int[0], rowScratch = new int[0];
+        private final float[][] alphaRing = new float[RING][];
+        private final float[][] premulRing = new float[RING][];
+        private final int[] ringTag = new int[RING];
         private final android.util.LruCache<String, Bitmap> results =
-                new android.util.LruCache<String, Bitmap>(8 * 1024 * 1024) {
+                new android.util.LruCache<String, Bitmap>(4 * 1024 * 1024) {
                     @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
 
                     @Override protected void entryRemoved(boolean evicted, String key, Bitmap oldValue, Bitmap newValue) {
@@ -88,47 +91,79 @@ final class FoliaTemperaGpuInversion {
                     }
                 };
 
+        Cpu() { java.util.Arrays.fill(ringTag, Integer.MIN_VALUE); }
+
         void draw(Canvas target, String instance, int ink, int paper, Layer artwork, Layer mask) {
             Rect bounds = target.getClipBounds(); bounds.inset(-3, -3);
-            int width = Math.max(1, bounds.width()), height = Math.max(1, bounds.height()), size = width * height;
+            int width = Math.max(1, bounds.width()), height = Math.max(1, bounds.height());
             int reservedWidth = (width + 63) / 64 * 64, reservedHeight = (height + 63) / 64 * 64;
             boolean tooSmall = back == null || back.getWidth() < reservedWidth || back.getHeight() < reservedHeight;
             boolean oversized = back != null && (back.getWidth() > reservedWidth * 2 || back.getHeight() > reservedHeight * 2);
             if (tooSmall || oversized) {
-                if (back != null) { back.recycle(); front.recycle(); }
+                if (back != null && !back.isRecycled()) back.recycle();
+                if (front != null && !front.isRecycled()) front.recycle();
                 back = Bitmap.createBitmap(reservedWidth, reservedHeight, Bitmap.Config.ARGB_8888);
                 front = Bitmap.createBitmap(reservedWidth, reservedHeight, Bitmap.Config.ARGB_8888);
-                int capacity = reservedWidth * reservedHeight;
-                pixels = new int[capacity]; masks = new int[capacity]; output = new int[capacity];
-                premultiplied = new float[capacity]; alphas = new float[capacity];
             }
             back.eraseColor(Color.TRANSPARENT); front.eraseColor(Color.TRANSPARENT);
             Canvas artCanvas = new Canvas(back), maskCanvas = new Canvas(front);
             artCanvas.translate(-bounds.left, -bounds.top); maskCanvas.translate(-bounds.left, -bounds.top);
             artwork.draw(artCanvas); mask.draw(maskCanvas);
-            back.getPixels(pixels, 0, width, 0, 0, width, height); front.getPixels(masks, 0, width, 0, 0, width, height);
             float paperLum = luminance(paper), inkLum = luminance(ink);
-            for (int i = 0; i < size; i++) { alphas[i] = Color.alpha(pixels[i]) / 255f; premultiplied[i] = luminance(pixels[i]) * alphas[i]; }
-            for (int y = 0, i = 0; y < height; y++) for (int x = 0; x < width; x++, i++) {
-                float frontAlpha = Color.alpha(masks[i]) / 255f;
-                if (frontAlpha == 0) { output[i] = pixels[i]; continue; }
-                float lum = sample(x, y, width, height, paperLum) * .4f
-                        + (sample(x + 1.5f, y + 1.5f, width, height, paperLum) + sample(x - 1.5f, y - 1.5f, width, height, paperLum)
-                        + sample(x + 1.5f, y - 1.5f, width, height, paperLum) + sample(x - 1.5f, y + 1.5f, width, height, paperLum)) * .15f;
-                int tone = Math.abs(lum - paperLum) >= Math.abs(lum - inkLum) ? paper : ink;
-                float alpha = frontAlpha + alphas[i] * (1 - frontAlpha);
-                float backWeight = alphas[i] * (1 - frontAlpha);
-                output[i] = Color.argb(Math.round(alpha * 255),
-                        Math.round((Color.red(tone) * frontAlpha + Color.red(pixels[i]) * backWeight) / alpha),
-                        Math.round((Color.green(tone) * frontAlpha + Color.green(pixels[i]) * backWeight) / alpha),
-                        Math.round((Color.blue(tone) * frontAlpha + Color.blue(pixels[i]) * backWeight) / alpha));
-            }
             Bitmap result = results.get(instance);
-            if (result == null || result.getWidth() < width || result.getHeight() < height) {
-                result = Bitmap.createBitmap((width + 63) / 64 * 64, (height + 63) / 64 * 64, Bitmap.Config.ARGB_8888); results.put(instance, result);
+            if (result == null || result.isRecycled() || result.getWidth() < width || result.getHeight() < height) {
+                result = Bitmap.createBitmap(reservedWidth, reservedHeight, Bitmap.Config.ARGB_8888);
+                results.put(instance, result);
             }
-            result.setPixels(output, 0, width, 0, 0, width, height);
+            ensureRows(width);
+            java.util.Arrays.fill(ringTag, Integer.MIN_VALUE);
+            for (int y = 0; y < height; y++) {
+                back.getPixels(rowBack, 0, width, 0, y, width, 1);
+                front.getPixels(rowFront, 0, width, 0, y, width, 1);
+                for (int x = 0; x < width; x++) {
+                    int frontAlphaByte = rowFront[x] >>> 24;
+                    if (frontAlphaByte == 0) { rowOut[x] = rowBack[x]; continue; }
+                    float frontAlpha = frontAlphaByte / 255f;
+                    float lum = sample(x, y, width, height, paperLum) * .4f
+                            + (sample(x + 1.5f, y + 1.5f, width, height, paperLum) + sample(x - 1.5f, y - 1.5f, width, height, paperLum)
+                            + sample(x + 1.5f, y - 1.5f, width, height, paperLum) + sample(x - 1.5f, y + 1.5f, width, height, paperLum)) * .15f;
+                    int tone = Math.abs(lum - paperLum) >= Math.abs(lum - inkLum) ? paper : ink;
+                    int backColor = rowBack[x];
+                    float backAlpha = Color.alpha(backColor) / 255f;
+                    float alpha = frontAlpha + backAlpha * (1 - frontAlpha);
+                    float backWeight = backAlpha * (1 - frontAlpha);
+                    rowOut[x] = Color.argb(Math.round(alpha * 255),
+                            Math.round((Color.red(tone) * frontAlpha + Color.red(backColor) * backWeight) / alpha),
+                            Math.round((Color.green(tone) * frontAlpha + Color.green(backColor) * backWeight) / alpha),
+                            Math.round((Color.blue(tone) * frontAlpha + Color.blue(backColor) * backWeight) / alpha));
+                }
+                result.setPixels(rowOut, 0, width, 0, y, width, 1);
+            }
             target.drawBitmap(result, new Rect(0, 0, width, height), new android.graphics.RectF(bounds), paint);
+        }
+
+        private void ensureRows(int width) {
+            if (rowBack.length < width) {
+                rowBack = new int[width]; rowFront = new int[width]; rowOut = new int[width]; rowScratch = new int[width];
+            }
+            for (int slot = 0; slot < RING; slot++) {
+                if (alphaRing[slot] == null || alphaRing[slot].length < width) {
+                    alphaRing[slot] = new float[width]; premulRing[slot] = new float[width];
+                }
+            }
+        }
+
+        private void fillRing(int yy, int width) {
+            int slot = yy % RING;
+            if (ringTag[slot] == yy || yy < 0 || yy >= front.getHeight()) return;
+            back.getPixels(rowScratch, 0, width, 0, yy, width, 1);
+            float[] alpha = alphaRing[slot], premul = premulRing[slot];
+            for (int x = 0; x < width; x++) {
+                int color = rowScratch[x];
+                float a = Color.alpha(color) / 255f;
+                alpha[x] = a; premul[x] = luminance(color) * a;
+            }
+            ringTag[slot] = yy;
         }
 
         private float sample(float x, float y, int width, int height, float paperLum) {
@@ -137,17 +172,26 @@ final class FoliaTemperaGpuInversion {
             for (int row = 0; row < 2; row++) for (int col = 0; col < 2; col++) {
                 int xx = x0 + col, yy = y0 + row;
                 if (xx < 0 || xx >= width || yy < 0 || yy >= height) continue;
-                int index = yy * width + xx; float weight = (col == 0 ? 1 - dx : dx) * (row == 0 ? 1 - dy : dy);
-                alpha += alphas[index] * weight; luminance += premultiplied[index] * weight;
+                fillRing(yy, width);
+                int slot = yy % RING;
+                float weight = (col == 0 ? 1 - dx : dx) * (row == 0 ? 1 - dy : dy);
+                alpha += alphaRing[slot][xx] * weight; luminance += premulRing[slot][xx] * weight;
             }
             float straight = luminance / Math.max(alpha, .0001f), weight = Math.min(1, alpha * 3);
             return paperLum * (1 - weight) + straight * weight;
         }
-        private static float luminance(int color) { return (Color.red(color) * .2126f + Color.green(color) * .7152f + Color.blue(color) * .0722f) / 255; }
+
+        private static float luminance(int color) {
+            return (Color.red(color) * .2126f + Color.green(color) * .7152f + Color.blue(color) * .0722f) / 255;
+        }
+
         void clear() {
             if (back != null && !back.isRecycled()) back.recycle();
             if (front != null && !front.isRecycled()) front.recycle();
-            back = front = null; pixels = masks = output = new int[0]; premultiplied = alphas = new float[0]; results.evictAll();
+            back = front = null;
+            rowBack = rowFront = rowOut = rowScratch = new int[0];
+            java.util.Arrays.fill(ringTag, Integer.MIN_VALUE);
+            results.evictAll();
         }
     }
 }

@@ -47,11 +47,15 @@ final class FoliaOriginalCanvasRenderer {
     private final FoliaOriginalSonnetRenderer sonnet = new FoliaOriginalSonnetRenderer();
     private final FoliaOriginalBackgroundRenderer background = new FoliaOriginalBackgroundRenderer();
     private final FoliaRingMath.Pose pose = new FoliaRingMath.Pose();
-    private final LruCache<Integer, PorterDuffColorFilter> colors = new LruCache<>(32);
+    private final LruCache<Integer, PorterDuffColorFilter> colors = new LruCache<>(512);
     private final LruCache<String, PreparedLine> lines = new LruCache<>(24);
     private final LruCache<Integer, FoliaCameraMotion.Spring> chatPositions = new LruCache<>(32);
     private final LruCache<String, Bitmap> masks = new LruCache<String, Bitmap>(8 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
+
+        @Override protected void entryRemoved(boolean evicted, String key, Bitmap oldValue, Bitmap newValue) {
+            if (oldValue != null && oldValue != newValue && !oldValue.isRecycled()) oldValue.recycle();
+        }
     };
     private FoliaArticleLayout.Block[] articleBlocks;
     private FoliaArticleLayout.Article articleArticle;
@@ -210,6 +214,10 @@ final class FoliaOriginalCanvasRenderer {
         lines.evictAll();
         masks.evictAll();
         colors.evictAll();
+        for (Bitmap emo : emos.values()) {
+            if (emo != null && !emo.isRecycled()) emo.recycle();
+        }
+        emos.clear();
         gpuText.clear();
         sourceLines = Collections.emptyList();
         track = "";
@@ -583,10 +591,14 @@ final class FoliaOriginalCanvasRenderer {
             masks.put(key, mask);
             masks.trimToSize(ResourceProfile.maskCacheBytes(lowResourceMode));
         }
-        PorterDuffColorFilter filter = colors.get(color);
+        // 逐帧变化的半透明字色会产生大量一次性 PorterDuffColorFilter（Skia 原生对象）。
+        // 按 5~6 bit 量化后缓存复用，色差在 1~2/255 内，肉眼不可见，但能把每帧几十个原生
+        // 分配降到每字形最多一次。
+        int colorKey = quantizeColor(color);
+        PorterDuffColorFilter filter = colors.get(colorKey);
         if (filter == null) {
-            filter = new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN);
-            colors.put(color, filter);
+            filter = new PorterDuffColorFilter(colorKey, PorterDuff.Mode.SRC_IN);
+            colors.put(colorKey, filter);
         }
         shape.setColorFilter(filter);
         shape.setAlpha(Math.round(255 * Math.max(0, Math.min(1, opacity))));
@@ -2246,6 +2258,15 @@ final class FoliaOriginalCanvasRenderer {
                 Math.round(Color.red(a) + (Color.red(b) - Color.red(a)) * t),
                 Math.round(Color.green(a) + (Color.green(b) - Color.green(a)) * t),
                 Math.round(Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t));
+    }
+
+    /** Quantises a drawing colour so animated alpha/colour blends share one Skia filter. */
+    private static int quantizeColor(int color) {
+        int a = (color >>> 24) & 0xFC;
+        int r = (color >>> 16) & 0xF8;
+        int g = (color >>> 8) & 0xF8;
+        int b = color & 0xF8;
+        return a << 24 | r << 16 | g << 8 | b;
     }
 
     private static final class PreparedLine {
