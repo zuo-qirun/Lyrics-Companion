@@ -26,6 +26,44 @@ public final class FoliaCadenzaLayoutTest {
         assertEquals(113.15866, actual.get(3).y, 0.001);
     }
 
+    @Test public void untimedEnglishLinesKeepWholeWordsAsFragments() {
+        String value = "Until the morning comes";
+        LrcTimeline.Line source = new LrcTimeline.Line(0, 3000, value, "",
+                java.util.Collections.emptyList());
+        float[] offsets = new float[value.length() + 1];
+        for (int i = 0; i < value.length(); i++) offsets[i + 1] = offsets[i] + (value.charAt(i) == ' ' ? 8 : 12);
+        List<FoliaCadenzaLayout.Placement> actual = FoliaCadenzaLayout.build(source,
+                new FoliaGlyphTimeline(source, 3000), offsets, new int[]{value.length()}, 20, 24, 400);
+        assertEquals(4, actual.size());
+        int[] fragments = new int[actual.size()];
+        for (FoliaCadenzaLayout.Placement p : actual) fragments[p.word]++;
+        assertEquals(1, fragments[0]);
+        assertEquals(1, fragments[1]);
+        assertEquals(1, fragments[2]);
+        assertEquals(1, fragments[3]);
+        int letters = 0;
+        for (FoliaCadenzaLayout.Placement p : actual) letters += p.end - p.first;
+        assertEquals(20, letters); // five, three, seven, five letters; spaces are not fragments
+    }
+
+    @Test public void perLetterTimedEnglishWordsStillRenderAsWholeWords() {
+        String value = "Until the morning comes";
+        List<LrcTimeline.Word> words = new ArrayList<>();
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == ' ') continue;
+            words.add(new LrcTimeline.Word(i * 100, 100, value.substring(i, i + 1)));
+        }
+        LrcTimeline.Line source = new LrcTimeline.Line(0, 3000, value, "", words);
+        float[] offsets = new float[value.length() + 1];
+        for (int i = 0; i < value.length(); i++) offsets[i + 1] = offsets[i] + (value.charAt(i) == ' ' ? 8 : 12);
+        List<FoliaCadenzaLayout.Placement> actual = FoliaCadenzaLayout.build(source,
+                new FoliaGlyphTimeline(source, 3000), offsets, new int[]{value.length()}, 20, 24, 400);
+        assertEquals(4, actual.size());
+        int letters = 0;
+        for (FoliaCadenzaLayout.Placement p : actual) letters += p.end - p.first;
+        assertEquals(20, letters);
+    }
+
     @Test public void aWordSplitAcrossRowsCannotBecomeTheCenteredHeroTwice() {
         LrcTimeline.Line source = new LrcTimeline.Line(0, 1000, "abcdef", "",
                 java.util.Collections.singletonList(new LrcTimeline.Word(0, 1000, "abcdef")));

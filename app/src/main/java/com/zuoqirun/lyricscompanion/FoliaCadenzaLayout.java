@@ -35,7 +35,8 @@ final class FoliaCadenzaLayout {
             if (end > first) words.add(new int[]{first, end});
             cursor = found + word.text.length();
         }
-        if (words.isEmpty()) for (int g = 0; g < timeline.glyphs.length; g++) words.add(new int[]{g, g + 1});
+        if (words.isEmpty()) words = fallbackWords(timeline);
+        else words = mergeLatinRuns(words, timeline);
         List<Placement> plans = new ArrayList<>();
         double totalHeight = Math.max(1, rowEnds.length) * step;
         int rowFirst = 0;
@@ -145,5 +146,72 @@ final class FoliaCadenzaLayout {
         int result = 0;
         while (result < timeline.glyphs.length && timeline.offsets[result] < offset) result++;
         return result;
+    }
+
+    /**
+     * Splits a line without timed words into display fragments. CJK glyphs and
+     * punctuation stay single fragments (as upstream treats them), while a run
+     * of Latin letters or digits stays together so English words animate as one
+     * unit instead of one fragment per letter.
+     */
+    private static List<int[]> fallbackWords(FoliaGlyphTimeline timeline) {
+        List<int[]> words = new ArrayList<>();
+        int glyph = 0;
+        while (glyph < timeline.glyphs.length) {
+            String value = timeline.glyphs[glyph];
+            if (value.trim().isEmpty()) {
+                glyph++;
+                continue;
+            }
+            int first = glyph;
+            if (isLatinWordGlyph(value)) {
+                while (glyph < timeline.glyphs.length && isLatinWordGlyph(timeline.glyphs[glyph])) glyph++;
+            } else {
+                glyph++;
+            }
+            words.add(new int[]{first, glyph});
+        }
+        return words;
+    }
+
+    private static boolean isLatinWordGlyph(String value) {
+        if (value.isEmpty() || FoliaSceneMath.isCjk(value)) return false;
+        int codePoint = value.codePointAt(0);
+        if (Character.isLetterOrDigit(codePoint)) return true;
+        return codePoint == '\'' || codePoint == '\u2019';
+    }
+
+    /**
+     * Some providers report English lyrics word by word only for individual
+     * characters. Upstream renders a Latin word as one fragment, so join
+     * neighbouring runs that are part of the same word before placement.
+     */
+    private static List<int[]> mergeLatinRuns(List<int[]> words, FoliaGlyphTimeline timeline) {
+        List<int[]> merged = new ArrayList<>(words.size());
+        for (int[] word : words) {
+            if (!merged.isEmpty()) {
+                int[] previous = merged.get(merged.size() - 1);
+                if (canJoin(previous, word, timeline)) {
+                    previous[1] = word[1];
+                    continue;
+                }
+            }
+            merged.add(new int[]{word[0], word[1]});
+        }
+        return merged;
+    }
+
+    private static boolean canJoin(int[] previous, int[] next, FoliaGlyphTimeline timeline) {
+        if (previous[1] != next[0]) return false;
+        String last = timeline.glyphs[previous[1] - 1];
+        String first = timeline.glyphs[next[0]];
+        return isLatinWordGlyph(last) && (isLatinWordGlyph(first) || isTrailingPunctuation(first));
+    }
+
+    private static boolean isTrailingPunctuation(String value) {
+        if (value.isEmpty()) return false;
+        int codePoint = value.codePointAt(0);
+        return codePoint == '.' || codePoint == ',' || codePoint == '!' || codePoint == '?'
+                || codePoint == ':' || codePoint == ';' || codePoint == ')' || codePoint == ']';
     }
 }
