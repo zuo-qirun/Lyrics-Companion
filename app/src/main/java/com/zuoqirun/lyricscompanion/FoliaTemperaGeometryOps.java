@@ -8,6 +8,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -146,7 +147,7 @@ class FoliaTemperaGeometryOps {
             case "includes": return entries.contains(values[0]);
             case "some": { for (int i = 0; i < entries.size(); i++) if (truth(call(values[0], entries.get(i), (double) i))) return true; return false; }
             case "join": { StringBuilder joined = new StringBuilder(); String delimiter = values.length == 0 ? "," : string(values[0]); for (Object value : entries) { if (joined.length() > 0) joined.append(delimiter); joined.append(value == null ? "" : string(value)); } return joined.toString(); }
-            case "sort": entries.sort((a, b) -> (int) Math.signum(number(call(values[0], a, b)))); return entries;
+            case "sort": Collections.sort(entries, (a, b) -> (int) Math.signum(number(call(values[0], a, b)))); return entries;
             case "reduce": { Object result = values[1]; for (int i = 0; i < entries.size(); i++) result = call(values[0], result, entries.get(i), (double) i); return result; }
             case "slice": {
                 int first = values.length == 0 ? 0 : (int) number(values[0]);

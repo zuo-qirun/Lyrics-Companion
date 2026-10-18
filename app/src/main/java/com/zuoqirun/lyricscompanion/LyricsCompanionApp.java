@@ -1,11 +1,10 @@
 package com.zuoqirun.lyricscompanion;
 
-import android.app.Application;
-
 import com.google.android.material.color.DynamicColors;
 import androidx.appcompat.app.AppCompatDelegate;
+import androidx.multidex.MultiDexApplication;
 
-public final class LyricsCompanionApp extends Application {
+public final class LyricsCompanionApp extends MultiDexApplication {
     @Override public void onCreate() {
         super.onCreate();
         // 按时间段的配色在启动时就要落地（issue #34），否则设置页会停在系统主题上。

@@ -645,7 +645,10 @@ final class FoliaOriginalSonnetGeometryProgram {
         Object get(String name) { return values.containsKey(name) ? values.get(name) : parent == null ? null : parent.get(name); }
         void set(String name, Object value) { if (values.containsKey(name) || parent == null) values.put(name, value); else parent.set(name, value); }
     }
-    private static class Flow extends RuntimeException { Flow() { super(null, null, false, false); } }
+    private static class Flow extends RuntimeException {
+        Flow() { super(); }
+        @Override public synchronized Throwable fillInStackTrace() { return this; }
+    }
     private static final class Return extends Flow { final Object value; Return(Object value) { this.value = value; } }
     private static final class Break extends Flow { static final Break INSTANCE = new Break(); }
     private static final class Continue extends Flow { static final Continue INSTANCE = new Continue(); }
