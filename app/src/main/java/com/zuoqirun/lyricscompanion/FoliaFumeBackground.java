@@ -12,6 +12,8 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
 
+import java.util.Collections;
+
 /** Seeded paper-halo decorations drawn behind the fume article. */
 final class FoliaFumeBackground {
 
@@ -200,7 +202,7 @@ final class FoliaFumeBackground {
             shape.depth = (float) seeded(local + ":depth");
             shapes.add(shape);
         }
-        shapes.sort((first, second) -> Float.compare(first.depth, second.depth));
+        Collections.sort(shapes, (first, second) -> Float.compare(first.depth, second.depth));
         scene.shapes = shapes.toArray(new Shape[0]);
         return scene;
     }
