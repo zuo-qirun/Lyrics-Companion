@@ -15,3 +15,5 @@ update_server/public/update-beta.json
 update_server/public/CHANGELOG-beta.md
 update_server/public/apk/*
 !update_server/public/apk/.gitkeep
+AGENTS.md
+video/
