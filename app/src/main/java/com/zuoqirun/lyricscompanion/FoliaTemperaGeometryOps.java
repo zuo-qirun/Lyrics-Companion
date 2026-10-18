@@ -150,10 +150,16 @@ class FoliaTemperaGeometryOps {
             case "sort": Collections.sort(entries, (a, b) -> (int) Math.signum(number(call(values[0], a, b)))); return entries;
             case "reduce": { Object result = values[1]; for (int i = 0; i < entries.size(); i++) result = call(values[0], result, entries.get(i), (double) i); return result; }
             case "slice": {
+                int size = entries.size();
                 int first = values.length == 0 ? 0 : (int) number(values[0]);
-                int last = values.length < 2 ? entries.size() : (int) number(values[1]);
-                if (first < 0) first += entries.size(); if (last < 0) last += entries.size();
-                return new ArrayList<>(entries.subList(Math.max(0, Math.min(entries.size(), first)), Math.max(0, Math.min(entries.size(), last))));
+                int last = values.length < 2 ? size : (int) number(values[1]);
+                if (first < 0) first += size;
+                if (last < 0) last += size;
+                first = Math.max(0, Math.min(size, first));
+                last = Math.max(0, Math.min(size, last));
+                // Array.prototype.slice never throws; a reversed range simply yields an empty list.
+                if (first >= last) return new ArrayList<>();
+                return new ArrayList<>(entries.subList(first, last));
             }
             case "forEach": case "map": case "filter": case "flatMap": {
                 List<Object> result = new ArrayList<>();

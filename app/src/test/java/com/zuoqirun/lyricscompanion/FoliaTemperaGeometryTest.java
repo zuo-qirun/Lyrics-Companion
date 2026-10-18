@@ -13,6 +13,22 @@ import static org.junit.Assert.*;
 
 /** Executes compiled native formulas against the pinned original, including unrecorded dimensions. */
 public class FoliaTemperaGeometryTest {
+    @Test public void arraySliceToleratesReversedAndOutOfRangeBounds() {
+        java.util.List<Object> two = new java.util.ArrayList<>(java.util.Arrays.asList("first", "second"));
+        assertEquals(0, FoliaTemperaGeometryOps.list(
+                FoliaTemperaGeometryOps.method(two, "slice", 2d, -1d)).size());
+        assertEquals(0, FoliaTemperaGeometryOps.list(
+                FoliaTemperaGeometryOps.method(two, "slice", 2d)).size());
+        assertEquals(1, FoliaTemperaGeometryOps.list(
+                FoliaTemperaGeometryOps.method(two, "slice", -1d)).size());
+        assertEquals(0, FoliaTemperaGeometryOps.list(
+                FoliaTemperaGeometryOps.method(two, "slice", 5d, 9d)).size());
+        assertEquals(0, FoliaTemperaGeometryOps.list(
+                FoliaTemperaGeometryOps.method(two, "slice", -9d, -5d)).size());
+        assertEquals(2, FoliaTemperaGeometryOps.list(
+                FoliaTemperaGeometryOps.method(two, "slice", -9d, 9d)).size());
+    }
+
     @Test public void everyOriginalCompositionMatchesEveryPathAndMotionParameter() throws Exception {
         JSONArray cases = fixture().getJSONArray("cases");
         assertEquals(605, cases.length());
