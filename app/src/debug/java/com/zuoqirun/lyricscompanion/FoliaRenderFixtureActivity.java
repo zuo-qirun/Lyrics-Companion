@@ -102,16 +102,24 @@ public final class FoliaRenderFixtureActivity extends Activity {
         int samples = Math.max(0, Math.min(360, getIntent().getIntExtra("samples", 0)));
         int sampleStep = Math.max(8, Math.min(1000, getIntent().getIntExtra("sampleStep", 16)));
         String selected = getIntent().getStringExtra("mode");
+        boolean longGap = getIntent().getBooleanExtra("longGap", false);
+        boolean interludeLine = getIntent().getBooleanExtra("interludeLine", false);
         List<LrcTimeline.Line> lines = new ArrayList<>();
-        for (int i = 0; i < TEXT.length; i++) {
-            String[] glyphs = FoliaGlyphTimeline.split(TEXT[i]);
-            List<LrcTimeline.Word> words = new ArrayList<>();
-            for (int g = 0; g < glyphs.length; g++) {
-                long start = i * 3000L + g * 3000L / glyphs.length;
-                long end = i * 3000L + (g + 1) * 3000L / glyphs.length;
-                words.add(new LrcTimeline.Word(start, end - start, glyphs[g]));
-            }
-            lines.add(new LrcTimeline.Line(i * 3000L, 3000, TEXT[i], "The light stays with you", words));
+        if (interludeLine) {
+            addFixtureLines(lines,
+                    new long[]{0, 3000, 6000, 6050, 12500, 15500, 18500},
+                    new long[]{3000, 3000, 3000, 6400, 3000, 3000, 3000},
+                    new String[]{TEXT[0], TEXT[1], TEXT[2], "......", TEXT[3], TEXT[4], TEXT[5]});
+        } else if (longGap) {
+            addFixtureLines(lines,
+                    new long[]{0, 3000, 6000, 10500, 13500, 16500},
+                    new long[]{3000, 3000, 600, 3000, 3000, 3000},
+                    TEXT);
+        } else {
+            long[] starts = new long[TEXT.length];
+            long[] durations = new long[TEXT.length];
+            for (int i = 0; i < TEXT.length; i++) { starts[i] = i * 3000L; durations[i] = 3000; }
+            addFixtureLines(lines, starts, durations, TEXT);
         }
         LrcTimeline timeline = LrcTimeline.fromTimedLines(lines);
         Bitmap cover = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888);
@@ -179,6 +187,23 @@ public final class FoliaRenderFixtureActivity extends Activity {
     private static MusicSnapshot snapshot(LrcTimeline timeline, Bitmap cover, long at, boolean playing) {
         return new MusicSnapshot(true, playing, "Fixture", "微光", "Folia", cover, 18000,
                 at, true, true, "Fixture", timeline.at(at), timeline.renderLines());
+    }
+
+    /** Builds fixture lines; "......" mirrors the interlude rows inserted by the upstream parser. */
+    private static void addFixtureLines(List<LrcTimeline.Line> lines, long[] starts, long[] durations, String[] texts) {
+        for (int i = 0; i < texts.length; i++) {
+            boolean interlude = "......".equals(texts[i]);
+            String[] glyphs = FoliaGlyphTimeline.split(texts[i]);
+            long span = interlude ? Math.min(durations[i], 500) : durations[i];
+            List<LrcTimeline.Word> words = new ArrayList<>();
+            for (int g = 0; g < glyphs.length; g++) {
+                long start = starts[i] + g * span / glyphs.length;
+                long end = starts[i] + (g + 1) * span / glyphs.length;
+                words.add(new LrcTimeline.Word(start, end - start, glyphs[g]));
+            }
+            lines.add(new LrcTimeline.Line(starts[i], durations[i], texts[i],
+                    interlude ? "" : "The light stays with you", words));
+        }
     }
 
     /** Both styles receive identical pixels, settings, timeline and clock histories. */

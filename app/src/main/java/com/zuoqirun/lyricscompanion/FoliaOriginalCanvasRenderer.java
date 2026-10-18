@@ -19,6 +19,7 @@ import android.util.LruCache;
 
 import java.util.Collections;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -29,6 +30,8 @@ final class FoliaOriginalCanvasRenderer {
     private final Paint raster = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.LINEAR_TEXT_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
     private final Paint.FontMetrics metrics = new Paint.FontMetrics();
     private final FoliaGpuText gpuText = new FoliaGpuText();
+    private final HashMap<String, Bitmap> emos = new HashMap<>();
+    private android.content.res.AssetManager assets;
     private final RectF rect = new RectF();
     private final Rect source = new Rect();
     private final Path path = new Path();
@@ -55,7 +58,7 @@ final class FoliaOriginalCanvasRenderer {
     private String track = "";
     private String mode = "claddagh";
     private Typeface face;
-    private Typeface regularFace, lightFace, italicFace;
+    private Typeface regularFace, lightFace, italicFace, mediumFace;
     private boolean[] chatSides = new boolean[0];
     private int[] chatSenders = new int[0];
     private int anchor = -1;
@@ -76,7 +79,11 @@ final class FoliaOriginalCanvasRenderer {
     private int outgoingAnchor = -1;
     private float containerBlur;
 
-    void setAssets(android.content.res.AssetManager assets) { tempera.setAssets(assets); sonnet.setAssets(assets); }
+    void setAssets(android.content.res.AssetManager assets) {
+        this.assets = assets;
+        tempera.setAssets(assets);
+        sonnet.setAssets(assets);
+    }
 
     void setGeometrySeed(String seed) {
         tempera.setGeometrySeed(seed);
@@ -108,6 +115,7 @@ final class FoliaOriginalCanvasRenderer {
         regularFace = face == null ? Typeface.create("sans-serif", Typeface.NORMAL) : face;
         lightFace = face == null ? Typeface.create("sans-serif-light", Typeface.NORMAL) : face;
         italicFace = Typeface.create(lightFace, Typeface.ITALIC);
+        mediumFace = face == null ? Typeface.create("sans-serif-medium", Typeface.NORMAL) : face;
         if (!normalized.equals(this.mode) || !resolvedFace.equals(this.face) || this.fontScale != fontScale
                 || this.radiusScale != radiusScale || this.focusRatio != focusScale - 1
                 || this.tracking != tracking) {
@@ -269,7 +277,7 @@ final class FoliaOriginalCanvasRenderer {
         } else {
             drawTypographyTransition(canvas);
         }
-        if (!"monet".equals(mode) && !"lumiere".equals(mode)
+        if (!"monet".equals(mode) && !"lumiere".equals(mode) && !"cappella".equals(mode)
                 && !"still".equals(mode) && !"pendolo".equals(mode)) subtitle(canvas);
         shape.setShader(null);
         shape.setColorFilter(null);
@@ -386,10 +394,19 @@ final class FoliaOriginalCanvasRenderer {
                 canvas.scale(scale, scale);
                 // CSS centres a span whose width includes its trailing 0.04em letter spacing.
                 canvas.translate(-size * 0.02f, 0);
+                // CJK glyphs sit ~0.07 em below the Latin baseline in the reference rendering.
+                if (isCjkGlyph(line.timeline.glyphs[glyph])) canvas.translate(0, size * 0.07f);
                 glyph(canvas, line, glyph, color, opacity, Math.round((float) pose.blur * 100) / 100f, glow);
                 canvas.restoreToCount(save);
             }
         }
+    }
+
+    private static boolean isCjkGlyph(String glyph) {
+        if (glyph.isEmpty()) return false;
+        char code = glyph.charAt(0);
+        return code >= 0x4e00 && code <= 0x9fa5 || code >= 0x3040 && code <= 0x30ff
+                || code >= 0xac00 && code <= 0xd7af;
     }
 
     private static double visualLength(String text) {
@@ -528,11 +545,15 @@ final class FoliaOriginalCanvasRenderer {
         LrcTimeline.Line active = sourceLines.get(anchor);
         String value = !active.translated.isEmpty() ? active.translated : active.romaji;
         if (showTranslation && !value.isEmpty()) {
-            float size = FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale);
-            text.setTypeface(face);
-            text.setTextSize(size);
-            size *= Math.min(1, width * 0.84f / Math.max(1, text.measureText(value)));
-            label(canvas, value, width / 2, height - 32 - size * 0.25f, size, alpha(muted, 0.6f), Paint.Align.CENTER, regularFace);
+            if ("claddagh".equals(mode)) {
+                claddaghSubtitle(canvas, value);
+            } else {
+                float size = FoliaSceneMath.clampFont(width, 18, 2.6f, 20, fontScale);
+                text.setTypeface(face);
+                text.setTextSize(size);
+                size *= Math.min(1, width * 0.84f / Math.max(1, text.measureText(value)));
+                label(canvas, value, width / 2, height - 32 - size * 0.25f, size, alpha(muted, 0.6f), Paint.Align.CENTER, regularFace);
+            }
         }
         if (showNextLine && (!showTranslation || value.isEmpty()) && anchor + 1 < sourceLines.size()) {
             PreparedLine next = prepare(anchor + 1,
@@ -540,6 +561,26 @@ final class FoliaOriginalCanvasRenderer {
             slice(canvas, next, 0, next.timeline.glyphs.length, width / 2,
                     height - 36, width * 0.84f, 0.6f, muted, false, 0, 0);
         }
+    }
+
+    /**
+     * Upstream shared subtitle overlay with the player chrome hidden: bottom = 32 + 80 = 112 px,
+     * font-size clamp(1.1rem, 2.2vw, 1.45rem), font-weight 500.
+     */
+    private void claddaghSubtitle(Canvas canvas, String value) {
+        float size = Math.max(17.6f, Math.min(width * 0.022f, 23.2f)) * fontScale;
+        float lineHeight = size * 1.5f;
+        float top = height - 112f - 2f - lineHeight;
+        text.setTypeface(mediumFace);
+        text.setTextSize(size);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(alpha(muted, 0.6f));
+        text.setShader(null);
+        text.setShadowLayer(2f, 0f, 1f, alpha(0x09090b, 0.24f));
+        text.getFontMetrics(metrics);
+        float baseline = top + (lineHeight - (metrics.descent - metrics.ascent)) / 2f - metrics.ascent;
+        canvas.drawText(value, width / 2f, baseline, text);
+        text.clearShadowLayer();
     }
 
     private void staticLine(Canvas canvas) {
@@ -1042,122 +1083,451 @@ final class FoliaOriginalCanvasRenderer {
     private void conversation(Canvas canvas, MusicSnapshot snapshot) {
         Bitmap cover = snapshot.albumArt;
         int center = Math.max(0, anchor);
-        float base = Math.max(15, Math.min(26, 18 * fontScale));
-        float panelWidth = Math.min(width - 64, 896);
-        float maxTextWidth = Math.max(96, (Math.min(width - 32, 896)) * (width >= 640 ? 0.68f : 0.78f) - 56);
-        float usableHeight = Math.max(200, height - 240);
-        int first = center;
-        float totalHeight = 0;
+        int lineCount = sourceLines.size();
+        if (lineCount == 0) return;
+        float base = Math.max(15f, Math.min(26f, 18f * fontScale));
+        float horizontal = width >= 1024 ? 56f : width >= 640 ? 32f : 16f;
+        float panelWidth = Math.min(width - horizontal * 2f, 896f);
+        float maxTextWidth = Math.max(96f,
+                (float) Math.floor(panelWidth * (width >= 640 ? 0.68f : 0.78f)) - 56f);
+        float usableHeight = Math.max(200f, height - 240f);
+        float panelLeft = (width - panelWidth) / 2f;
+        float panelRight = panelLeft + panelWidth;
+        float topY = width >= 1024 ? 80f : width >= 640 ? 64f : 48f;
+
+        // Upstream getVisibleMessages(): accumulate estimated heights from the newest message
+        // backwards, drop the title when it no longer fits and keep at least two messages.
+        int firstLine = center;
+        float accumulated = 0f;
+        int visibleCount = 0;
         for (int i = center; i >= Math.max(0, center - 19); i--) {
-            PreparedLine line = prepare(i, base * (i == center ? 1.34f : 0.94f), width);
-            float block = Math.max(i == center ? 64 : 44,
-                    FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth, line.spacing).length * line.size * 1.45f
-                            + (i == center ? 32 : 24)) + 12;
-            if (totalHeight + block > usableHeight && center - first >= 1) break;
-            totalHeight += block;
-            first = i;
+            float estimate = cappellaRowEstimate(i, base, maxTextWidth, center);
+            if (visibleCount >= 2 && accumulated + estimate > usableHeight) break;
+            accumulated += estimate;
+            visibleCount++;
+            firstLine = i;
         }
-        float y = width >= 1024 ? 80 : width >= 640 ? 64 : 48;
-        if (first == 0 && !snapshot.title.isEmpty()) {
-            text.setTypeface(regularFace);
-            text.setTextSize(base);
-            float bubbleWidth = Math.max(base, text.measureText(snapshot.title)) + 34;
-            float x = (width + panelWidth) / 2 - bubbleWidth - 48;
-            float bubbleHeight = (float) Math.ceil(base * 1.45f + 26);
-            shape.setColor(alpha(mix(accent, primary, 0.18f), 0.94f));
-            rect.set(x, y, x + bubbleWidth, y + bubbleHeight);
-            canvas.drawRoundRect(rect, 20, 20, shape);
-            label(canvas, snapshot.title, x + 16, y + 13 + base * 1.04f, base, 0xFF09090B, Paint.Align.LEFT);
-            chatAvatar(canvas, cover, (width + panelWidth) / 2 - 20, y + 20, 8, 1);
-            y += bubbleHeight + 12;
+        boolean showTitle = !snapshot.title.isEmpty()
+                && accumulated + cappellaTitleEstimate(snapshot.title, base) <= usableHeight;
+
+        float y = topY;
+        if (showTitle) {
+            y = drawCappellaTitleRow(canvas, cover, y, panelLeft, panelRight, snapshot.title, base);
         }
-        for (int i = first; i <= center; i++) {
-            float size = base * (i == center ? 1.34f : 0.94f);
-            PreparedLine line = prepare(i, size, width);
-            boolean right = chatSides[i];
-            int visible = line.timeline.glyphs.length;
-            if (i == center && animate) {
-                visible = 0;
-                while (visible < line.timeline.starts.length && time + 200 >= line.timeline.starts[visible]) visible++;
-                visible = Math.max(1, visible);
-            }
-            float paddingX = i == center ? 20 : 16, paddingY = i == center ? 16 : 12;
-            int[] rows = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth, line.spacing);
-            float extent = 0;
-            int start = 0, visibleRows = 0;
-            for (int end : rows) {
-                if (start >= visible) break;
-                extent = Math.max(extent, line.extent(start, Math.min(end, visible)));
-                start = end; visibleRows++;
-            }
-            float bubbleWidth = Math.max(size, extent) + paddingX * 2 + 2;
-            float bubbleHeight = Math.max(i == center ? 64 : 44, Math.max(1, visibleRows) * size * 1.45f + paddingY * 2 + 2);
-            float x = right ? (width + panelWidth) / 2 - bubbleWidth - 48 : (width - panelWidth) / 2 + 48;
-            float entry = i == center && animate ? (float) FoliaSceneMath.easeOut((time - sourceLines.get(i).timeMs) / 320.0) : 1;
-            float opacity = i == center ? 1 : 0.82f;
-            int bubbleColor = right ? alpha(mix(accent, primary, 0.18f), 0.94f)
-                    : mix(muted, accent, 0.18f + (i % 5) * 0.0775f);
-            int lyricColor = right ? 0xFF09090B : primary;
-            if (i == anchor ? overrideCurrentColor : overrideInactiveColor) {
-                lyricColor = CoverLyricColorRules.color(i == anchor ? accent : muted, bubbleColor, i == anchor);
-            }
-            shape.setColor(alpha(bubbleColor, opacity));
-            rect.set(x, y, x + bubbleWidth, y + bubbleHeight);
-            FoliaCameraMotion.Spring position = chatPositions.get(i);
-            if (position == null) { position = new FoliaCameraMotion.Spring(); chatPositions.put(i, position); }
-            if (motionClock.seek || !animate) position.snap(y);
-            float motionY = (float) position.step(y, frameDelta / 1000.0, 340, 28, 0.72);
-            int save = canvas.save();
-            canvas.translate(0, motionY - y + (1 - entry) * 22);
-            canvas.scale(0.98f + 0.02f * entry, 0.98f + 0.02f * entry, right ? x + bubbleWidth : x, y);
-            canvas.drawRoundRect(rect, 20, 20, shape);
-            int clipping = canvas.save();
-            canvas.clipRect(rect);
-            start = 0;
-            for (int r = 0; r < rows.length; r++) {
-                int end = rows[r];
-                float rowWidth = line.extent(start, end);
-                for (int g = start; g < end; g++) {
-                    float reveal = i != center || !animate ? 1 : (float) FoliaRingMath.clamp(
-                            (time - line.timeline.starts[g]) / Math.max(40, Math.min(220, line.timeline.ends[g] - line.timeline.starts[g])), 0, 1);
-                    int glyphSave = canvas.save();
-                    canvas.translate(x + paddingX + line.offsets[g] - line.offsets[start] + line.widths[g] / 2,
-                            y + paddingY + size * 0.725f + r * size * 1.45f);
-                    glyph(canvas, line, g, lyricColor, opacity * reveal, 0, 0, true);
-                    canvas.restoreToCount(glyphSave);
+        for (int i = firstLine; i <= center; i++) {
+            PreparedLine line = prepare(i, base, width);
+            boolean right = i < chatSides.length && chatSides[i];
+            int sender = i < chatSenders.length ? chatSenders[i] : 0;
+            int avatarIndex = avatarTile(sender);
+            if (isCappellaInterlude(i)) {
+                long start = sourceLines.get(i).timeMs;
+                long end = i + 1 < lineCount ? sourceLines.get(i + 1).timeMs : start + 3000;
+                if (time >= start) {
+                    y = drawCappellaEmoji(canvas, cover, y, panelLeft, panelRight, right,
+                            time < end ? EMOJI_ACTIVE : EMOJI_PASSED, cappellaEmojiIndex(start, i),
+                            avatarIndex, cappellaLineEnd(line, i), end);
                 }
-                start = end;
+                continue;
             }
-            canvas.restoreToCount(clipping);
-            canvas.restoreToCount(save);
-            float avatarX = right ? (width + panelWidth) / 2 - 20 : (width - panelWidth) / 2 + 20;
-            float avatarY = motionY + 20;
-            chatAvatar(canvas, cover, avatarX, avatarY, chatSenders[i] == 8 ? 8 : new int[]{0, 3, 6, 1, 4}[chatSenders[i]], opacity);
-            if (i < center || time >= line.timeline.renderEnd - 340) label(canvas,
-                    String.format(java.util.Locale.ROOT, "%d:%02d", sourceLines.get(i).timeMs / 60000,
-                            sourceLines.get(i).timeMs / 1000 % 60), right ? x : x + bubbleWidth,
-                    motionY + bubbleHeight + 13, 10, alpha(muted, 0.6f), right ? Paint.Align.LEFT : Paint.Align.RIGHT);
-            y += bubbleHeight + 12;
+            y = drawCappellaBubbleRow(canvas, cover, y, panelLeft, panelRight, maxTextWidth, base,
+                    i, center, right, sender);
+            int gapState = cappellaEmojiState(i, line);
+            if (gapState != EMOJI_NONE) {
+                long nextStart = sourceLines.get(i + 1).timeMs;
+                y = drawCappellaEmoji(canvas, cover, y, panelLeft, panelRight, right, gapState,
+                        cappellaEmojiIndex(cappellaGapStart(i), i), avatarIndex,
+                        cappellaLineEnd(line, i), nextStart);
+            }
         }
     }
 
-    private void chatAvatar(Canvas canvas, Bitmap cover, float avatarX, float avatarY, int tile, float opacity) {
-            if (cover != null && !cover.isRecycled()) {
-                path.reset();
-                path.addRoundRect(new RectF(avatarX - 20, avatarY - 20, avatarX + 20, avatarY + 20), 12, 12, Path.Direction.CW);
-                int clip = canvas.save();
-                canvas.clipPath(path);
-                rect.set(avatarX - 20, avatarY - 20, avatarX + 20, avatarY + 20);
-                source.set(cover.getWidth() * (tile % 3) / 3, cover.getHeight() * (tile / 3) / 3,
-                        cover.getWidth() * (tile % 3 + 1) / 3, cover.getHeight() * (tile / 3 + 1) / 3);
-                shape.setColor(Color.WHITE);
-                canvas.drawBitmap(cover, source, rect, shape);
-                canvas.restoreToCount(clip);
-            } else {
-                shape.setColor(alpha(accent, opacity * 0.5f));
-                canvas.drawCircle(avatarX, avatarY, 20, shape);
-                label(canvas, tile == 8 ? "♪" : "♫", avatarX, avatarY + 7, 22, primary, Paint.Align.CENTER);
+    private float cappellaTitleEstimate(String title, float base) {
+        text.setTypeface(regularFace);
+        text.setTextSize(base);
+        float lineHeight = base * 1.45f;
+        float measured = (float) Math.ceil(lineHeight + 26f);
+        float rendered = Math.max(measured, Math.max(44f, lineHeight + 24f));
+        return rendered + 12f;
+    }
+
+    private float cappellaRowEstimate(int index, float base, float maxTextWidth, int center) {
+        boolean active = index == center;
+        if (isCappellaInterlude(index)) {
+            float image = active ? 160f : 110f;
+            return image + (active ? (float) Math.ceil(image * 0.12f) : 0f) + 48f + 12f;
+        }
+        float size = base * (active ? 1.34f : 0.94f);
+        int padY = active ? 16 : 12;
+        PreparedLine line = prepare(index, size, width);
+        int rows = cappellaTextRows(line, line.timeline.glyphs.length, maxTextWidth);
+        float lineHeight = size * 1.45f;
+        float measured = (float) Math.ceil(rows * lineHeight + padY * 2f + 2f);
+        float rendered = Math.max(measured, Math.max(active ? 64f : 44f, lineHeight + padY * 2f));
+        float scale = active ? 1.12f : 0.92f;
+        float estimate = Math.max(40f, active ? (float) Math.ceil(rendered * scale) : rendered) + 12f;
+        if (cappellaEmojiState(index, line) != EMOJI_NONE) {
+            float sticker = index == center ? 160f : 110f;
+            estimate += (float) Math.ceil((48f + sticker) * (index == center ? 1.12f : 0.92f)) + 12f;
+        }
+        return estimate;
+    }
+
+    private int cappellaTextRows(PreparedLine line, int glyphCount, float maxTextWidth) {
+        int[] wrapped = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth, line.spacing);
+        int rows = 1;
+        int start = 0;
+        for (int end : wrapped) {
+            if (start >= glyphCount) break;
+            if (glyphCount <= end) return rows;
+            rows++;
+            start = end;
+        }
+        return rows;
+    }
+
+    private float cappellaBaseline(float top, float padY, float lineHeight, float size, Typeface font) {
+        text.setTypeface(font);
+        text.setTextSize(Math.max(1f, size));
+        Paint.FontMetrics metrics = new Paint.FontMetrics();
+        text.getFontMetrics(metrics);
+        return top + padY + (lineHeight - (metrics.descent - metrics.ascent)) / 2f - metrics.ascent;
+    }
+
+    private float drawCappellaTitleRow(Canvas canvas, Bitmap cover, float y, float panelLeft,
+                                       float panelRight, String title, float base) {
+        text.setTypeface(regularFace);
+        text.setTextSize(base);
+        float textWidth = text.measureText(title);
+        float lineHeight = base * 1.45f;
+        float bubbleWidth = (float) Math.ceil(textWidth + 32f + 2f);
+        float bubbleHeight = Math.max((float) Math.ceil(lineHeight + 24f + 2f),
+                Math.max(44f, lineHeight + 24f));
+        float rowHeight = Math.max(40f, bubbleHeight);
+        float bottom = y + rowHeight;
+        float bubbleLeft = panelRight - 52f - bubbleWidth;
+        float bubbleTop = bottom - bubbleHeight;
+        float bubbleRight = bubbleLeft + bubbleWidth;
+        drawBubble(canvas, bubbleLeft, bubbleTop, bubbleRight, bottom,
+                alpha(mix(accent, primary, 0.18f), 0.94f), false);
+        drawBubbleBorder(canvas, bubbleLeft, bubbleTop, bubbleRight, bottom,
+                alpha(mix(accent, primary, 0.34f), 0.3f), false);
+        float baseline = cappellaBaseline(bubbleTop, 12f, lineHeight, base, regularFace);
+        label(canvas, title, bubbleLeft + 16f, baseline, base, 0xFF09090B, Paint.Align.LEFT, regularFace);
+        chatAvatar(canvas, cover, panelRight - 20f, bottom - 20f, avatarTile(8), 1f);
+        return bottom + 12f;
+    }
+
+    private float drawCappellaBubbleRow(Canvas canvas, Bitmap cover, float y, float panelLeft,
+                                        float panelRight, float maxTextWidth, float base, int index,
+                                        int center, boolean right, int sender) {
+        boolean active = index == center;
+        float size = base * (active ? 1.34f : 0.94f);
+        int padX = active ? 20 : 16;
+        int padY = active ? 16 : 12;
+        PreparedLine line = prepare(index, size, width);
+        int glyphCount = line.timeline.glyphs.length;
+        int target = glyphCount;
+        if (active && animate) {
+            target = 0;
+            while (target < glyphCount && time + 200 >= line.timeline.starts[target]) target++;
+            target = Math.max(1, target);
+        }
+        int rows = cappellaTextRows(line, target, maxTextWidth);
+        float lineHeight = size * 1.45f;
+        float textWidth = target > 0 ? line.extent(0, target) : 0f;
+        float bubbleWidth = Math.max(active ? 72f : 0f, Math.max(size * 0.6f, textWidth)) + padX * 2f + 2f;
+        float measured = (float) Math.ceil(rows * lineHeight + padY * 2f + 2f);
+        float bubbleHeight = Math.max(measured, Math.max(active ? 64f : 44f, lineHeight + padY * 2f));
+        // Scaled-up rows reserve their enlarged height in the column flow (upstream flexbox model).
+        float rowHeight = Math.max(40f, active ? (float) Math.ceil(bubbleHeight * 1.12f) : bubbleHeight);
+        float bottom = y + rowHeight;
+        float bubbleLeft = right ? panelRight - 52f - bubbleWidth : panelLeft + 52f;
+        float bubbleTop = bottom - bubbleHeight;
+        float bubbleRight = bubbleLeft + bubbleWidth;
+        float scale = active ? 1.12f : 0.92f;
+        float opacity = active ? 1f : 0.82f;
+        float entry = active && animate
+                ? (float) FoliaSceneMath.easeOut((time - sourceLines.get(index).timeMs) / 320.0) : 1f;
+        int bubbleColor;
+        int borderColor;
+        int lyricColor;
+        if (right) {
+            bubbleColor = mix(accent, primary, 0.18f);
+            borderColor = mix(accent, primary, 0.34f);
+            lyricColor = 0xFF09090B;
+        } else {
+            float tone = (sender % 9) / 8f;
+            float accentMix = 0.18f + tone * 0.62f;
+            bubbleColor = mix(muted, accent, accentMix);
+            borderColor = mix(muted, accent, Math.min(1f, accentMix + 0.18f));
+            lyricColor = primary;
+        }
+        if (index == anchor ? overrideCurrentColor : overrideInactiveColor) {
+            lyricColor = CoverLyricColorRules.color(index == anchor ? accent : muted, bubbleColor, index == anchor);
+        }
+        int save = canvas.save();
+        canvas.translate(0f, (1f - entry) * 22f);
+        canvas.scale(scale, scale, right ? panelRight : panelLeft, bottom);
+        drawBubble(canvas, bubbleLeft, bubbleTop, bubbleRight, bottom,
+                alpha(bubbleColor, right ? 0.94f : 1f), !right);
+        drawBubbleBorder(canvas, bubbleLeft, bubbleTop, bubbleRight, bottom,
+                alpha(borderColor, right ? 0.3f : 0.26f), !right);
+        int visible = glyphCount;
+        if (active && animate) {
+            visible = 0;
+            while (visible < glyphCount && time >= line.timeline.starts[visible]) visible++;
+        }
+        int[] wrapped = FoliaSceneMath.wrap(line.timeline.glyphs, line.offsets, maxTextWidth, line.spacing);
+        int clip = canvas.save();
+        rect.set(bubbleLeft, bubbleTop, bubbleRight, bottom);
+        canvas.clipRect(rect);
+        int start = 0;
+        for (int r = 0; r < wrapped.length && start < visible; r++) {
+            int end = wrapped[r];
+            float rowOffset = line.offsets[start];
+            float baseline = cappellaBaseline(bubbleTop, padY, lineHeight, size, line.font)
+                    + r * lineHeight;
+            int limit = Math.min(end, visible);
+            for (int g = start; g < limit; g++) {
+                float fade = 1f;
+                if (active && animate) {
+                    long fadeMs = Math.max(40L, Math.min(220L,
+                            line.timeline.ends[g] - line.timeline.starts[g]));
+                    fade = (float) FoliaRingMath.clamp(
+                            (time - line.timeline.starts[g]) / (double) fadeMs, 0.0, 1.0);
+                }
+                int glyphSave = canvas.save();
+                canvas.translate(bubbleLeft + padX + line.offsets[g] - rowOffset, baseline);
+                glyph(canvas, line, g, lyricColor, opacity * fade, 0, 0, true);
+                canvas.restoreToCount(glyphSave);
             }
+            start = end;
+        }
+        canvas.restoreToCount(clip);
+        chatAvatar(canvas, cover, right ? panelRight - 20f : panelLeft + 20f, bottom - 20f,
+                avatarTile(sender), opacity);
+        long ready = line.timeline.starts.length == 0 ? sourceLines.get(index).timeMs
+                : line.timeline.starts[line.timeline.starts.length - 1] + 220L;
+        if (time >= ready) {
+            long endMs = cappellaLineEnd(line, index);
+            String stamp = String.format(Locale.ROOT, "%d:%02d", endMs / 60000, endMs / 1000 % 60);
+            float stampY = bottom - 6f;
+            if (right) label(canvas, stamp, bubbleLeft - 8f, stampY, 11,
+                    alpha(muted, 0.62f * opacity), Paint.Align.RIGHT);
+            else label(canvas, stamp, bubbleRight + 8f, stampY, 11,
+                    alpha(muted, 0.62f * opacity), Paint.Align.LEFT);
+        }
+        canvas.restoreToCount(save);
+        return bottom + 12f;
+    }
+
+    private void drawBubbleBorder(Canvas canvas, float left, float top, float right, float bottom,
+                                  int color, boolean tailLeft) {
+        float radius = 24;
+        float[] radii = {radius, radius, radius, radius, radius, radius, radius, radius};
+        if (tailLeft) {
+            radii[6] = 6;
+            radii[7] = 6;
+        } else {
+            radii[4] = 6;
+            radii[5] = 6;
+        }
+        shape.setStyle(Paint.Style.STROKE);
+        shape.setStrokeWidth(1);
+        shape.setColor(color);
+        path.reset();
+        rect.set(left, top, right, bottom);
+        path.addRoundRect(rect, radii, Path.Direction.CW);
+        canvas.drawPath(path, shape);
+        path.reset();
+        shape.setStyle(Paint.Style.FILL);
+    }
+
+    private static final String[] CAPPELLA_EMO_NAMES = {"happy1", "love1", "normal1",
+            "sleepy1", "sleepy2", "sleepy3", "vibe1", "vibe2", "vibe3"};
+    private static final int EMOJI_NONE = 0, EMOJI_ACTIVE = 1, EMOJI_PASSED = 2;
+
+    private boolean isCappellaInterlude(int index) {
+        return index >= 0 && index < sourceLines.size()
+                && "......".equals(sourceLines.get(index).text.trim());
+    }
+
+    private boolean cappellaInterludeFollows(int index) {
+        return index + 1 < sourceLines.size() && isCappellaInterlude(index + 1);
+    }
+
+    /** Natural end of the lyric line (providers set durationMs; word timings are the fallback). */
+    private long cappellaLineEnd(PreparedLine line, int index) {
+        LrcTimeline.Line source = sourceLines.get(index);
+        if (source.durationMs > 0) return source.timeMs + source.durationMs;
+        if (line.timeline.ends.length > 0) return line.timeline.ends[line.timeline.ends.length - 1];
+        return source.timeMs;
+    }
+
+    private long cappellaGapStart(int index) {
+        return cappellaLineEnd(prepare(index, 18f, width), index) + 50;
+    }
+
+    /** Upstream parser attachInterludes(): gaps longer than 3s become an "..." emoji message. */
+    private int cappellaEmojiState(int index, PreparedLine line) {
+        if (index < 0 || index + 1 >= sourceLines.size()) return EMOJI_NONE;
+        long wordEnd = cappellaLineEnd(line, index);
+        long nextStart = sourceLines.get(index + 1).timeMs;
+        if (nextStart - wordEnd <= 3000) return EMOJI_NONE;
+        if (time < wordEnd + 50) return EMOJI_NONE;
+        return time < nextStart ? EMOJI_ACTIVE : EMOJI_PASSED;
+    }
+
+    private int avatarTile(int sender) {
+        return sender == 8 ? 8 : new int[]{0, 3, 6, 1, 4}[Math.max(0, Math.min(4, sender))];
+    }
+
+    /** FNV-1a 32-bit, matching the upstream deterministic message ids. */
+    private static long fnv1a(String value) {
+        long hash = 2166136261L;
+        for (int i = 0; i < value.length(); i++) {
+            hash ^= value.charAt(i);
+            hash = (hash * 16777619L) & 0xffffffffL;
+        }
+        return hash;
+    }
+
+    private static double seededUnit(String... parts) {
+        StringBuilder seed = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) seed.append('|');
+            seed.append(parts[i]);
+        }
+        return fnv1a(seed.toString()) / (double) 0xffffffffL;
+    }
+
+    /** JavaScript Number#toString formatting for deterministic seeds. */
+    private static String jsNumber(double value) {
+        if (value == Math.rint(value) && Math.abs(value) < 1e15) return Long.toString((long) value);
+        return new java.math.BigDecimal(Double.toString(value)).stripTrailingZeros().toPlainString();
+    }
+
+    private int cappellaEmojiIndex(long activationStartMs, int lineIndex) {
+        double unit = seededUnit("interlude", jsNumber(activationStartMs / 1000.0),
+                Integer.toString(lineIndex));
+        return (int) Math.floor(unit * CAPPELLA_EMO_NAMES.length) % CAPPELLA_EMO_NAMES.length;
+    }
+
+    private float drawCappellaEmoji(Canvas canvas, Bitmap cover, float y, float panelLeft,
+                                    float panelRight, boolean right, int state, int emojiIndex,
+                                    int avatarTile, long stampMs, long activationEnd) {
+        boolean active = state == EMOJI_ACTIVE;
+        float stickerSize = active ? 160f : 110f;
+        float scale = active ? 1.12f : 0.92f;
+        float rowHeight = (float) Math.ceil((48f + stickerSize) * scale);
+        float bottom = y + rowHeight;
+        float opacity = active ? 1f : 0.82f;
+        float stickerLeft = right ? panelRight - 52f - stickerSize : panelLeft + 52f;
+        float stickerTop = bottom - stickerSize;
+        int save = canvas.save();
+        canvas.scale(scale, scale, right ? panelRight : panelLeft, bottom);
+        chatAvatar(canvas, cover, right ? panelRight - 20f : panelLeft + 20f, bottom - 20f,
+                avatarTile, opacity);
+        Bitmap emoji = emojiBitmap(emojiIndex);
+        if (emoji != null && !emoji.isRecycled()) {
+            float wiggle = (float) Math.sin((time % 1900L) / 1900.0 * Math.PI * 2.0) * 1.6f;
+            int frame = canvas.save();
+            canvas.rotate(wiggle, stickerLeft + stickerSize / 2f, stickerTop + stickerSize / 2f);
+            path.reset();
+            rect.set(stickerLeft, stickerTop, stickerLeft + stickerSize, stickerTop + stickerSize);
+            path.addRoundRect(rect, 16, 16, Path.Direction.CW);
+            int clip = canvas.save();
+            canvas.clipPath(path);
+            float fit = Math.min(stickerSize / emoji.getWidth(), stickerSize / emoji.getHeight());
+            float drawWidth = emoji.getWidth() * fit;
+            float drawHeight = emoji.getHeight() * fit;
+            rect.set(stickerLeft + (stickerSize - drawWidth) / 2f,
+                    stickerTop + (stickerSize - drawHeight) / 2f,
+                    stickerLeft + (stickerSize + drawWidth) / 2f,
+                    stickerTop + (stickerSize + drawHeight) / 2f);
+            shape.setColor(alpha(Color.WHITE, opacity));
+            canvas.drawBitmap(emoji, null, rect, shape);
+            canvas.restoreToCount(clip);
+            canvas.restoreToCount(frame);
+        }
+        if (time >= activationEnd) {
+            String stamp = String.format(Locale.ROOT, "%d:%02d", stampMs / 60000, stampMs / 1000 % 60);
+            float stampY = bottom - 4.5f;
+            if (right) label(canvas, stamp, stickerLeft - 8f, stampY, 11,
+                    alpha(muted, 0.62f * opacity), Paint.Align.RIGHT);
+            else label(canvas, stamp, stickerLeft + stickerSize + 8f, stampY, 11,
+                    alpha(muted, 0.62f * opacity), Paint.Align.LEFT);
+        }
+        canvas.restoreToCount(save);
+        return bottom + 12f;
+    }
+
+    private Bitmap emojiBitmap(int index) {
+        if (index < 0 || index >= CAPPELLA_EMO_NAMES.length) return null;
+        String name = CAPPELLA_EMO_NAMES[index];
+        Bitmap cached = emos.get(name);
+        if (cached != null && !cached.isRecycled()) return cached;
+        if (assets == null) return null;
+        Bitmap decoded = null;
+        try {
+            java.io.InputStream stream = assets.open("folia_original_canvas/cappella/emo/" + name + ".png");
+            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+            options.inScaled = false;
+            options.inSampleSize = 2;
+            try {
+                decoded = android.graphics.BitmapFactory.decodeStream(stream, null, options);
+            } finally {
+                stream.close();
+            }
+        } catch (java.io.IOException ignored) {
+            return null;
+        }
+        if (decoded != null) emos.put(name, decoded);
+        return decoded;
+    }
+
+    /** Bubble with the upstream 24 px radius and a 6 px tail corner on the avatar side. */
+    private void drawBubble(Canvas canvas, float left, float top, float right, float bottom,
+                            int color, boolean tailLeft) {
+        float radius = 24;
+        float[] radii = {radius, radius, radius, radius, radius, radius, radius, radius};
+        if (tailLeft) {
+            radii[6] = 6;
+            radii[7] = 6;
+        } else {
+            radii[4] = 6;
+            radii[5] = 6;
+        }
+        shape.setColor(color);
+        path.reset();
+        rect.set(left, top, right, bottom);
+        path.addRoundRect(rect, radii, Path.Direction.CW);
+        canvas.drawPath(path, shape);
+        path.reset();
+    }
+
+    private void chatAvatar(Canvas canvas, Bitmap cover, float avatarX, float avatarY, int tile, float opacity) {
+        if (cover != null && !cover.isRecycled()) {
+            path.reset();
+            path.addCircle(avatarX, avatarY, 20, Path.Direction.CW);
+            int clip = canvas.save();
+            canvas.clipPath(path);
+            rect.set(avatarX - 20, avatarY - 20, avatarX + 20, avatarY + 20);
+            source.set(cover.getWidth() * (tile % 3) / 3, cover.getHeight() * (tile / 3) / 3,
+                    cover.getWidth() * (tile % 3 + 1) / 3, cover.getHeight() * (tile / 3 + 1) / 3);
+            shape.setColor(alpha(Color.WHITE, opacity));
+            canvas.drawBitmap(cover, source, rect, shape);
+            canvas.restoreToCount(clip);
+        } else {
+            shape.setColor(alpha(accent, opacity * 0.5f));
+            canvas.drawCircle(avatarX, avatarY, 20, shape);
+            label(canvas, tile == 8 ? "♪" : "♫", avatarX, avatarY + 7, 22, alpha(primary, opacity), Paint.Align.CENTER);
+        }
+        shape.setStyle(Paint.Style.STROKE);
+        shape.setStrokeWidth(1);
+        shape.setColor(alpha(0x33FFFFFF, opacity));
+        canvas.drawCircle(avatarX, avatarY, 20, shape);
+        shape.setStyle(Paint.Style.FILL);
     }
 
     /**
