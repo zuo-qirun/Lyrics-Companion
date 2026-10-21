@@ -41,12 +41,22 @@ final class ThemedSpinnerAdapter<T> extends ArrayAdapter<T> {
                 dropdown ? 0xFF101418 : 0xFF1C2024);
         view.setTextColor(onSurface);
         view.setBackgroundColor(surface);
-        view.setTextSize(14f);
+        float scale = AppPreferences.settingsUiScale(getContext()) / 100f;
+        view.setTextSize(14f * scale);
+        view.setSingleLine(false);
+        view.setEllipsize(null);
         view.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
-        int horizontal = dp(14f);
-        int vertical = dp(10f);
+        int horizontal = dp(14f * scale);
+        int vertical = dp(10f * scale);
         view.setPadding(horizontal, vertical, horizontal, vertical);
-        view.setMinHeight(dp(44f));
+        view.setMinHeight(dp(44f * scale));
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params != null) {
+            params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            view.setLayoutParams(params);
+        }
+        view.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        view.setTag(R.id.settings_ui_scale_applied, AppPreferences.settingsUiScale(getContext()));
         return view;
     }
 

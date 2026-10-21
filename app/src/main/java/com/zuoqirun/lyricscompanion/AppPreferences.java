@@ -280,6 +280,7 @@ final class AppPreferences {
     static final String KEY_MAIN_SETTINGS_MODE = "main_settings_mode";
     static final String KEY_TOP_LYRIC_SHOW_TRANSLATION = "top_lyric_show_translation";
     static final String KEY_TOP_LYRIC_BACKGROUND = "top_lyric_background";
+    static final String KEY_TOP_LYRIC_COLOR_ENVIRONMENT = "top_lyric_color_environment";
     static final String KEY_TOP_LYRIC_SPECTRUM = "top_lyric_spectrum";
     /** The strip's dissolve family; unset means "follow the main screen", see the accessors. */
     static final String KEY_TOP_LYRIC_PARTICLES = "top_lyric_particles";

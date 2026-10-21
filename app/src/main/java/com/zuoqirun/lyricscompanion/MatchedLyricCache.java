@@ -16,14 +16,15 @@ final class MatchedLyricCache {
         synchronized (LOCK) {
             try {
                 String value = cache.read(key);
-                return value == null ? LrcTimeline.EMPTY
+                LrcTimeline timeline = value == null ? LrcTimeline.EMPTY
                         : LrcTimeline.fromCacheBytes(Base64.decode(value, Base64.DEFAULT));
+                return CatalogLyricQuality.usable(timeline) ? timeline : LrcTimeline.EMPTY;
             } catch (Exception ignored) { return LrcTimeline.EMPTY; }
         }
     }
 
     void write(String key, LrcTimeline timeline) {
-        if (timeline.isEmpty()) return;
+        if (!CatalogLyricQuality.usable(timeline)) return;
         synchronized (LOCK) {
             try { cache.write(key, Base64.encodeToString(timeline.toCacheBytes(), Base64.NO_WRAP)); }
             catch (Exception ignored) { }

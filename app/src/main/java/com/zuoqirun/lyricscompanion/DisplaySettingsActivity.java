@@ -244,10 +244,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 12, 0xFF8392A8, false));
         addTouchThroughToggle(position, lockToggle);
         if (!foliaStyle) {
-            addSeek(panel, "歌词显示行数", AppPreferences.KEY_STYLE_LYRIC_LINES, 1, 7,
-                    AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
-                    value -> AppPreferences.putDisplayInt(this, secondary,
-                            AppPreferences.KEY_STYLE_LYRIC_LINES, value));
+            if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_STYLE_LYRIC_LINES, selectedStyle).isEmpty()) {
+                addSeek(panel, "歌词显示行数", AppPreferences.KEY_STYLE_LYRIC_LINES, 1, 7,
+                        AppPreferences.displayInt(this, secondary, AppPreferences.KEY_STYLE_LYRIC_LINES, 3), " 行",
+                        value -> AppPreferences.putDisplayInt(this, secondary,
+                                AppPreferences.KEY_STYLE_LYRIC_LINES, value));
+            }
             // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
             addChoice(motion, "文字效果（全部样式）", AppPreferences.KEY_REFINED_TEXT_EFFECT,
                     new String[]{"无（各样式原样）", "文字阴影", "文字辉光"},

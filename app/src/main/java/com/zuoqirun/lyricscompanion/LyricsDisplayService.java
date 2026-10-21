@@ -108,6 +108,20 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private final Handler communityHandler = new Handler(Looper.getMainLooper());
     private final Handler notificationHandler = new Handler(Looper.getMainLooper());
     private final Handler recoveryHandler = new Handler(Looper.getMainLooper());
+    private boolean destroyed;
+    private final Runnable pendingRemovalRetry = () -> {
+        if (destroyed) return;
+        if (mainPanel != null && mainPanel.getVisibility() == View.GONE) dismissMain();
+        if (secondaryPanel != null && secondaryPanel.getVisibility() == View.GONE) dismissSecondary();
+        dismissPendingExtras();
+        if (!canDrawOverlays() || AppPreferences.serviceStoppedByUser(this)) return;
+        if (mainPanel == null && AppPreferences.mainEnabled(this) && !settingsVisible
+                && !shouldHideOverlays(false)) showMain();
+        if (!shouldHideOverlays(true)) {
+            if (secondaryPanel == null && AppPreferences.secondaryEnabled(this)) showSecondary();
+            ensureExtraOverlays();
+        }
+    };
     private final DisplayRecoveryBackoff secondaryRecovery = new DisplayRecoveryBackoff();
     private final DisplayRecoveryBackoff extraRecovery = new DisplayRecoveryBackoff();
     private long lastDisplayRecoveryCheck = -1;
@@ -336,6 +350,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public void onDestroy() {
+        destroyed = true;
+        recoveryHandler.removeCallbacks(pendingRemovalRetry);
         DiagnosticLog.record(this, "Overlay", "display service destroyed mainAttached="
                 + (mainPanel != null && mainPanel.getParent() != null)
                 + " secondaryAttached="
@@ -433,6 +449,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void showMain() {
+        if (mainPanel != null && mainPanel.getParent() != null) return;
         mainWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (mainWindowManager == null) return;
         Point screen = displaySize(mainWindowManager.getDefaultDisplay());
@@ -476,6 +493,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void showSecondary() {
+        if (secondaryPanel != null && secondaryPanel.getParent() != null) return;
         Display display = findSecondaryDisplay();
         if (display == null) {
             DiagnosticLog.record(this, "Display", "secondary enabled but unavailable preferredId="
@@ -1307,30 +1325,27 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         return params;
     }
 
+    private int lastFallbackPreferredId = -1;
+    private int lastFallbackDisplayId = -1;
+
     private Display findSecondaryDisplay() {
-        if (displayManager == null) return null;
         int preferredId = AppPreferences.displayId(this);
-        if (preferredId >= 0) {
-            Display preferred = displayManager.getDisplay(preferredId);
-            return preferred != null && preferred.getDisplayId() != Display.DEFAULT_DISPLAY
-                    ? preferred : null;
+        Display selected = SecondaryDisplayResolver.resolve(displayManager, preferredId);
+        int selectedId = selected == null ? -1 : selected.getDisplayId();
+        if (preferredId >= 0 && preferredId != selectedId
+                && (lastFallbackPreferredId != preferredId || lastFallbackDisplayId != selectedId)) {
+            DiagnosticLog.record(this, "Display", "remembered display " + preferredId
+                    + " unavailable; fallback=" + selectedId);
         }
-        for (Display display : displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
-            if (display != null && display.getDisplayId() != Display.DEFAULT_DISPLAY) return display;
-        }
-        for (Display display : displayManager.getDisplays()) {
-            if (display != null && display.getDisplayId() != Display.DEFAULT_DISPLAY) return display;
-        }
-        return null;
+        lastFallbackPreferredId = preferredId;
+        lastFallbackDisplayId = selectedId;
+        return selected;
     }
 
     private void dismissMain() {
         removeUnlockHandle(false);
         removePlaybackPad(false);
-        if (mainWindowManager != null && mainPanel != null && mainPanel.getParent() != null) {
-            try { mainWindowManager.removeViewImmediate(mainPanel); }
-            catch (Throwable ignored) { }
-        }
+        if (!removePanelWindow(mainWindowManager, mainPanel, "main")) return;
         mainWindowManager = null;
         mainParams = null;
         mainPanel = null;
@@ -1339,11 +1354,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private void dismissSecondary() {
         removeUnlockHandle(true);
         removePlaybackPad(true);
-        if (secondaryWindowManager != null && secondaryPanel != null
-                && secondaryPanel.getParent() != null) {
-            try { secondaryWindowManager.removeViewImmediate(secondaryPanel); }
-            catch (Throwable ignored) { }
-        }
+        if (!removePanelWindow(secondaryWindowManager, secondaryPanel, "secondary")) return;
         secondaryPanel = null;
         secondaryParams = null;
         secondaryWindowManager = null;
@@ -1390,7 +1401,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 continue;
             }
             if (display.getDisplayId() == Display.DEFAULT_DISPLAY
-                    || display.getDisplayId() == secondaryId) {
+                    || display.getDisplayId() == secondaryId
+                    || containsDisplay(showingLyrics, display.getDisplayId())) {
                 // Two windows on one screen would draw the lyrics twice.
                 DiagnosticLog.record(this, "Display", "extra slot " + slot + " skipped, display "
                         + display.getDisplayId() + " already shows lyrics");
@@ -1424,6 +1436,11 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     /** One display reduced to what the duplicate-panel check needs (issue #23). */
+    private static boolean containsDisplay(List<DisplayIdentity.Screen> screens, int id) {
+        for (DisplayIdentity.Screen screen : screens) if (screen.displayId == id) return true;
+        return false;
+    }
+
     private static DisplayIdentity.Screen screenOf(Display display) {
         Point size = displaySize(display);
         android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
@@ -1476,14 +1493,37 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     }
 
     private void dismissExtras() {
-        for (ExtraOverlay overlay : extraOverlays) {
-            try {
-                if (overlay.panel.getParent() != null) {
-                    overlay.windowManager.removeViewImmediate(overlay.panel);
-                }
-            } catch (Throwable ignored) { }
+        java.util.Iterator<ExtraOverlay> iterator = extraOverlays.iterator();
+        while (iterator.hasNext()) {
+            ExtraOverlay overlay = iterator.next();
+            if (removePanelWindow(overlay.windowManager, overlay.panel, "extra " + overlay.slot)) iterator.remove();
         }
-        extraOverlays.clear();
+    }
+
+    private void dismissPendingExtras() {
+        java.util.Iterator<ExtraOverlay> iterator = extraOverlays.iterator();
+        while (iterator.hasNext()) {
+            ExtraOverlay overlay = iterator.next();
+            if (overlay.panel.getVisibility() == View.GONE
+                    && removePanelWindow(overlay.windowManager, overlay.panel, "extra " + overlay.slot)) iterator.remove();
+        }
+    }
+
+    private boolean removePanelWindow(WindowManager manager, LyricsPanelView panel, String name) {
+        if (panel == null || panel.getParent() == null) return true;
+        // Hide first: failed vendor removal must not leave a visible, unowned copy behind.
+        panel.setVisibility(View.GONE);
+        try {
+            if (manager != null) manager.removeViewImmediate(panel);
+        } catch (RuntimeException error) {
+            DiagnosticLog.record(this, "Display", name + " removal failed=" + error.getClass().getSimpleName());
+        }
+        if (panel.getParent() == null) return true;
+        if (!destroyed) {
+            recoveryHandler.removeCallbacks(pendingRemovalRetry);
+            recoveryHandler.postDelayed(pendingRemovalRetry, 1_000L);
+        }
+        return false;
     }
 
     /** True while this slot already has its own window. */

@@ -60,6 +60,10 @@ final class FoliaOriginalBackgroundRenderer {
      */
     private final Shader[] monetShaders = new Shader[6];
     private String monetShaderKey = "";
+    private final Shader[] latentShaders = new Shader[6];
+    private String latentShaderKey = "";
+    private BitmapShader ditherShader;
+    private final android.util.LruCache<String, Shader> vignettes = new android.util.LruCache<>(8);
 
     private int primaryColor = 0xFFF5F8FF;
     private int accentColor = 0xFFFF984B;
@@ -98,11 +102,16 @@ final class FoliaOriginalBackgroundRenderer {
         cachedCover = null;
         blurSource = null;
         ditherTile = null;
+        ditherShader = null;
+        java.util.Arrays.fill(monetShaders, null);
+        java.util.Arrays.fill(latentShaders, null);
+        monetShaderKey = latentShaderKey = "";
+        vignettes.evictAll();
+        fill.setShader(null);
+        bitmap.setShader(null);
         shapes = null;
         stars = null;
-        recycle(monetBitmap);
         monetBitmap = null;
-        recycle(nomandBitmap);
         nomandBitmap = null;
     }
 
@@ -125,9 +134,9 @@ final class FoliaOriginalBackgroundRenderer {
             shapes = null;
             stars = null;
             blurSource = null;
-            recycle(monetBitmap);
+            // Drop only our reference; a recorded hardware frame may still use the poster.
             monetBitmap = null;
-            recycle(nomandBitmap);
+
             nomandBitmap = null;
         }
         if (NONE.equals(normalized)) return;
@@ -258,36 +267,40 @@ final class FoliaOriginalBackgroundRenderer {
         int dusk = blend(blend(mutedColor, 0xFF6A78A6, 0.6f), THEME_BACKGROUND, 0.22f);
         float cx = width * (0.54f + 0.03f * (float) Math.sin(time * 0.25));
         float cy = height * (0.2f + 0.02f * (float) Math.cos(time * 0.21));
-        fill.setShader(new RadialGradient(cx, cy, Math.max(width, height) * 0.6f,
-                new int[]{withAlpha(blend(ember, Color.WHITE, 0.1f), 0.85f * alpha),
-                        withAlpha(ember, 0.44f * alpha), withAlpha(ember, 0.12f * alpha),
-                        Color.TRANSPARENT},
-                new float[]{0f, 0.4f, 0.72f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
-        // The reference smear runs from the upper middle toward the right edge.
-        fill.setShader(new LinearGradient(width * 0.3f, -height * 0.1f, width * 1.05f, height * 0.5f,
-                new int[]{Color.TRANSPARENT, withAlpha(blend(ember, Color.WHITE, 0.12f), 0.32f * alpha),
-                        Color.TRANSPARENT},
-                new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
-        fill.setShader(new RadialGradient(width * 0.9f, height * 0.95f, Math.max(width, height) * 0.5f,
-                new int[]{withAlpha(0xFF4E5A85, 0.28f * alpha), Color.TRANSPARENT},
-                new float[]{0f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
-        fill.setShader(new RadialGradient(width * 0.05f, height * 0.88f, Math.max(width, height) * 0.78f,
-                new int[]{withAlpha(dusk, 0.72f * alpha), withAlpha(dusk, 0.28f * alpha),
-                        Color.TRANSPARENT},
-                new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
-        fill.setShader(new RadialGradient(width * 0.94f, height * 0.45f, Math.max(width, height) * 0.46f,
-                new int[]{withAlpha(blend(ember, dusk, 0.5f), 0.26f * alpha), Color.TRANSPARENT},
-                new float[]{0f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
-        // Cool rim from the top-right keeps the field from reading as pure orange.
-        fill.setShader(new LinearGradient(width, 0, 0, height,
-                new int[]{withAlpha(0xFF6D7EAE, 0.18f * alpha), Color.TRANSPARENT},
-                new float[]{0f, 0.7f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, fill);
+        String key = width + ":" + height + ":" + alpha + ":" + accentColor + ":" + mutedColor;
+        if (!key.equals(latentShaderKey) || latentShaders[0] == null) {
+            latentShaderKey = key;
+            latentShaders[0] = new RadialGradient(0, 0, Math.max(width, height) * 0.6f,
+                    new int[]{withAlpha(blend(ember, Color.WHITE, 0.1f), 0.85f * alpha),
+                            withAlpha(ember, 0.44f * alpha), withAlpha(ember, 0.12f * alpha),
+                            Color.TRANSPARENT},
+                    new float[]{0f, 0.4f, 0.72f, 1f}, Shader.TileMode.CLAMP);
+            // The reference smear runs from the upper middle toward the right edge.
+            latentShaders[1] = new LinearGradient(width * 0.3f, -height * 0.1f, width * 1.05f, height * 0.5f,
+                    new int[]{Color.TRANSPARENT, withAlpha(blend(ember, Color.WHITE, 0.12f), 0.32f * alpha),
+                            Color.TRANSPARENT},
+                    new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP);
+            latentShaders[2] = new RadialGradient(width * 0.9f, height * 0.95f, Math.max(width, height) * 0.5f,
+                    new int[]{withAlpha(0xFF4E5A85, 0.28f * alpha), Color.TRANSPARENT},
+                    new float[]{0f, 1f}, Shader.TileMode.CLAMP);
+            latentShaders[3] = new RadialGradient(width * 0.05f, height * 0.88f, Math.max(width, height) * 0.78f,
+                    new int[]{withAlpha(dusk, 0.72f * alpha), withAlpha(dusk, 0.28f * alpha),
+                            Color.TRANSPARENT},
+                    new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
+            latentShaders[4] = new RadialGradient(width * 0.94f, height * 0.45f, Math.max(width, height) * 0.46f,
+                    new int[]{withAlpha(blend(ember, dusk, 0.5f), 0.26f * alpha), Color.TRANSPARENT},
+                    new float[]{0f, 1f}, Shader.TileMode.CLAMP);
+            // Cool rim from the top-right keeps the field from reading as pure orange.
+            latentShaders[5] = new LinearGradient(width, 0, 0, height,
+                    new int[]{withAlpha(0xFF6D7EAE, 0.18f * alpha), Color.TRANSPARENT},
+                    new float[]{0f, 0.7f}, Shader.TileMode.CLAMP);
+        }
+        matrix.setTranslate(cx, cy);
+        latentShaders[0].setLocalMatrix(matrix);
+        for (Shader shader : latentShaders) {
+            fill.setShader(shader);
+            canvas.drawRect(0, 0, width, height, fill);
+        }
         fill.setShader(null);
         drawDither(canvas, width, height, alpha * 0.42f);
         // Upstream default overlay: 35% theme background over both shader layers.
@@ -303,9 +316,9 @@ final class FoliaOriginalBackgroundRenderer {
         bitmap.setColorFilter(null);
         matrix.reset();
         matrix.setScale(2.4f, 2.4f);
-        BitmapShader shader = new BitmapShader(ditherTile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
-        shader.setLocalMatrix(matrix);
-        fill.setShader(shader);
+        if (ditherShader == null) ditherShader = new BitmapShader(ditherTile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
+        ditherShader.setLocalMatrix(matrix);
+        fill.setShader(ditherShader);
         fill.setAlpha(Math.round(Math.max(0f, Math.min(1f, alpha)) * 255));
         canvas.drawRect(0, 0, width, height, fill);
         fill.setShader(null);
@@ -414,7 +427,7 @@ final class FoliaOriginalBackgroundRenderer {
                 && monetBitmap.getWidth() == pw && monetBitmap.getHeight() == ph) {
             return monetBitmap;
         }
-        recycle(monetBitmap);
+
         Bitmap base = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888);
         Canvas poster = new Canvas(base);
         poster.drawColor(THEME_BACKGROUND);
@@ -528,7 +541,7 @@ final class FoliaOriginalBackgroundRenderer {
                 && nomandBitmap.getWidth() == cols && nomandBitmap.getHeight() == rows) {
             return nomandBitmap;
         }
-        recycle(nomandBitmap);
+
         int[] sampled = new int[cols * rows];
         if (cachedCover != null && !cachedCover.isRecycled()) {
             Bitmap sample = Bitmap.createBitmap(cols, rows, Bitmap.Config.ARGB_8888);
@@ -603,9 +616,15 @@ final class FoliaOriginalBackgroundRenderer {
     // ---------------------------------------------------------------- shared
 
     private void drawVignette(Canvas canvas, float width, float height, float alpha) {
-        fill.setShader(new RadialGradient(width / 2, height / 2, Math.max(width, height) * 0.75f,
+        String key = width + ":" + height + ":" + alpha;
+        Shader shader = vignettes.get(key);
+        if (shader == null) {
+            shader = new RadialGradient(width / 2, height / 2, Math.max(width, height) * 0.75f,
                 new int[]{Color.TRANSPARENT, Color.TRANSPARENT, withAlpha(Color.BLACK, alpha)},
-                new float[]{0f, 0.4f, 1f}, Shader.TileMode.CLAMP));
+                new float[]{0f, 0.4f, 1f}, Shader.TileMode.CLAMP);
+            vignettes.put(key, shader);
+        }
+        fill.setShader(shader);
         canvas.drawRect(0, 0, width, height, fill);
         fill.setShader(null);
     }

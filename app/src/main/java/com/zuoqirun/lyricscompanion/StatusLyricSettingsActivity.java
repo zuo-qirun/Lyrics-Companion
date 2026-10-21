@@ -142,6 +142,11 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         addCard(root, effects);
 
         LinearLayout background = card("背景样式");
+        addChoice(background, "顶部条配色环境", new String[]{"跟随应用 / 系统昼夜", "浅色背景（固定深色歌词）", "深色背景（固定浅色歌词）"},
+                new String[]{"auto", "light", "dark"}, AppPreferences.KEY_TOP_LYRIC_COLOR_ENVIRONMENT, "auto");
+        TextView colorEnvironmentNote = text("系统昼夜模式与桌面状态栏图标颜色可能不同。动态壁纸或地图下看不清时，可在这里单独指定顶部条配色环境；应用无法读取其他窗口的实际图标颜色。", 12, 0xFF8392A8, false);
+        colorEnvironmentNote.setPadding(0, dp(8), 0, dp(8));
+        background.addView(colorEnvironmentNote);
         addBackgroundChoice(background);
         TextView backgroundNote = text("毛玻璃需要系统支持跨窗口模糊，不支持时降级为浅色半透明。", 12,
                 0xFF8392A8, false);

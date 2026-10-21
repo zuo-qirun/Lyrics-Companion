@@ -12,11 +12,16 @@ public final class SettingsFixtureActivity extends Activity {
         int slot = Math.max(0, getIntent().getIntExtra("slot", 0));
         boolean secondary = slot > 0;
         Context scoped = slot >= 2 ? new DisplaySlotContext(this, slot) : this;
+        if (getIntent().hasExtra("uiScale")) {
+            AppPreferences.setSettingsUiScale(this, getIntent().getIntExtra("uiScale", 100));
+        }
         if (getIntent().hasExtra("style")) {
             AppPreferences.setOverlayStyle(scoped, secondary, getIntent().getStringExtra("style"));
         }
         String page = getIntent().getStringExtra("page");
-        Class<?> target = "colors".equals(page) ? ColorSettingsActivity.class
+        Class<?> target = "main".equals(page) ? MainActivity.class
+                : "status".equals(page) ? StatusLyricSettingsActivity.class
+                : "colors".equals(page) ? ColorSettingsActivity.class
                 : "refined".equals(page) ? RefinedSettingsActivity.class
                 : "compact".equals(page) ? CompactSettingsActivity.class
                 : "quick".equals(page) ? QuickDisplaySettingsActivity.class : DisplaySettingsActivity.class;

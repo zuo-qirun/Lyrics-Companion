@@ -206,6 +206,7 @@ final class CrashReporter {
                 + "\ncustomFont=" + !AppPreferences.customFontFile(context).isEmpty()
                 + "\nnotificationLyrics=" + AppPreferences.notificationLyrics(context)
                 + "\ntopLyricStrip=" + AppPreferences.topLyricStrip(context)
+                + "\nlaunchOverlayOnIcon=" + AppPreferences.launchOverlayOnIcon(context)
                 + "\nlockscreenLyrics=" + AppPreferences.lockscreenLyrics(context);
     }
 

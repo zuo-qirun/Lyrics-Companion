@@ -31,6 +31,18 @@ import java.util.Locale;
 
 /** Canvas renderer shared by the preview, the phone overlay and the secondary display. */
 final class LyricsPanelView extends View {
+    private static final java.util.Set<LyricsPanelView> ATTACHED_PANELS = java.util.Collections.newSetFromMap(
+            new java.util.WeakHashMap<LyricsPanelView, Boolean>());
+
+    static void trimRenderMemory() {
+        for (LyricsPanelView panel : new java.util.ArrayList<>(ATTACHED_PANELS)) {
+            panel.foliaRenderer.clear();
+            if (panel.foliaOriginalRenderer != null) panel.foliaOriginalRenderer.clear();
+            panel.blurredLineCache.evictAll();
+            panel.clearTextCaches();
+            panel.invalidate();
+        }
+    }
     private static final Typeface SANS_NORMAL = Typeface.create("sans", Typeface.NORMAL);
     private static final Typeface SANS_BOLD = Typeface.create("sans", Typeface.BOLD);
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG
@@ -270,6 +282,7 @@ final class LyricsPanelView extends View {
     private Bitmap blurSource;
     private Bitmap blurPreview;
     private Bitmap paletteSource;
+    private int backgroundCoverAverage = 0xFF1A2130;
     private int[] palette = new int[]{0xFF62798A, 0xFF33495C, 0xFF8A6D72,
             0xFF1C2933, 0xFF9BAEB8, 0xFF536A77};
     private boolean secondary;
@@ -644,7 +657,8 @@ final class LyricsPanelView extends View {
         frameAlbumArtMissing = snapshot.albumArt == null || snapshot.albumArt.isRecycled();
         updateMatchingState(snapshot, now);
         refreshScheduledTheme(now);
-        if (currentLyricArtwork || inactiveLyricArtwork || "island".equals(overlayStyle)) {
+        if (currentLyricArtwork || inactiveLyricArtwork || "island".equals(overlayStyle)
+                || FoliaModeCatalog.isOriginalStyle(overlayStyle)) {
             updatePalette(snapshot.albumArt);
             updateCoverLyricColors();
         }
@@ -691,7 +705,8 @@ final class LyricsPanelView extends View {
                 if (FoliaModeCatalog.isOriginalStyle(overlayStyle) && foliaOriginalRenderer != null) {
                     foliaOriginalRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
                             lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
-                            inactiveLyricColor(0xFFB9BBC5));
+                            inactiveLyricColor(0xFFB9BBC5), 0xFFF5F8FF,
+                            refinedAccentColor(), 0xFFB9BBC5);
                 } else {
                     foliaRenderer.draw(canvas, snapshot, snapshot.positionMs + lyricOffsetMs, now, density,
                             lyricColor(0xFFF5F8FF), currentLyricColor(refinedAccentColor()),
@@ -3611,6 +3626,8 @@ final class LyricsPanelView extends View {
     }
 
     private int lyricColor(int fallback) {
+        int topOverride = topLyricOverrideColor();
+        if (topOverride != 0) return withAlpha(topOverride, Color.alpha(fallback));
         int selected = lyricColor;
         if (lyricsFollowTheme) {
             selected = lyricEnvironmentUsesLightColors() ? lyricLightColor : lyricDarkColor;
@@ -3627,12 +3644,16 @@ final class LyricsPanelView extends View {
     }
 
     private int currentLyricColor(int fallback) {
+        int topOverride = topLyricOverrideColor();
+        if (topOverride != 0) return withAlpha(topOverride, Color.alpha(fallback));
         if (currentLyricRandom || currentLyricArtwork && !frameAlbumArtMissing) return artworkSlotColor(true, fallback);
         return slotLyricColor(currentLyricColor, currentLyricLightColor,
                 currentLyricDarkColor, fallback);
     }
 
     private int inactiveLyricColor(int fallback) {
+        int topOverride = topLyricOverrideColor();
+        if (topOverride != 0) return withAlpha(topOverride, Color.alpha(fallback));
         if (inactiveLyricRandom || inactiveLyricArtwork && !frameAlbumArtMissing) return artworkSlotColor(false, fallback);
         return slotLyricColor(inactiveLyricColor, inactiveLyricLightColor,
                 inactiveLyricDarkColor, fallback);
@@ -3862,6 +3883,8 @@ final class LyricsPanelView extends View {
 
     /** Explicit compact colors stay solid; automatic colors retain the original alpha contrast. */
     private int compactSlotColor(boolean active, int fallback) {
+        int topOverride = topLyricOverrideColor();
+        if (topOverride != 0) return topOverride;
         if (!frameAlbumArtMissing && (active ? currentLyricArtwork : inactiveLyricArtwork)) {
             return active ? coverLyricCurrent : coverLyricInactive;
         }
@@ -4202,10 +4225,24 @@ final class LyricsPanelView extends View {
 
     private boolean lyricEnvironmentUsesLightColors() {
         if (!compactTextOnly) return refinedUsesLightColors();
+        String environment = AppPreferences.get(getContext()).getString(
+                AppPreferences.KEY_TOP_LYRIC_COLOR_ENVIRONMENT, "auto");
+        if ("light".equals(environment)) return true;
+        if ("dark".equals(environment)) return false;
         if ("light".equals(themeMode)) return true;
         if ("dark".equals(themeMode)) return false;
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return mode != Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private int topLyricOverrideColor() {
+        return compactTextOnly ? topLyricOverrideColor(AppPreferences.get(getContext()).getString(
+                AppPreferences.KEY_TOP_LYRIC_COLOR_ENVIRONMENT, "auto")) : 0;
+    }
+
+    static int topLyricOverrideColor(String environment) {
+        return "light".equals(environment) ? 0xFF101A29
+                : "dark".equals(environment) ? 0xFFF3F7FC : 0;
     }
 
     private int refinedAccentColor() {
@@ -4227,6 +4264,7 @@ final class LyricsPanelView extends View {
         if (art == paletteSource) return;
         paletteSource = art;
         if (art == null || art.isRecycled()) return;
+        backgroundCoverAverage = rawAverageRegion(art, 0, 0, 1, 1);
         int[] result = new int[6];
         for (int index = 0; index < result.length; index++) {
             int column = index % 3;
@@ -4248,6 +4286,16 @@ final class LyricsPanelView extends View {
 
     private static int averageRegion(Bitmap bitmap, float left, float top,
                                      float right, float bottom) {
+        int color = rawAverageRegion(bitmap, left, top, right, bottom);
+        float[] hsv = new float[3];
+        Color.colorToHSV(color, hsv);
+        hsv[1] = Math.max(0.30f, Math.min(0.80f, hsv[1]));
+        hsv[2] = Math.max(0.42f, Math.min(0.84f, hsv[2]));
+        return Color.HSVToColor(hsv);
+    }
+
+    private static int rawAverageRegion(Bitmap bitmap, float left, float top,
+                                       float right, float bottom) {
         long red = 0L, green = 0L, blue = 0L, count = 0L;
         for (int yIndex = 0; yIndex < 6; yIndex++) {
             int y = Math.min(bitmap.getHeight() - 1, Math.max(0,
@@ -4266,13 +4314,8 @@ final class LyricsPanelView extends View {
             }
         }
         if (count == 0L) return 0xFF6F7E89;
-        int color = Color.rgb((int) (red / count), (int) (green / count),
+        return Color.rgb((int) (red / count), (int) (green / count),
                 (int) (blue / count));
-        float[] hsv = new float[3];
-        Color.colorToHSV(color, hsv);
-        hsv[1] = Math.max(0.30f, Math.min(0.80f, hsv[1]));
-        hsv[2] = Math.max(0.42f, Math.min(0.84f, hsv[2]));
-        return Color.HSVToColor(hsv);
     }
 
     private static float saturation(int color) {
@@ -4855,7 +4898,13 @@ final class LyricsPanelView extends View {
         }
     }
 
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        ATTACHED_PANELS.add(this);
+    }
+
     @Override protected void onDetachedFromWindow() {
+        ATTACHED_PANELS.remove(this);
         foliaRenderer.clear();
         if (foliaOriginalRenderer != null) foliaOriginalRenderer.clear();
         // 排给动态背景的 vsync 回调必须撤掉，否则视图已经不在窗口上还会被唤醒一次。
@@ -5479,10 +5528,41 @@ final class LyricsPanelView extends View {
 
     private int lyricContrastBackground() {
         int background = configuredBackgroundColor();
+        int brightness = ArtworkBackgroundMath.normalizeBrightness(styleBrightnessPercent);
+        int coverBackground = brightness >= 0
+                ? mix(backgroundCoverAverage, Color.WHITE, brightness / 100f)
+                : mix(backgroundCoverAverage, Color.BLACK, -brightness / 100f);
         if ("island".equals(overlayStyle) && "artwork".equals(islandBackground)) {
             background = mix(palette[0], Color.BLACK, 0.55f);
+        } else if ("amll".equals(overlayStyle)) {
+            if (background == 0 && !frameAlbumArtMissing) background = coverBackground;
+            if (background == 0) background = mix(palette[0], Color.BLACK, 0.76f);
+            int dim = ArtworkBackgroundMath.amllMaskAlpha(backgroundDim, styleMaskMode);
+            background = mix(background, Color.BLACK, dim / 255f);
+        } else {
+            boolean light = refinedUsesLightColors();
+            String type = refinedBackgroundType == null ? "blur" : refinedBackgroundType;
+            if ("cover_fade".equals(type)) {
+                // The cover also extends into a faded gradient; retain an opposite outline below.
+                background = !frameAlbumArtMissing ? coverBackground
+                        : light ? 0xFFF3F7FC : 0xFF1A2130;
+            } else if (background == 0) {
+                if ("starfield".equals(type)) background = 0xFF060A14;
+                else if ("solid".equals(type) || "fluid".equals(type)) {
+                    background = mix(refinedAccentColor(), light ? Color.WHITE : Color.BLACK,
+                            "solid".equals(type) ? light ? .78f : .72f : .62f);
+                } else if (!frameAlbumArtMissing && !"none".equals(type)) {
+                    background = "gradient".equals(type) ? palette[0] : coverBackground;
+                }
+            }
+            if (background != 0) background = mix(background, light ? Color.WHITE : Color.BLACK,
+                    ArtworkBackgroundMath.refinedMaskAlpha(backgroundDim, styleMaskMode) / 255f);
         }
         if (background == 0) background = lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF1A2130;
+        // Transparent windows reveal arbitrary external content. We cannot sample another app;
+        // use the selected environment as a base, keeping the automatic contrasting stroke.
+        if (!fullscreen) background = mix(lyricEnvironmentUsesLightColors() ? 0xFFF3F7FC : 0xFF1A2130,
+                background, Math.max(0, Math.min(100, opacity)) / 100f);
         return background;
     }
 

@@ -52,13 +52,7 @@ final class FoliaOriginalCanvasRenderer {
     private final LruCache<Integer, PorterDuffColorFilter> colors = new LruCache<>(512);
     private final LruCache<String, PreparedLine> lines = new LruCache<>(24);
     private final LruCache<Integer, FoliaCameraMotion.Spring> chatPositions = new LruCache<>(32);
-    private final LruCache<String, Bitmap> masks = new LruCache<String, Bitmap>(8 * 1024 * 1024) {
-        @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
-
-        @Override protected void entryRemoved(boolean evicted, String key, Bitmap oldValue, Bitmap newValue) {
-            if (oldValue != null && oldValue != newValue && !oldValue.isRecycled()) oldValue.recycle();
-        }
-    };
+    private final RenderBufferCache<Bitmap> masks = new RenderBufferCache<>(8 * 1024 * 1024, false);
     private FoliaArticleLayout.Block[] articleBlocks;
     private FoliaArticleLayout.Article articleArticle;
     private FoliaFumeBackground.Scene articleBackground;
@@ -215,13 +209,15 @@ final class FoliaOriginalCanvasRenderer {
 
     void clear() {
         articleBlocks = null;
+        articleArticle = null;
+        articleBackground = null;
+        chatSides = new boolean[0];
+        chatSenders = new int[0];
         chatPositions.evictAll();
         lines.evictAll();
         masks.evictAll();
         colors.evictAll();
-        for (Bitmap emo : emos.values()) {
-            if (emo != null && !emo.isRecycled()) emo.recycle();
-        }
+        // Recorded hardware frames can still own these images after the renderer releases them.
         emos.clear();
         gpuText.clear();
         sourceLines = Collections.emptyList();
@@ -262,6 +258,13 @@ final class FoliaOriginalCanvasRenderer {
 
     void draw(Canvas canvas, MusicSnapshot snapshot, long lyricTime, long clock,
               float density, int primary, int accent, int muted) {
+        draw(canvas, snapshot, lyricTime, clock, density, primary, accent, muted,
+                0xFFF5F8FF, 0xFF8FAADC, 0xFFB9BBC5);
+    }
+
+    void draw(Canvas canvas, MusicSnapshot snapshot, long lyricTime, long clock,
+              float density, int primary, int accent, int muted,
+              int backgroundPrimary, int backgroundAccent, int backgroundMuted) {
         // Shader opacity must not inherit the previous frame's last decorative colour alpha.
         shape.setShader(null);
         shape.setColorFilter(null);
@@ -338,7 +341,7 @@ final class FoliaOriginalCanvasRenderer {
         clockworkMotion.step(dt / 1000.0, targetBass, !playing, strength);
         long probeStart = debugMemory ? Debug.getNativeHeapAllocatedSize() : 0L;
         background.draw(canvas, width, height, time, backgroundMode, snapshot.albumArt,
-                primary, accent, muted, backgroundOpacity);
+                backgroundPrimary, backgroundAccent, backgroundMuted, backgroundOpacity);
         long probeAfterBackground = debugMemory ? Debug.getNativeHeapAllocatedSize() : 0L;
         if (sourceLines.isEmpty()) {
             label(canvas, snapshot.lyrics.lyric.isEmpty() ? snapshot.active ? "正在匹配歌词" : "等待播放"
@@ -585,7 +588,7 @@ final class FoliaOriginalCanvasRenderer {
     }
 
     private void drawSoftMask(Canvas canvas, PreparedLine line, int index, int color, float opacity, float blur, int layer) {
-        // 统一走 CPU 遮罩位图：缓存有界（2MiB/面板）且淘汰时立即 recycle。
+        // 统一走 CPU 遮罩位图；缓存有界，淘汰只释放引用，避免回收仍在绘制的字形。
         // API 31 的 RenderNode/RenderEffect 路径会按「字色 × 模糊半径」新建原生对象与 GPU 纹理，
         // 而 GC 不会因原生压力及时触发，连续播放时原生堆 / GL / Ashmem 会单调增长（实测约 25MB/分钟，
         // 内存反馈即来源于此）。位图路径在硬件画布上同样由 GPU 合成，观感与本机软件截图一致。
@@ -616,7 +619,7 @@ final class FoliaOriginalCanvasRenderer {
             raster.setMaskFilter(radius == 0 ? null : new BlurMaskFilter(radius, BlurMaskFilter.Blur.NORMAL));
             offscreen.drawText(line.timeline.glyphs[index], w / 2f, pad - metrics.top, raster);
             raster.setMaskFilter(null);
-            masks.put(key, mask);
+            masks.put(key, mask, mask.getByteCount());
             masks.trimToSize(ResourceProfile.maskCacheBytes(lowResourceMode));
         }
         // 逐帧变化的半透明字色会产生大量一次性 PorterDuffColorFilter（Skia 原生对象）。

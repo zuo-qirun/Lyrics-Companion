@@ -324,6 +324,11 @@ final class MultiSourceLyricClient {
                 default:
                     return Result.EMPTY;
             }
+            if (!timeline.isEmpty() && !CatalogLyricQuality.usable(timeline)) {
+                DiagnosticLog.record(appContext, "Lyrics", "provider=" + provider
+                        + " result=rejected_sparse_or_placeholder lines=" + timeline.lineCount());
+                return Result.EMPTY;
+            }
             if (!timeline.isEmpty()) {
                 Log.i(TAG, "Lyric matched from " + label + ": " + title + " / " + artist);
                 DiagnosticLog.record(appContext, "Lyrics", "provider=" + provider

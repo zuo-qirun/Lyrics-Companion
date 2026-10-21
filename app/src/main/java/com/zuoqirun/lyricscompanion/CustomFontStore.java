@@ -11,6 +11,8 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.LinearLayout;
+import android.widget.Button;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -128,14 +130,50 @@ final class CustomFontStore {
 
     /** Applies the selected typeface to ordinary Android text widgets in each settings screen. */
     static void applyToViewTree(Context context, View view) {
-        Typeface typeface = load(context);
         if (view == null) return;
+        applyToViewTree(context, view, load(context), AppPreferences.settingsUiScale(context));
+    }
+
+    private static void applyToViewTree(Context context, View view, Typeface typeface, int uiScale) {
+        Object applied = view.getTag(R.id.settings_ui_scale_applied);
+        int previousScale = applied instanceof Integer ? (Integer) applied : 100;
+        float ratio = uiScale / (float) previousScale;
+        if (ratio != 1f) {
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            if (params != null) {
+                if (params.width > 0) params.width = Math.round(params.width * ratio);
+                if (params.height > 0) params.height = Math.round(params.height * ratio);
+                if (params instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams) params;
+                    margins.leftMargin = Math.round(margins.leftMargin * ratio);
+                    margins.rightMargin = Math.round(margins.rightMargin * ratio);
+                    margins.topMargin = Math.round(margins.topMargin * ratio);
+                    margins.bottomMargin = Math.round(margins.bottomMargin * ratio);
+                }
+                view.setLayoutParams(params);
+            }
+            view.setPadding(Math.round(view.getPaddingLeft() * ratio), Math.round(view.getPaddingTop() * ratio),
+                    Math.round(view.getPaddingRight() * ratio), Math.round(view.getPaddingBottom() * ratio));
+            view.setMinimumHeight(Math.round(view.getMinimumHeight() * ratio));
+            view.setMinimumWidth(Math.round(view.getMinimumWidth() * ratio));
+        }
+        view.setTag(R.id.settings_ui_scale_applied, uiScale);
         if (view instanceof TextView) {
             TextView textView = (TextView) view;
-            int uiScale = AppPreferences.settingsUiScale(context);
-            if (uiScale != 100) {
-                textView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
-                        textView.getTextSize() * uiScale / 100f);
+            if (ratio != 1f) {
+                textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, textView.getTextSize() * ratio);
+                if (textView.getMinHeight() >= 0) textView.setMinHeight(Math.round(textView.getMinHeight() * ratio));
+                if (textView.getMinWidth() >= 0) textView.setMinWidth(Math.round(textView.getMinWidth() * ratio));
+            }
+            if (uiScale > 100 && textView instanceof Button) {
+                textView.setSingleLine(false);
+                textView.setEllipsize(null);
+                ViewGroup.LayoutParams params = textView.getLayoutParams();
+                if (params != null && params.height > 0) {
+                    textView.setMinHeight(Math.max(textView.getMinHeight(), params.height));
+                    params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                    textView.setLayoutParams(params);
+                }
             }
             if (typeface != null) {
                 Typeface existing = textView.getTypeface();
@@ -148,8 +186,24 @@ final class CustomFontStore {
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
+            if (uiScale > 100 && group instanceof LinearLayout
+                    && ((LinearLayout) group).getOrientation() == LinearLayout.HORIZONTAL
+                    && group.getId() != R.id.main_navigation && group.getChildCount() > 1) {
+                boolean buttonsOnly = true;
+                for (int i = 0; i < group.getChildCount(); i++) buttonsOnly &= group.getChildAt(i) instanceof Button;
+                if (buttonsOnly) {
+                    ((LinearLayout) group).setOrientation(LinearLayout.VERTICAL);
+                    for (int i = 0; i < group.getChildCount(); i++) {
+                        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) group.getChildAt(i).getLayoutParams();
+                        params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                        params.weight = 0;
+                    }
+                    ViewGroup.LayoutParams params = group.getLayoutParams();
+                    if (params != null) params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                }
+            }
             for (int i = 0; i < group.getChildCount(); i++) {
-                applyToViewTree(context, group.getChildAt(i));
+                applyToViewTree(context, group.getChildAt(i), typeface, uiScale);
             }
         }
     }

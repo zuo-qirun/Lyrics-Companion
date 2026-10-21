@@ -7,9 +7,9 @@ import androidx.multidex.MultiDexApplication;
 public final class LyricsCompanionApp extends MultiDexApplication {
     @Override public void onCreate() {
         super.onCreate();
+        CrashReporter.install(this);
         // 按时间段的配色在启动时就要落地（issue #34），否则设置页会停在系统主题上。
         applyMaterialTheme(AppPreferences.resolvedThemeMode(this));
-        CrashReporter.install(this);
         DiagnosticLog.record(this, "Application", "process started");
         DynamicColors.applyToActivitiesIfAvailable(this);
         if (AppPreferences.get(this).getBoolean(AppPreferences.KEY_DIAGNOSTIC_UPLOAD_ENABLED, false)) {
@@ -29,14 +29,25 @@ public final class LyricsCompanionApp extends MultiDexApplication {
     }
 
     @Override public void onLowMemory() {
+        recordMemoryPressure("low", -1);
         AlbumArtLoader.clearMemoryCache();
+        LyricsPanelView.trimRenderMemory();
         super.onLowMemory();
     }
 
     @Override public void onTrimMemory(int level) {
-        if (level >= TRIM_MEMORY_BACKGROUND && level != TRIM_MEMORY_UI_HIDDEN) {
+        recordMemoryPressure("trim", level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW && level != TRIM_MEMORY_UI_HIDDEN) {
             AlbumArtLoader.clearMemoryCache();
+            LyricsPanelView.trimRenderMemory();
         }
         super.onTrimMemory(level);
+    }
+
+    private void recordMemoryPressure(String event, int level) {
+        Runtime runtime = Runtime.getRuntime();
+        DiagnosticLog.record(this, "Memory", event + " level=" + level
+                + " javaBytes=" + (runtime.totalMemory() - runtime.freeMemory())
+                + " nativeBytes=" + android.os.Debug.getNativeHeapAllocatedSize());
     }
 }

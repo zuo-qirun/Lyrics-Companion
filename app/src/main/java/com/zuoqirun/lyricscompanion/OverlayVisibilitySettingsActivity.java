@@ -316,13 +316,32 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         toggle.setPadding(0, dp(6), 0, 0);
         toggle.setChecked(AppPreferences.appRuleWhitelist(this, secondary));
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.setAppRuleWhitelist(this, secondary, checked);
-            AppPreferences.changed(this);
-            refreshHiddenAppsSummary();
-            if (checked && !ForegroundAppDetector.hasUsageAccess(this)) {
-                SafeToast.show(this, "白名单需要「使用情况访问」权限：未授权时它不会生效，"
-                        + "请到首页“使用权限”里授予", Toast.LENGTH_LONG);
+            if (checked == AppPreferences.appRuleWhitelist(this, secondary)) return;
+            Runnable apply = () -> {
+                AppPreferences.setAppRuleWhitelist(this, secondary, checked);
+                AppPreferences.changed(this);
+                refreshHiddenAppsSummary();
+                if (checked && !ForegroundAppDetector.hasUsageAccess(this)) {
+                    SafeToast.show(this, "白名单需要「使用情况访问」权限：未授权时它不会生效，"
+                            + "请到首页“使用权限”里授予", Toast.LENGTH_LONG);
+                }
+            };
+            if (AppPreferences.hiddenOverlayApps(this).isEmpty()) {
+                apply.run();
+                return;
             }
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(checked ? "切换为白名单" : "切换为黑名单")
+                    .setMessage(checked ? "名单将变为「只在这些应用显示」。名单由主副屏共用，清空也会影响另一屏。"
+                            : "名单将变为「在这些应用隐藏」；如果包含桌面，桌面歌词会隐藏。名单由主副屏共用，清空也会影响另一屏。")
+                    .setPositiveButton("保留名单并切换", (dialog, which) -> apply.run())
+                    .setNeutralButton("清空名单并切换", (dialog, which) -> {
+                        AppPreferences.setHiddenOverlayApps(this, Collections.emptySet());
+                        apply.run();
+                    })
+                    .setNegativeButton("取消", (dialog, which) -> toggle.setChecked(!checked))
+                    .setOnCancelListener(dialog -> toggle.setChecked(!checked))
+                    .show();
         });
         parent.addView(toggle);
     }

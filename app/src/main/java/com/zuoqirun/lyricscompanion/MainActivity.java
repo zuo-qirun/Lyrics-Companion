@@ -193,12 +193,17 @@ public final class MainActivity extends AppCompatActivity {
             pendingFontDirectory = savedInstanceState.getString("pending_font_directory", "");
         }
         boolean launcherIntent = isLauncherIntent();
+        DiagnosticLog.record(this, "MainActivity", "create launcher=" + launcherIntent
+                + " restore=" + (savedInstanceState != null)
+                + " iconOverlay=" + AppPreferences.launchOverlayOnIcon(this));
         if (launcherIntent) {
             AppPreferences.get(this).edit().remove("launch_overlay_target").apply();
             AppPreferences.setServiceStoppedByUser(this, false);
         }
         if (launcherIntent && dispatchLauncherOverlay()) {
             launcherDispatch = true;
+            DiagnosticLog.record(this, "MainActivity", "finish reason=launcher_overlay_dispatch");
+            SafeToast.show(this, "已恢复悬浮歌词；30 秒内再点图标进入设置", Toast.LENGTH_LONG);
             finish();
             return;
         }
@@ -207,7 +212,7 @@ public final class MainActivity extends AppCompatActivity {
             getWindow().setNavigationBarColor(0xFF07111F);
         }
         setContentView(buildContent());
-        CustomFontStore.applyToViewTree(this, getWindow().getDecorView());
+        CustomFontStore.applyToViewTree(this, findViewById(android.R.id.content));
         MusicStateStore.initialize(this);
         handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
         handler.postDelayed(() -> checkForUpdates(false), 2_000L);
@@ -225,6 +230,7 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        DiagnosticLog.record(this, "MainActivity", "resume dispatch=" + launcherDispatch);
         if (launcherDispatch) return;
         activityResumed = true;
         ensureNotificationListenerConnected();
@@ -244,6 +250,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     @Override protected void onPause() {
+        DiagnosticLog.record(this, "MainActivity", "pause finishing=" + isFinishing());
         if (launcherDispatch) {
             super.onPause();
             return;
@@ -255,6 +262,14 @@ public final class MainActivity extends AppCompatActivity {
         handler.removeCallbacks(communityRefresh);
         if (!stoppingAndExiting) LyricsDisplayService.setSettingsVisible(this, false);
         super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        activityResumed = false;
+        handler.removeCallbacksAndMessages(null);
+        DiagnosticLog.record(this, "MainActivity", "destroy finishing=" + isFinishing()
+                + " changingConfiguration=" + isChangingConfigurations());
+        super.onDestroy();
     }
 
     private boolean isLauncherIntent() {
@@ -1599,10 +1614,17 @@ public final class MainActivity extends AppCompatActivity {
                 }
             }
         }
+        final int connectedCount = choices.size() - 1;
         ThemedSpinnerAdapter<DisplayChoice> adapter = new ThemedSpinnerAdapter<>(this, choices);
         bindingUi = true;
         displaySpinner.setAdapter(adapter);
         int selectedId = AppPreferences.displayId(this);
+        if (selectedId >= 0 && (manager == null || manager.getDisplay(selectedId) == null)) {
+            Display fallback = SecondaryDisplayResolver.resolve(manager, selectedId);
+            choices.add(new DisplayChoice(selectedId, "上次 ID " + selectedId + " 已离线 · "
+                    + (fallback == null ? "等待副屏连接" : "自动回退到 " + displayLabel(fallback))));
+            adapter.notifyDataSetChanged();
+        }
         int selection = 0;
         for (int i = 0; i < choices.size(); i++) {
             if (choices.get(i).id == selectedId) selection = i;
@@ -1613,15 +1635,17 @@ public final class MainActivity extends AppCompatActivity {
                                                  int position, long id) {
                 if (bindingUi) return;
                 DisplayChoice choice = choices.get(position);
+                if (AppPreferences.displayId(MainActivity.this) == choice.id) return;
                 AppPreferences.get(MainActivity.this).edit()
                         .putInt(AppPreferences.KEY_DISPLAY_ID, choice.id).apply();
                 AppPreferences.changed(MainActivity.this);
-                updateDisplayStatus(choices.size() - 1, choice);
+                updateDisplayStatus(connectedCount, choice);
+                refreshExtraDisplayChoices();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
         bindingUi = false;
-        updateDisplayStatus(choices.size() - 1, choices.get(selection));
+        updateDisplayStatus(connectedCount, choices.get(selection));
         refreshExtraDisplayChoices();
     }
 
@@ -1645,6 +1669,8 @@ public final class MainActivity extends AppCompatActivity {
                 new ArrayList<>(DisplaySlotRegistry.entries(this));
         List<Display> connected = new ArrayList<>();
         DisplayManager manager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        Display selectedSecondary = AppPreferences.secondaryEnabled(this)
+                ? SecondaryDisplayResolver.resolve(manager, AppPreferences.displayId(this)) : null;
         if (manager != null) {
             for (Display display : manager.getDisplays()) {
                 if (display == null || display.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
@@ -1657,6 +1683,7 @@ public final class MainActivity extends AppCompatActivity {
             // 每块屏解析一次；「已启用且已连接」的屏另外记一份快照，用来看两行是不是同一块
             // 物理屏（issue #23）。未连接的屏没有名字与分辨率，既不参与判断也不出提示。
             ExtraScreenOverlap overlap = new ExtraScreenOverlap();
+            if (selectedSecondary != null) overlap.remember(selectedSecondary);
             Display[] resolved = new Display[entries.size()];
             int[] panelIndex = new int[entries.size()];
             for (int index = 0; index < entries.size(); index++) {
@@ -1671,6 +1698,7 @@ public final class MainActivity extends AppCompatActivity {
                         overlap.hint(panelIndex[index], resolved[index]));
             }
             for (Display display : connected) {
+                if (selectedSecondary != null && display.getDisplayId() == selectedSecondary.getDisplayId()) continue;
                 if (indexOfDisplay(entries, display) >= 0) continue;
                 addNewDisplayRow(extraDisplayHost, display, overlap.hint(-1, display));
             }
@@ -1705,6 +1733,9 @@ public final class MainActivity extends AppCompatActivity {
 
         refreshExtraStyleSelectors(entries);
         refreshJoystickTarget(entries);
+        for (View host : new View[]{extraDisplayHost, extraDisplayDirectoryHost, extraStyleHost, joystickTargetHost}) {
+            CustomFontStore.applyToViewTree(this, host);
+        }
     }
 
     /**
@@ -1923,6 +1954,17 @@ public final class MainActivity extends AppCompatActivity {
     private void setExtraDisplayEnabled(int index, Display display, boolean enabled) {
         List<DisplaySlotRegistry.Entry> entries =
                 new ArrayList<>(DisplaySlotRegistry.entries(this));
+        Display candidate = display != null ? display
+                : index >= 0 && index < entries.size() ? findConnectedDisplay(entries.get(index)) : null;
+        DisplayManager manager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        Display selectedSecondary = AppPreferences.secondaryEnabled(this)
+                ? SecondaryDisplayResolver.resolve(manager, AppPreferences.displayId(this)) : null;
+        if (enabled && candidate != null && selectedSecondary != null
+                && candidate.getDisplayId() == selectedSecondary.getDisplayId()) {
+            SafeToast.show(this, "此屏幕已作为副屏显示歌词，无需重复开启", Toast.LENGTH_LONG);
+            refreshExtraDisplayChoices();
+            return;
+        }
         if (index >= 0 && index < entries.size()) {
             entries.set(index, entries.get(index).withEnabled(enabled));
         } else if (enabled && display != null) {

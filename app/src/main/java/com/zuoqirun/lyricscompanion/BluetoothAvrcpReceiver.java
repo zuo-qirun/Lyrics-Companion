@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.BadParcelableException;
 import android.os.SystemClock;
 import android.text.TextUtils;
 
@@ -27,6 +28,18 @@ public final class BluetoothAvrcpReceiver extends BroadcastReceiver {
 
     @Override public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
+        try {
+            // Vendor broadcasts may contain parcelables absent from this APK (e.g. MediaCompat).
+            // keySet()/getIntExtra() can unparcel the whole bundle, before any per-key catch runs.
+            intent.setExtrasClassLoader(context.getClassLoader());
+            receive(context, intent);
+        } catch (BadParcelableException | ClassCastException error) {
+            DiagnosticLog.record(context, "AVRCP", "broadcast ignored action=" + intent.getAction()
+                    + " reason=" + error.getClass().getSimpleName());
+        }
+    }
+
+    private void receive(Context context, Intent intent) {
         if ("android.bluetooth.avrcp-controller.profile.action.CONNECTION_STATE_CHANGED"
                 .equals(intent.getAction()) && intent.getIntExtra(BluetoothProfile.EXTRA_STATE,
                 BluetoothProfile.STATE_CONNECTED) == BluetoothProfile.STATE_DISCONNECTED) {
@@ -35,6 +48,8 @@ public final class BluetoothAvrcpReceiver extends BroadcastReceiver {
         }
         if (!AppPreferences.avrcpEnabled(context)) return;
         Bundle extras = intent.getExtras();
+        // Fully validate lazy bundles before changing the remembered track or playback state.
+        if (extras != null) for (String key : extras.keySet()) extras.get(key);
         Object metadata = findObject(extras, "android.media.MediaMetadata");
         Object playback = findObject(extras, "android.media.session.PlaybackState");
         String nextTitle = metadata == null ? firstString(extras,

@@ -82,14 +82,8 @@ final class FoliaTemperaGpuInversion {
         private final float[][] alphaRing = new float[RING][];
         private final float[][] premulRing = new float[RING][];
         private final int[] ringTag = new int[RING];
-        private final android.util.LruCache<String, Bitmap> results =
-                new android.util.LruCache<String, Bitmap>(4 * 1024 * 1024) {
-                    @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
-
-                    @Override protected void entryRemoved(boolean evicted, String key, Bitmap oldValue, Bitmap newValue) {
-                        if (oldValue != null && oldValue != newValue && !oldValue.isRecycled()) oldValue.recycle();
-                    }
-                };
+        // RenderThread may still reference an evicted result. Only private scratch planes recycle.
+        private final RenderBufferCache<Bitmap> results = new RenderBufferCache<>(4 * 1024 * 1024, true);
 
         Cpu() { java.util.Arrays.fill(ringTag, Integer.MIN_VALUE); }
 
@@ -97,7 +91,8 @@ final class FoliaTemperaGpuInversion {
             Rect bounds = target.getClipBounds(); bounds.inset(-3, -3);
             int width = Math.max(1, bounds.width()), height = Math.max(1, bounds.height());
             int reservedWidth = (width + 63) / 64 * 64, reservedHeight = (height + 63) / 64 * 64;
-            boolean tooSmall = back == null || back.getWidth() < reservedWidth || back.getHeight() < reservedHeight;
+            boolean tooSmall = back == null || back.isRecycled() || front == null || front.isRecycled()
+                    || back.getWidth() < reservedWidth || back.getHeight() < reservedHeight;
             boolean oversized = back != null && (back.getWidth() > reservedWidth * 2 || back.getHeight() > reservedHeight * 2);
             if (tooSmall || oversized) {
                 if (back != null && !back.isRecycled()) back.recycle();
@@ -111,9 +106,10 @@ final class FoliaTemperaGpuInversion {
             artwork.draw(artCanvas); mask.draw(maskCanvas);
             float paperLum = luminance(paper), inkLum = luminance(ink);
             Bitmap result = results.get(instance);
-            if (result == null || result.isRecycled() || result.getWidth() < width || result.getHeight() < height) {
+            if (result == null || result.isRecycled() || result.getWidth() < width || result.getHeight() < height
+                    || result.getWidth() > reservedWidth * 2 || result.getHeight() > reservedHeight * 2) {
                 result = Bitmap.createBitmap(reservedWidth, reservedHeight, Bitmap.Config.ARGB_8888);
-                results.put(instance, result);
+                results.put(instance, result, result.getByteCount());
             }
             ensureRows(width);
             java.util.Arrays.fill(ringTag, Integer.MIN_VALUE);
@@ -190,6 +186,8 @@ final class FoliaTemperaGpuInversion {
             if (front != null && !front.isRecycled()) front.recycle();
             back = front = null;
             rowBack = rowFront = rowOut = rowScratch = new int[0];
+            java.util.Arrays.fill(alphaRing, null);
+            java.util.Arrays.fill(premulRing, null);
             java.util.Arrays.fill(ringTag, Integer.MIN_VALUE);
             results.evictAll();
         }

@@ -46,7 +46,7 @@ final class NetEaseLyricClient {
         long directId = parseSongId(mediaId);
         if (directId > 0L) {
             Result direct = loadById(directId);
-            if (!direct.timeline.isEmpty()) return direct;
+            if (CatalogLyricQuality.usable(direct.timeline)) return direct;
         }
         long searchedId = searchSong(title, artist, durationMs);
         if (searchedId <= 0L || searchedId == directId) {
@@ -60,7 +60,7 @@ final class NetEaseLyricClient {
         if (response != null) {
             try {
                 Result cached = parseLyrics(songId, response);
-                if (!cached.timeline.isEmpty()) return cached;
+                if (CatalogLyricQuality.usable(cached.timeline)) return cached;
             } catch (Exception ignored) {
                 // A corrupt or lyric-free old cache entry must not block a fresh request.
             }
@@ -68,7 +68,7 @@ final class NetEaseLyricClient {
         response = request("POST", LYRIC_URL,
                 NetEaseEapi.formBody(songId, LyricSourceRules.netEaseSigningPath()));
         Result result = parseLyrics(songId, response);
-        if (!result.timeline.isEmpty()) writeCache(songId, response);
+        if (CatalogLyricQuality.usable(result.timeline)) writeCache(songId, response);
         return result;
     }
 
