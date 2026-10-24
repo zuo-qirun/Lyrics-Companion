@@ -171,4 +171,67 @@ final class ForegroundAppDetector {
                     && type == UsageEvents.Event.ACTIVITY_RESUMED);
         }
     }
+
+    /**
+     * 「打开指定播放器时自动拉起歌词」（issue #152）的判定逻辑。纯计算，方便单测；服务只负责探测
+     * 前台、执行显示和写诊断。
+     *
+     * <p>限制：同一段前台只触发一次（用户手动关掉歌词后不会反复拉起）；每段前台至少间隔
+     * {@link #MIN_INTERVAL_MS} 才能再次自动拉起；歌词层已经显示时不重复拉起。</p>
+     */
+    static final class AutoLaunchGate {
+        /** 两次自动拉起之间的最小间隔，避免播放器反复切换前台时刷屏。 */
+        static final long MIN_INTERVAL_MS = 30_000L;
+
+        private String lastForegroundPackage = "";
+        private String lastTargetPackage = "";
+        private long lastTriggerElapsedMs = -1L;
+        private boolean triggeredForSession;
+
+        /**
+         * @param enabled            全局开关是否打开
+         * @param targetPackage      用户指定的播放器包名，空 = 未指定
+         * @param foregroundPackage  当前前台包名，空 = 读不到
+         * @param settingsVisible    设置页是否正显示
+         * @param lyricsLayerVisible 歌词层（任意屏幕 / 通知栏 / 频谱）是否已经显示
+         * @param nowElapsedMs       SystemClock.elapsedRealtime()
+         * @return 这一次轮询是否应该自动拉起歌词
+         */
+        boolean shouldTrigger(boolean enabled, String targetPackage, String foregroundPackage,
+                              boolean settingsVisible, boolean lyricsLayerVisible,
+                              long nowElapsedMs) {
+            String target = targetPackage == null ? "" : targetPackage;
+            String foreground = foregroundPackage == null ? "" : foregroundPackage;
+            if (!target.equals(lastTargetPackage)) {
+                lastTargetPackage = target;
+                triggeredForSession = false;
+                // 换了一个目标播放器视为一次新的用户意图，不受上一个播放器的最小间隔影响。
+                lastTriggerElapsedMs = -1L;
+            }
+            if (!enabled || target.isEmpty()) {
+                lastForegroundPackage = foreground;
+                triggeredForSession = false;
+                return false;
+            }
+            if (!foreground.equals(lastForegroundPackage)) {
+                // 刚切到新前台：先记住是谁，下一轮再判定，避免只在切换瞬间出现一次的前台误触发。
+                lastForegroundPackage = foreground;
+                triggeredForSession = false;
+                return false;
+            }
+            if (!foreground.equals(target) || settingsVisible) return false;
+            if (lyricsLayerVisible) {
+                // 歌词层已经由别的出口（或上一次自动拉起）显示：算作本段前台已经拉起过，用户手动
+                // 关掉后不会立刻再次自动弹出。
+                triggeredForSession = true;
+                return false;
+            }
+            if (triggeredForSession) return false;
+            if (lastTriggerElapsedMs >= 0L
+                    && nowElapsedMs - lastTriggerElapsedMs < MIN_INTERVAL_MS) return false;
+            triggeredForSession = true;
+            lastTriggerElapsedMs = nowElapsedMs;
+            return true;
+        }
+    }
 }

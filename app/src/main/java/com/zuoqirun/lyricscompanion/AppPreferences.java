@@ -308,6 +308,11 @@ final class AppPreferences {
     static final String KEY_LAST_FEEDBACK_ID = "last_feedback_id";
     static final String KEY_FEEDBACK_READ_REPLY_IDS = "feedback_read_reply_ids";
     static final String KEY_FAQ_CACHE = "faq_cache";
+    /**
+     * 网络直连：让词库等 HTTP 请求忽略系统代理（issue #153）。全局开关，默认关闭；
+     * 车机开着 VPN/代理导致在线歌词全部搜不到时才需要打开。
+     */
+    static final String KEY_NETWORK_DIRECT = "network_direct";
     static final String KEY_DIAGNOSTIC_UPLOAD_ENABLED = "diagnostic_upload_enabled";
     /** 更新通道：stable（正式版，默认）或 beta（测试版）。 */
     static final String KEY_UPDATE_CHANNEL = "update_channel";
@@ -340,6 +345,18 @@ final class AppPreferences {
 
     static boolean lowResourceMode(Context context) {
         return get(context).getBoolean(KEY_LOW_RESOURCE_MODE, false);
+    }
+
+    /** 网络直连是否开启（issue #153）；默认 false，即沿用系统代理。 */
+    static boolean networkDirect(Context context) {
+        return get(context).getBoolean(KEY_NETWORK_DIRECT, false);
+    }
+
+    /** 写入网络直连开关，并立刻把新策略落到本进程与正在显示的歌词。 */
+    static void setNetworkDirect(Context context, boolean value) {
+        get(context).edit().putBoolean(KEY_NETWORK_DIRECT, value).apply();
+        NetworkDirectPolicy.apply(value);
+        changed(context);
     }
 
     static boolean hideMatchingPlaceholder(Context context, boolean secondary) {
@@ -468,6 +485,28 @@ final class AppPreferences {
     static final String[] OVERLAY_STYLES = FoliaModeCatalog.append(new String[]{
             "default", "refined", "amll", "compact", "pip", "pure", "custom", "island"}, false);
 
+    // ---- 显示参数（issue #131 / #134 / #138 / #147 / #148 / #155）----
+    /** 当前句行位（issue #155）：{@code ""} 居中 / {@code "second"} 第二行 / {@code "top"} 顶部。 */
+    static final String KEY_LYRIC_ANCHOR = "lyric_anchor";
+    /** 行间距百分比（issue #138）：80–200，默认 100。 */
+    static final String KEY_LYRIC_LINE_SPACING = "lyric_line_spacing";
+    /** 等待 / 间奏是否保留上一句（issue #147），默认关。 */
+    static final String KEY_HOLD_PREVIOUS_LYRIC = "hold_previous_lyric";
+    /** 紧凑 / AMLL 封面与歌词上下排列（issue #134），默认左右排列。 */
+    static final String KEY_COVER_STACKED = "cover_stacked";
+    /** 上次套用的配色预设名（issue #131），空 = 没有套用。 */
+    static final String KEY_COLOR_PRESET = "color_preset";
+    /** 当前句歌词不透明度（issue #148）：0–100，默认 100。 */
+    static final String KEY_CURRENT_LYRIC_OPACITY = "current_lyric_opacity";
+
+    // ---- 全局行为开关（issue #152 / #154），不按屏、不按样式 ----
+    /** 打开指定播放器时自动拉起歌词（issue #152），默认关。 */
+    static final String KEY_AUTO_LAUNCH_PLAYER = "auto_launch_player";
+    /** 自动拉起对应的播放器包名（issue #152）。 */
+    static final String KEY_AUTO_LAUNCH_PACKAGE = "auto_launch_package";
+    /** 读取播放器自己的歌词缓存目录（issue #154），默认关。 */
+    static final String KEY_PLAYER_LYRIC_CACHE = "player_lyric_cache";
+
     /**
      * 这些"共用显示参数"按 <b>屏 × 样式</b> 两级保存（issue #39）：字号、颜色与描边、背景不透明度、
      * 歌词显示行数、粒子与逐字擦除、上一句 / 下一句的不透明度与字号、对齐与圆角、封面与匹配动画。
@@ -482,6 +521,8 @@ final class AppPreferences {
                     KEY_OPACITY, KEY_STYLE_COVER_SIZE, KEY_STYLE_BLUR, KEY_STYLE_DIM,
                     KEY_CORNER_RADIUS_PERCENT, KEY_LYRIC_ALIGN, KEY_CONTENT_ALIGN,
                     KEY_STYLE_LYRIC_LINES,
+                    KEY_LYRIC_ANCHOR, KEY_LYRIC_LINE_SPACING, KEY_HOLD_PREVIOUS_LYRIC,
+                    KEY_COVER_STACKED, KEY_COLOR_PRESET, KEY_CURRENT_LYRIC_OPACITY,
                     KEY_FOLIA_PANEL_WIDTH_DP, KEY_FOLIA_PANEL_HEIGHT_DP,
                     KEY_FOLIA_FOCUS, KEY_FOLIA_RADIUS, KEY_FOLIA_TILT, KEY_FOLIA_AXIS,
                     KEY_FOLIA_TRACKING, KEY_FOLIA_FPS, KEY_FOLIA_STRENGTH, KEY_FOLIA_MODE,
@@ -676,6 +717,98 @@ final class AppPreferences {
         if (!secondary || !(context instanceof DisplaySlotHost)) return get(context);
         SharedPreferences slot = ((DisplaySlotHost) context).displaySlotPreferences();
         return slot == null ? get(context) : slot;
+    }
+
+    // ---- 新显示参数 / 全局开关的读写入口（issue #131 / #134 / #138 / #147 / #148 / #152 / #154 / #155）----
+
+    /** 当前句行位（issue #155）：空 = 居中，{@code second} = 第二行，{@code top} = 顶部。 */
+    static String lyricAnchor(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_LYRIC_ANCHOR, "");
+        return "second".equals(value) || "top".equals(value) ? value : "";
+    }
+
+    static void setLyricAnchor(Context context, boolean secondary, String value) {
+        putDisplayString(context, secondary, KEY_LYRIC_ANCHOR,
+                "second".equals(value) || "top".equals(value) ? value : "");
+    }
+
+    /** 行间距百分比（issue #138）：80–200，默认 100。 */
+    static int lyricLineSpacing(Context context, boolean secondary) {
+        return Math.max(80, Math.min(200,
+                displayInt(context, secondary, KEY_LYRIC_LINE_SPACING, 100)));
+    }
+
+    static void setLyricLineSpacing(Context context, boolean secondary, int percent) {
+        putDisplayInt(context, secondary, KEY_LYRIC_LINE_SPACING,
+                Math.max(80, Math.min(200, percent)));
+    }
+
+    /** 等待 / 间奏是否保留上一句（issue #147），默认关。 */
+    static boolean holdPreviousLyric(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_HOLD_PREVIOUS_LYRIC, false);
+    }
+
+    static void setHoldPreviousLyric(Context context, boolean secondary, boolean value) {
+        putDisplayBoolean(context, secondary, KEY_HOLD_PREVIOUS_LYRIC, value);
+    }
+
+    /** 紧凑 / AMLL 封面与歌词上下排列（issue #134），默认左右排列。 */
+    static boolean coverStacked(Context context, boolean secondary) {
+        return displayBoolean(context, secondary, KEY_COVER_STACKED, false);
+    }
+
+    static void setCoverStacked(Context context, boolean secondary, boolean value) {
+        putDisplayBoolean(context, secondary, KEY_COVER_STACKED, value);
+    }
+
+    /** 上次套用的配色预设名（issue #131），空 = 没有套用。 */
+    static String colorPreset(Context context, boolean secondary) {
+        String value = displayString(context, secondary, KEY_COLOR_PRESET, "");
+        return value == null ? "" : value;
+    }
+
+    static void setColorPreset(Context context, boolean secondary, String value) {
+        putDisplayString(context, secondary, KEY_COLOR_PRESET, value == null ? "" : value);
+    }
+
+    /** 当前句歌词不透明度（issue #148）：0–100，默认 100。 */
+    static int currentLyricOpacity(Context context, boolean secondary) {
+        return Math.max(0, Math.min(100,
+                displayInt(context, secondary, KEY_CURRENT_LYRIC_OPACITY, 100)));
+    }
+
+    static void setCurrentLyricOpacity(Context context, boolean secondary, int percent) {
+        putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_OPACITY,
+                Math.max(0, Math.min(100, percent)));
+    }
+
+    /** 打开指定播放器时自动拉起歌词（issue #152），全局开关，默认关。 */
+    static boolean autoLaunchPlayer(Context context) {
+        return get(context).getBoolean(KEY_AUTO_LAUNCH_PLAYER, false);
+    }
+
+    static void setAutoLaunchPlayer(Context context, boolean value) {
+        get(context).edit().putBoolean(KEY_AUTO_LAUNCH_PLAYER, value).apply();
+    }
+
+    /** 自动拉起对应的播放器包名（issue #152），空 = 未指定。 */
+    static String autoLaunchPackage(Context context) {
+        String value = get(context).getString(KEY_AUTO_LAUNCH_PACKAGE, "");
+        return value == null ? "" : value;
+    }
+
+    static void setAutoLaunchPackage(Context context, String packageName) {
+        get(context).edit().putString(KEY_AUTO_LAUNCH_PACKAGE,
+                packageName == null ? "" : packageName).apply();
+    }
+
+    /** 读取播放器自己的歌词缓存目录（issue #154），全局开关，默认关。 */
+    static boolean playerLyricCache(Context context) {
+        return get(context).getBoolean(KEY_PLAYER_LYRIC_CACHE, false);
+    }
+
+    static void setPlayerLyricCache(Context context, boolean value) {
+        get(context).edit().putBoolean(KEY_PLAYER_LYRIC_CACHE, value).apply();
     }
 
     static float textScale(Context context) { return textScale(context, false); }
@@ -1095,9 +1228,17 @@ final class AppPreferences {
         return displayInt(context, secondary, KEY_LYRIC_COLOR, 0);
     }
 
+    /**
+     * Keeps an explicit alpha (#AARRGGBB, issue #148) but treats an alpha-less color from the
+     * old RGB pickers as opaque, so existing stored values and callers keep working.
+     */
+    static int lyricSlotColor(int color) {
+        if (color == 0) return 0;
+        return (color >>> 24) == 0 ? color | 0xFF000000 : color;
+    }
+
     static void setLyricColor(Context context, boolean secondary, int color) {
-        putDisplayInt(context, secondary, KEY_LYRIC_COLOR,
-                color == 0 ? 0 : (color | 0xFF000000));
+        putDisplayInt(context, secondary, KEY_LYRIC_COLOR, lyricSlotColor(color));
     }
 
     static int currentLyricColor(Context context, boolean secondary) {
@@ -1106,7 +1247,7 @@ final class AppPreferences {
 
     static void setCurrentLyricColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static int inactiveLyricColor(Context context, boolean secondary) {
@@ -1115,7 +1256,7 @@ final class AppPreferences {
 
     static void setInactiveLyricColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     /** Zero keeps the flat custom slot; a pair value wins only while theme tracking is on. */
@@ -1137,22 +1278,22 @@ final class AppPreferences {
 
     static void setCurrentLyricLightColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_LIGHT_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static void setCurrentLyricDarkColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_CURRENT_LYRIC_DARK_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static void setInactiveLyricLightColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_LIGHT_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static void setInactiveLyricDarkColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_INACTIVE_LYRIC_DARK_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     /**
@@ -1173,7 +1314,7 @@ final class AppPreferences {
 
     static void setLyricOutlineColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_LYRIC_OUTLINE_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     /** Percent of full opacity applied to the outline stroke; default mirrors the old 225/255. */
@@ -1223,7 +1364,7 @@ final class AppPreferences {
     static void setLyricOutlineColor(Context context, boolean secondary, boolean current, int color) {
         putDisplayInt(context, secondary,
                 current ? KEY_CURRENT_LYRIC_OUTLINE_COLOR : KEY_INACTIVE_LYRIC_OUTLINE_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static void setLyricOutlineAlphaPercent(Context context, boolean secondary, boolean current,
@@ -1258,12 +1399,12 @@ final class AppPreferences {
 
     static void setLyricLightColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_LYRIC_LIGHT_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static void setLyricDarkColor(Context context, boolean secondary, int color) {
         putDisplayInt(context, secondary, KEY_LYRIC_DARK_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     /** Zero leaves the active style in control of metadata colors. */
@@ -1298,7 +1439,7 @@ final class AppPreferences {
     static void setBackgroundColor(Context context, boolean secondary, boolean light, int color) {
         putDisplayInt(context, secondary,
                 light ? KEY_BACKGROUND_LIGHT_COLOR : KEY_BACKGROUND_DARK_COLOR,
-                color == 0 ? 0 : color | 0xFF000000);
+                lyricSlotColor(color));
     }
 
     static boolean islandShowCover(Context context, boolean secondary) {
@@ -1942,6 +2083,8 @@ final class AppPreferences {
             removed++;
         }
         editor.commit();
+        // 重置顺带清掉了「网络直连」（issue #153），把进程内的策略一起收回默认值。
+        NetworkDirectPolicy.apply(preferences.getBoolean(KEY_NETWORK_DIRECT, false));
         // Each extra screen keeps its parameters in a file of its own; a reset has to reach those
         // too, otherwise a 恢复默认设置 would leave the HUD looking the way it did before.
         for (int index = 0; index < DisplaySlotRegistry.entries(context).size(); index++) {

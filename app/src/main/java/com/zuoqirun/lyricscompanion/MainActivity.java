@@ -26,6 +26,7 @@ import android.text.TextWatcher;
 import android.text.method.LinkMovementMethod;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.util.DisplayMetrics;
@@ -115,6 +116,13 @@ public final class MainActivity extends AppCompatActivity {
     /** Which screen the position joystick moves; 副屏 until an extra screen is picked. */
     private int joystickSlot = DisplaySlotRegistry.SECONDARY_SLOT;
     private LinearLayout joystickTargetHost;
+    /** issue #136：数值微调当前的单轴锁定模式（同时 / 仅 X / 仅 Y），也同步给摇杆。 */
+    private int positionStepAxis = SecondaryPositionJoystickView.PositionStepMath.AXIS_BOTH;
+    private SecondaryPositionJoystickView joystickView;
+    private LinearLayout positionXRow;
+    private LinearLayout positionYRow;
+    /** issue #152：全局开关需要在 onResume 时跟持久化值同步。 */
+    private MaterialSwitch autoLaunchPlayerSwitch;
     private TextView updateStatus;
     private TextView onlineStatus;
     private TextView feedbackReplyStatus;
@@ -524,6 +532,40 @@ public final class MainActivity extends AppCompatActivity {
                     .putBoolean(AppPreferences.KEY_COMPOSITE_IDENTITY_FROM_ARTIST, checked).apply();
         });
         lyricCard.addView(compositeIdentity);
+        // issue #154：读取播放器自己缓存的歌词（只写全局开关；歌词读取逻辑在词库/本地歌词那边）。
+        MaterialSwitch playerLyricCache = toggle("读取播放器歌词缓存",
+                "把播放器自带的歌词缓存也作为歌词来源（默认关闭，不改现有词库 / 本地歌词流程）");
+        playerLyricCache.setChecked(AppPreferences.playerLyricCache(this));
+        playerLyricCache.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.setPlayerLyricCache(this, checked);
+            AppPreferences.changed(this);
+        });
+        lyricCard.addView(playerLyricCache);
+
+        // issue #153：车机开着 VPN/HTTP 代理时六个在线词库会一起返回 0 条，这里给一个直连开关。
+        LinearLayout networkCard = card();
+        networkCard.addView(sectionLabel("网络与代理"));
+        MaterialSwitch networkDirect = toggle("网络直连（忽略系统代理）",
+                "车机开着 VPN/代理时网络歌词可能全部搜不到；打开后词库请求直连");
+        networkDirect.setChecked(AppPreferences.networkDirect(this));
+        networkDirect.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.setNetworkDirect(this, checked);
+            SafeToast.show(this, checked
+                    ? "已开启网络直连：词库请求将忽略系统代理"
+                    : "已关闭网络直连：词库请求恢复使用系统代理", Toast.LENGTH_SHORT);
+            // 让正在显示的歌立刻按新模式重试，不用等下一首。
+            MusicStateStore.reloadLyrics(this);
+            refreshStatus();
+        });
+        networkCard.addView(networkDirect);
+        TextView networkDirectNote = text(
+                "只让本应用自己的 HTTP 请求（词库、更新、社区、封面）绕开系统代理；"
+                        + "不会关闭 VPN 隧道，也不影响其它应用。", 12, 0xFF8392A8, false);
+        networkDirectNote.setPadding(0, dp(8), 0, 0);
+        networkDirectNote.setLineSpacing(0f, 1.25f);
+        networkCard.addView(networkDirectNote);
 
         LinearLayout outputCard = card();
         outputCard.addView(sectionLabel("歌词显示开关"));
@@ -586,6 +628,35 @@ public final class MainActivity extends AppCompatActivity {
                 .edit().putBoolean(AppPreferences.KEY_TAP_OVERLAY_RETURNS_TO_PLAYER, checked)
                 .apply());
         startupCard.addView(returnToPlayer);
+        // issue #152：打开指定播放器时自动拉起歌词（全局开关，默认关 + 目标播放器包名）。
+        autoLaunchPlayerSwitch = toggle("打开指定播放器时自动显示歌词",
+                "识别前台应用需要「使用情况访问」权限；每段前台只自动拉起一次");
+        autoLaunchPlayerSwitch.setChecked(AppPreferences.autoLaunchPlayer(this));
+        autoLaunchPlayerSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (bindingUi) return;
+            AppPreferences.setAutoLaunchPlayer(this, checked);
+            if (checked && !canDrawOverlays()) showPermissionHomeHint("悬浮窗");
+            if (checked && !ForegroundAppDetector.hasUsageAccess(this)) {
+                SafeToast.show(this,
+                        "请在首页“使用权限”中授予使用情况访问权限，否则识别不到前台播放器",
+                        Toast.LENGTH_LONG);
+            }
+            AppPreferences.changed(this);
+        });
+        startupCard.addView(autoLaunchPlayerSwitch);
+        MaterialButton autoLaunchPackageButton = button(autoLaunchPackageLabel(), false);
+        autoLaunchPackageButton.setOnClickListener(
+                v -> showAutoLaunchPackagePicker(autoLaunchPackageButton));
+        LinearLayout.LayoutParams autoLaunchPackageParams =
+                new LinearLayout.LayoutParams(-1, dp(48));
+        autoLaunchPackageParams.topMargin = dp(10);
+        startupCard.addView(autoLaunchPackageButton, autoLaunchPackageParams);
+        TextView autoLaunchNote = text(
+                "开关默认关闭，只对选中的播放器生效。选中播放器回到前台时自动打开主屏歌词；"
+                        + "同一段前台只拉起一次，手动关掉后不会立刻再次弹出。", 12, 0xFF8392A8, false);
+        autoLaunchNote.setPadding(0, dp(8), 0, 0);
+        autoLaunchNote.setLineSpacing(0f, 1.25f);
+        startupCard.addView(autoLaunchNote);
         addPlaybackControlToggles(startupCard);
 
         LinearLayout visibilityCard = card();
@@ -660,7 +731,7 @@ public final class MainActivity extends AppCompatActivity {
         TextView joystickLabel = text("副屏位置微调", 13, 0xFF93A4B9, true);
         joystickLabel.setPadding(0, dp(16), 0, 0);
         screenCard.addView(joystickLabel);
-        TextView joystickHelp = text("按住摇杆移动，松手回中。", 12,
+        TextView joystickHelp = text("按住摇杆移动，松手回中。下面还可以按像素数值微调。", 12,
                 0xFF74869D, false);
         joystickHelp.setPadding(0, dp(4), 0, dp(4));
         screenCard.addView(joystickHelp);
@@ -669,11 +740,15 @@ public final class MainActivity extends AppCompatActivity {
         joystickTargetHost = new LinearLayout(this);
         joystickTargetHost.setOrientation(LinearLayout.VERTICAL);
         screenCard.addView(joystickTargetHost);
-        SecondaryPositionJoystickView joystick = new SecondaryPositionJoystickView(this);
-        joystick.setListener((dx, dy) -> LyricsDisplayService.moveSecondaryBy(this, joystickSlot, dx, dy));
+        joystickView = new SecondaryPositionJoystickView(this);
+        joystickView.setAxisMode(positionStepAxis);
+        joystickView.setListener((dx, dy) -> LyricsDisplayService.moveSecondaryBy(this, joystickSlot,
+                SecondaryPositionJoystickView.PositionStepMath.horizontalDelta(positionStepAxis, dx),
+                SecondaryPositionJoystickView.PositionStepMath.verticalDelta(positionStepAxis, dy)));
         LinearLayout.LayoutParams joystickParams = new LinearLayout.LayoutParams(dp(148), dp(148));
         joystickParams.gravity = Gravity.CENTER_HORIZONTAL;
-        screenCard.addView(joystick, joystickParams);
+        screenCard.addView(joystickView, joystickParams);
+        addSecondaryPositionStepper(screenCard);
 
         LinearLayout styleCard = card();
         styleCard.addView(sectionLabel("主屏 / 副屏 / 其它屏幕样式"));
@@ -896,6 +971,7 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout lyricsPage = sectionPage();
         lyricsPage.addView(lyricCard, cardMargins());
+        lyricsPage.addView(networkCard, cardMargins());
         lyricsPage.addView(stateCard, cardMargins());
         LinearLayout systemPage = sectionPage();
         if (conciseSettingsMode) {
@@ -1522,6 +1598,7 @@ public final class MainActivity extends AppCompatActivity {
         secondaryOverlaySwitch.setChecked(AppPreferences.secondaryEnabled(this));
         launchOverlaySwitch.setChecked(AppPreferences.launchOverlayOnIcon(this));
         autoStartSwitch.setChecked(AppPreferences.autoStartOverlays(this));
+        autoLaunchPlayerSwitch.setChecked(AppPreferences.autoLaunchPlayer(this));
         bindingUi = false;
         updateRefinedSettingsVisibility();
     }
@@ -1576,6 +1653,8 @@ public final class MainActivity extends AppCompatActivity {
         if (error == null || error.trim().isEmpty()) error = "无";
         else error = error.replace('\n', ' ').replace('\r', ' ').trim();
         if (error.length() > 160) error = error.substring(0, 160) + "…";
+        // issue #153：词库请求连不上且没开直连时，在诊断里提示可能是代理/VPN 拦了请求。
+        String networkHint = NetworkDirectPolicy.diagnosticHint();
         musicStatus.setText(MusicStateStore.describe(this)
                 + "\n通知读取：" + (notificationAccess ? "已授权" : "未授权")
                 + "    监听器：" + listenerState
@@ -1583,6 +1662,7 @@ public final class MainActivity extends AppCompatActivity {
                 + "\n最近成功读取会话：" + formatSessionReadAge(lastRead)
                 + "    当前会话数量：" + MusicNotificationListener.getLastSessionCount()
                 + "\n最近异常信息：" + error
+                + (networkHint.isEmpty() ? "" : "\n" + networkHint)
                 + "\n" + ResourceProfile.describe(this));
     }
 
@@ -1824,6 +1904,295 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onNothingSelected(AdapterView<?> parentView) { }
         });
         joystickTargetHost.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+    }
+
+    /**
+     * issue #136：摇杆下方的数值微调。每次点按 / 长按 / 手输都以「相对像素」调用
+     * {@link LyricsDisplayService#moveSecondaryBy}，位置持久化完全复用摇杆那一套，不另存一份。
+     */
+    private void addSecondaryPositionStepper(LinearLayout parent) {
+        TextView stepLabel = text("副屏位置数值微调", 13, 0xFF93A4B9, true);
+        stepLabel.setPadding(0, dp(16), 0, 0);
+        parent.addView(stepLabel);
+        TextView stepHelp = text("点按 ±1 / ±5 逐步移动，长按连续移动；每次移动立即生效并保存。"
+                + "单位与摇杆相同（像素），单轴锁定同时作用于摇杆。", 12, 0xFF74869D, false);
+        stepHelp.setPadding(0, dp(4), 0, dp(6));
+        stepHelp.setLineSpacing(0f, 1.25f);
+        parent.addView(stepHelp);
+
+        LinearLayout axisRow = new LinearLayout(this);
+        axisRow.setOrientation(LinearLayout.HORIZONTAL);
+        axisRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView axisLabel = text("调整轴", 13, 0xFF93A4B9, false);
+        axisRow.addView(axisLabel, new LinearLayout.LayoutParams(dp(64), -2));
+        Spinner axisSpinner = new Spinner(this, Spinner.MODE_DIALOG);
+        axisSpinner.setAdapter(new ThemedSpinnerAdapter<>(this,
+                new String[]{"X 与 Y", "仅调整 X", "仅调整 Y"}));
+        axisSpinner.setSelection(positionStepAxis, false);
+        axisSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parentView, View view,
+                                                 int position, long id) {
+                if (position == positionStepAxis) return;
+                positionStepAxis = position;
+                if (joystickView != null) joystickView.setAxisMode(positionStepAxis);
+                updatePositionAxisRows();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parentView) { }
+        });
+        axisRow.addView(axisSpinner, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        parent.addView(axisRow);
+
+        positionXRow = positionStepRow(parent, "X",
+                SecondaryPositionJoystickView.PositionStepMath.AXIS_HORIZONTAL);
+        positionYRow = positionStepRow(parent, "Y",
+                SecondaryPositionJoystickView.PositionStepMath.AXIS_VERTICAL);
+
+        LinearLayout directRow = new LinearLayout(this);
+        directRow.setOrientation(LinearLayout.HORIZONTAL);
+        directRow.setPadding(0, dp(8), 0, 0);
+        MaterialButton directX = button("输入 X 位移…", false);
+        directX.setOnClickListener(v -> showPositionOffsetDialog(
+                SecondaryPositionJoystickView.PositionStepMath.AXIS_HORIZONTAL));
+        directRow.addView(directX, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        MaterialButton directY = button("输入 Y 位移…", false);
+        directY.setOnClickListener(v -> showPositionOffsetDialog(
+                SecondaryPositionJoystickView.PositionStepMath.AXIS_VERTICAL));
+        LinearLayout.LayoutParams directYParams = new LinearLayout.LayoutParams(0, dp(44), 1f);
+        directYParams.leftMargin = dp(8);
+        directRow.addView(directY, directYParams);
+        parent.addView(directRow);
+        updatePositionAxisRows();
+    }
+
+    /** 一行四个步进按钮：-5 / -1 / +1 / +5；长按连续移动。 */
+    private LinearLayout positionStepRow(LinearLayout parent, String axisName, int axis) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, 0);
+        TextView name = text(axisName, 13, 0xFF93A4B9, true);
+        row.addView(name, new LinearLayout.LayoutParams(dp(24), -2));
+        int[] steps = {-5, -1, 1, 5};
+        for (int index = 0; index < steps.length; index++) {
+            MaterialButton stepButton = button((steps[index] > 0 ? "+" : "") + steps[index], false);
+            LinearLayout.LayoutParams stepParams = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            if (index > 0) stepParams.leftMargin = dp(6);
+            row.addView(stepButton, stepParams);
+            configurePositionStepButton(stepButton, axis, steps[index]);
+        }
+        parent.addView(row);
+        return row;
+    }
+
+    /**
+     * 点按走一步；长按 380ms 后每 70ms 连续移动；按下后手指明显移动（例如只是想滚动设置页）不算点按。
+     * 抬起 / 取消 / 控件销毁都会移除回调，不会在页面关掉后继续移动歌词层。
+     */
+    private void configurePositionStepButton(MaterialButton view, int axis, int delta) {
+        final boolean[] longPressed = new boolean[1];
+        final boolean[] canceled = new boolean[1];
+        final float[] downX = new float[1];
+        final float[] downY = new float[1];
+        final Runnable[] repeat = new Runnable[1];
+        repeat[0] = () -> {
+            longPressed[0] = true;
+            applyPositionStep(axis, delta);
+            handler.postDelayed(repeat[0], 70L);
+        };
+        final Runnable startRepeat = () -> handler.postDelayed(repeat[0], 380L);
+        final Runnable stopRepeat = () -> {
+            handler.removeCallbacks(startRepeat);
+            handler.removeCallbacks(repeat[0]);
+        };
+        view.setContentDescription((delta > 0 ? "向正方向移动" : "向负方向移动")
+                + Math.abs(delta) + "像素");
+        view.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    longPressed[0] = false;
+                    canceled[0] = false;
+                    downX[0] = event.getX();
+                    downY[0] = event.getY();
+                    stopRepeat.run();
+                    startRepeat.run();
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (Math.abs(event.getX() - downX[0]) > dp(8)
+                            || Math.abs(event.getY() - downY[0]) > dp(8)) {
+                        canceled[0] = true;
+                        stopRepeat.run();
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    stopRepeat.run();
+                    if (!longPressed[0] && !canceled[0]) applyPositionStep(axis, delta);
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    stopRepeat.run();
+                    return true;
+                default:
+                    return false;
+            }
+        });
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View attached) { }
+            @Override public void onViewDetachedFromWindow(View detached) {
+                stopRepeat.run();
+            }
+        });
+    }
+
+    private void updatePositionAxisRows() {
+        boolean horizontalLocked = positionStepAxis
+                == SecondaryPositionJoystickView.PositionStepMath.AXIS_VERTICAL;
+        boolean verticalLocked = positionStepAxis
+                == SecondaryPositionJoystickView.PositionStepMath.AXIS_HORIZONTAL;
+        if (positionXRow != null) positionXRow.setAlpha(horizontalLocked ? 0.45f : 1f);
+        if (positionYRow != null) positionYRow.setAlpha(verticalLocked ? 0.45f : 1f);
+    }
+
+    private void applyPositionStep(int axis, int delta) {
+        int dx = SecondaryPositionJoystickView.PositionStepMath.horizontalDelta(positionStepAxis,
+                axis == SecondaryPositionJoystickView.PositionStepMath.AXIS_HORIZONTAL ? delta : 0);
+        int dy = SecondaryPositionJoystickView.PositionStepMath.verticalDelta(positionStepAxis,
+                axis == SecondaryPositionJoystickView.PositionStepMath.AXIS_VERTICAL ? delta : 0);
+        if (dx == 0 && dy == 0) {
+            SafeToast.show(this, "当前是单轴锁定，先切换到“X 与 Y”或对应轴", Toast.LENGTH_SHORT);
+            return;
+        }
+        if (!hasPositionTarget()) {
+            SafeToast.show(this, "请先打开副屏或其它屏幕歌词，再微调位置", Toast.LENGTH_SHORT);
+            return;
+        }
+        LyricsDisplayService.moveSecondaryBy(this, joystickSlot, dx, dy);
+    }
+
+    private boolean hasPositionTarget() {
+        return AppPreferences.secondaryEnabled(this)
+                || !DisplaySlotRegistry.entries(this).isEmpty();
+    }
+
+    private void showPositionOffsetDialog(int axis) {
+        if (!hasPositionTarget()) {
+            SafeToast.show(this, "请先打开副屏或其它屏幕歌词，再微调位置", Toast.LENGTH_SHORT);
+            return;
+        }
+        TextInputLayout layout = new TextInputLayout(this);
+        layout.setHint("位移像素（可输入负数，如 -12）");
+        layout.setPadding(dp(20), 0, dp(20), 0);
+        TextInputEditText input = new TextInputEditText(this);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_SIGNED);
+        layout.addView(input);
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(axis == SecondaryPositionJoystickView.PositionStepMath.AXIS_HORIZONTAL
+                        ? "按像素移动 X" : "按像素移动 Y")
+                .setView(layout)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("移动", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(view -> {
+                    int offset;
+                    try {
+                        offset = SecondaryPositionJoystickView.PositionStepMath.parseInputOffset(
+                                input.getText() == null ? "" : input.getText().toString());
+                    } catch (NumberFormatException error) {
+                        layout.setError("请输入整数像素（例：-12）");
+                        return;
+                    }
+                    applyPositionStep(axis, offset);
+                    dialog.dismiss();
+                }));
+        dialog.show();
+    }
+
+    /** issue #152：按钮文案跟着保存的播放器包名走；未安装时退回显示包名。 */
+    private String autoLaunchPackageLabel() {
+        String packageName = AppPreferences.autoLaunchPackage(this);
+        if (packageName.isEmpty()) return "选择要自动拉起歌词的播放器（未选择）";
+        InstalledAppListCache.AppChoice installed =
+                InstalledAppListCache.resolveInstalledPackage(this, packageName);
+        if (installed == null) return "已选播放器：" + packageName + "（未安装）";
+        return "已选播放器：" + installed.label;
+    }
+
+    private void showAutoLaunchPackagePicker(MaterialButton target) {
+        LinearLayout loading = new LinearLayout(this);
+        loading.setPadding(dp(24), dp(16), dp(24), dp(16));
+        loading.addView(text("正在读取已安装应用…", 14, 0xFFD8E1EE, false));
+        AlertDialog loadingDialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("自动拉起歌词")
+                .setView(loading)
+                .setNegativeButton("取消", null)
+                .show();
+        Set<String> retained = new LinkedHashSet<>();
+        String current = AppPreferences.autoLaunchPackage(this);
+        if (!current.isEmpty()) retained.add(current);
+        UPDATE_EXECUTOR.execute(() -> {
+            List<InstalledAppListCache.AppChoice> apps;
+            try {
+                apps = InstalledAppListCache.load(this, retained);
+            } catch (Throwable error) {
+                handler.post(() -> {
+                    if (loadingDialog.isShowing()) loadingDialog.dismiss();
+                    if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                    SafeToast.show(this, "读取已安装应用失败：" + error.getClass().getSimpleName(),
+                            Toast.LENGTH_LONG);
+                });
+                return;
+            }
+            handler.post(() -> {
+                if (loadingDialog.isShowing()) loadingDialog.dismiss();
+                if (isFinishing() || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                showLoadedAutoLaunchPackagePicker(target, apps);
+            });
+        });
+    }
+
+    private void showLoadedAutoLaunchPackagePicker(MaterialButton target,
+                                                   List<InstalledAppListCache.AppChoice> apps) {
+        String current = AppPreferences.autoLaunchPackage(this);
+        Set<String> selected = new LinkedHashSet<>();
+        if (!current.isEmpty()) selected.add(current);
+        ListView list = new ListView(this);
+        list.setDividerHeight(0);
+        list.setBackgroundColor(0xFF101E31);
+        AppChoiceListAdapter adapter = new AppChoiceListAdapter(this, apps, selected);
+        list.setAdapter(adapter);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(4), 0, dp(4), 0);
+        content.addView(appSearchField(adapter));
+        TextView note = text("只能记住一个播放器；勾选多个时取列表里第一个。", 12, 0xFF8392A8, false);
+        note.setPadding(dp(4), dp(4), dp(4), dp(6));
+        content.addView(note);
+        content.addView(list, new LinearLayout.LayoutParams(-1, dp(420)));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("选择要自动拉起歌词的播放器")
+                .setView(content)
+                .setNegativeButton("取消", null)
+                .setNeutralButton("清除选择", (dialog, which) -> {
+                    AppPreferences.setAutoLaunchPackage(this, "");
+                    AppPreferences.changed(this);
+                    target.setText(autoLaunchPackageLabel());
+                })
+                .setPositiveButton("保存", (dialog, which) -> {
+                    String chosen = "";
+                    for (InstalledAppListCache.AppChoice app : apps) {
+                        if (selected.contains(app.packageName)) {
+                            chosen = app.packageName;
+                            break;
+                        }
+                    }
+                    AppPreferences.setAutoLaunchPackage(this, chosen);
+                    AppPreferences.changed(this);
+                    target.setText(autoLaunchPackageLabel());
+                    SafeToast.show(this, chosen.isEmpty()
+                            ? "已清除自动拉起的播放器"
+                            : "已保存：" + autoLaunchPackageLabel(), Toast.LENGTH_SHORT);
+                })
+                .show();
     }
 
     private void addExtraDisplayRow(LinearLayout host, DisplaySlotRegistry.Entry entry, int index,

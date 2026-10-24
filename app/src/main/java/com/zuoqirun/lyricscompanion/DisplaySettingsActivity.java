@@ -250,6 +250,26 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         value -> AppPreferences.putDisplayInt(this, secondary,
                                 AppPreferences.KEY_STYLE_LYRIC_LINES, value));
             }
+            // 当前句行位（issue #155）：默认居中；行数不足时按可用的行位自动退化。
+            if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_LYRIC_ANCHOR,
+                    selectedStyle).isEmpty()) {
+                addChoice(panel, "当前句行位", AppPreferences.KEY_LYRIC_ANCHOR,
+                        new String[]{"居中（默认）", "第二行", "顶部"},
+                        new String[]{"", "second", "top"},
+                        AppPreferences.lyricAnchor(this, secondary),
+                        value -> AppPreferences.setLyricAnchor(this, secondary, value));
+                addHelp(panel, text("只改变当前句落在第几行，整块歌词仍按「内容垂直对齐」定位；"
+                        + "歌词显示行数为 1 时看不到区别。", 12, 0xFF8392A8, false));
+            }
+            // 行间距（issue #138）：百分比只拉开相邻歌词行，字号仍按面板高度收缩。
+            if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_LYRIC_LINE_SPACING,
+                    selectedStyle).isEmpty()) {
+                addSeek(panel, "歌词行间距", AppPreferences.KEY_LYRIC_LINE_SPACING, 80, 200,
+                        AppPreferences.lyricLineSpacing(this, secondary), "%",
+                        value -> AppPreferences.setLyricLineSpacing(this, secondary, value));
+                addHelp(panel, text("100% 为当前版面；只作用在相邻歌词行之间，歌名与翻译不跟着动。"
+                        + "调大到放不下时会收住行距，不会偷偷缩小字号。", 12, 0xFF8392A8, false));
+            }
             // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
             addChoice(motion, "文字效果（全部样式）", AppPreferences.KEY_REFINED_TEXT_EFFECT,
                     new String[]{"无（各样式原样）", "文字阴影", "文字辉光"},
@@ -313,6 +333,14 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         setDependentVisibility(matching.isChecked(), matchingDependents[0]);
         addHelp(motion, text("匹配期间面板底部显示发散小点；默认超过 3 秒才出现，动画约 30 fps。",
                 12, 0xFFD7E1EE, false));
+        // 等待/间奏时保留上一句（issue #147）：默认关，保持现在的 ♪ · · · 占位。
+        if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_HOLD_PREVIOUS_LYRIC,
+                selectedStyle).isEmpty()) {
+            addToggle(motion, "间奏时保留上一句", AppPreferences.KEY_HOLD_PREVIOUS_LYRIC,
+                    AppPreferences.holdPreviousLyric(this, secondary), null);
+            addHelp(motion, text("开启后间奏不再显示「♪ · · ·」，而是把间奏前的最后一句歌词暗一档保留；"
+                    + "等待播放与匹配中的占位行为不变。", 12, 0xFFD7E1EE, false));
+        }
         if ("pure".equals(AppPreferences.overlayStyle(this, secondary))) {
             addToggle(panel, "纯净模式显示歌名", AppPreferences.KEY_PURE_SHOW_TITLE,
                     AppPreferences.pureShowTitle(this, secondary));
@@ -548,6 +576,14 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     AppPreferences.roundCover(this, secondary), null);
             addHelp(artwork, text("圆形封面只对紧凑与 AMLL 生效（Refined 关掉「方形专辑封面」即圆形）。", 12,
                     0xFFD7E1EE, false));
+            // 封面与歌词上下排列（issue #134）：紧凑 / AMLL 的另一种竖排挡位，默认关。
+            if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_COVER_STACKED,
+                    selectedStyle).isEmpty()) {
+                addToggle(artwork, "封面与歌词上下排列", AppPreferences.KEY_COVER_STACKED,
+                        AppPreferences.coverStacked(this, secondary), null);
+                addHelp(artwork, text("开启后封面在上、歌名在封面下、歌词整幅排在下面；"
+                        + "竖排时会自动限制封面大小，避免把歌词挤没。", 12, 0xFFD7E1EE, false));
+            }
         }
         final View[][] coverDependents = new View[1][];
         MaterialSwitch coverSpin = addToggle(artwork, "圆形封面碟片旋转",

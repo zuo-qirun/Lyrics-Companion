@@ -5,6 +5,7 @@ import android.os.Build;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.Proxy;
 import java.net.Socket;
 import java.net.URL;
 
@@ -16,8 +17,17 @@ import javax.net.ssl.SSLSocketFactory;
 final class HttpCompat {
     private HttpCompat() { }
 
+    /**
+     * 打开一条连接。默认路径完全不变；只有用户打开「网络直连」时（issue #153）才显式传入
+     * {@link Proxy#NO_PROXY}，绕开会吞掉词库请求的系统代理。逐条连接指定代理从 API 1 起
+     * 就可用，Android 4.4 同样适用。
+     */
     static HttpURLConnection open(String address) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        Proxy proxy = NetworkDirectPolicy.proxy();
+        URL url = new URL(address);
+        HttpURLConnection connection = (HttpURLConnection) (proxy == null
+                ? url.openConnection()
+                : url.openConnection(proxy));
         if (Build.VERSION.SDK_INT == 19 && connection instanceof HttpsURLConnection) {
             HttpsURLConnection https = (HttpsURLConnection) connection;
             https.setSSLSocketFactory(new Tls12SocketFactory(https.getSSLSocketFactory()));

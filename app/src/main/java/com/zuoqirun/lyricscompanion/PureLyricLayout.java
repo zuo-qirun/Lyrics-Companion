@@ -16,8 +16,27 @@ final class PureLyricLayout {
      * whatever the car draws there (issue #31). A negative index is an empty slot.
      */
     static int windowStart(int currentIndex, int requestedCount) {
+        return windowStart(currentIndex, requestedCount, "");
+    }
+
+    /**
+     * 带「当前句行位」的窗口起点（issue #155）。
+     *
+     * @param anchor "" 居中（默认，原行为）；"second" 当前句落在第二行；"top" 落在第一行
+     */
+    static int windowStart(int currentIndex, int requestedCount, String anchor) {
         int count = Math.max(1, requestedCount);
-        return currentIndex - (count - 1) / 2;
+        return currentIndex - anchorRow(count, anchor);
+    }
+
+    /**
+     * 当前句在窗口里的行号：顶部=0、第二行=1、居中=中间行；行数为 1 时三种都退化成 0。
+     */
+    static int anchorRow(int requestedCount, String anchor) {
+        int count = Math.max(1, requestedCount);
+        if ("top".equals(anchor)) return 0;
+        if ("second".equals(anchor)) return Math.min(1, count - 1);
+        return (count - 1) / 2;
     }
 
     static float constrainedCurrentSize(float requestedSize, float availableHeight,

@@ -23,10 +23,12 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +45,10 @@ final class LocalLyricClient {
      * from reading several 8 MB files in a row.
      */
     private static final int MAX_AUDIO_FILES = 3;
+    /** 播放器缓存探测的汇总诊断只记一次，避免每首歌都刷同样一行（issue #154）。 */
+    private static final AtomicBoolean PLAYER_CACHE_SUMMARY_LOGGED = new AtomicBoolean();
+    /** 同名缓存文件读取失败也只记一次，避免一首坏文件在每次切歌时重复报错。 */
+    private static final AtomicBoolean PLAYER_CACHE_READ_ERROR_LOGGED = new AtomicBoolean();
     private final Context context;
 
     LocalLyricClient(Context context) {
@@ -219,6 +225,189 @@ final class LocalLyricClient {
             record("已授权歌词目录不可用=" + failureCause(error) + " tree=" + tree
                     + " 请重新“选择本地音乐目录”授权");
             return Hit.EMPTY;
+        }
+    }
+
+    /**
+     * Reads the music player's own lyric cache (issue #154, off by default).
+     *
+     * <p>The switch is checked here so every caller gets the same default-off behaviour: when it
+     * is off this returns {@link Hit#EMPTY} after one preference read and the existing chain is
+     * unchanged. A missing permission, a vanished directory or an unreadable file is skipped
+     * silently; the one diagnostic line per process never repeats for every song.
+     *
+     * <p>Files are chosen by song metadata through {@link PlayerLyricCacheRules#scoreFileName},
+     * never by modification time: the newest file in a cache directory usually belongs to the
+     * previous song.
+     */
+    Hit loadPlayerCache(String sourcePackage, String mediaId, String title, String artist) {
+        if (!AppPreferences.playerLyricCache(context)) return Hit.EMPTY;
+        if (TextUtils.isEmpty(title)) return Hit.EMPTY;
+        try {
+            return scanPlayerCache(sourcePackage, mediaId, title, artist);
+        } catch (Throwable error) {
+            // 缓存探测只是锦上添花，任何异常都必须静默回退到原来的歌词链路。
+            record("播放器缓存探测失败=" + failureCause(error));
+            return Hit.EMPTY;
+        }
+    }
+
+    private Hit scanPlayerCache(String sourcePackage, String mediaId, String title, String artist) {
+        List<String> roots = playerCacheStorageRoots();
+        List<String> directories = PlayerLyricCacheRules.candidateDirectories(roots);
+        if (directories.isEmpty()) return Hit.EMPTY;
+        PlayerLyricCacheRules.Budget budget = new PlayerLyricCacheRules.Budget();
+        ArrayDeque<PlayerCacheDirectory> pending = new ArrayDeque<>();
+        // 候选目录之间彼此嵌套（如 files 与 files/cache），同一个目录只列一次，既省预算
+        // 也避免同一个文件被当成两个候选重复解析。
+        Set<String> queuedPaths = new LinkedHashSet<>();
+        for (String directory : directories) {
+            if (queuedPaths.add(directory)) {
+                pending.addLast(new PlayerCacheDirectory(new File(directory), 0));
+            }
+        }
+        List<PlayerCacheCandidate> candidates = new ArrayList<>();
+        int missingDirectories = 0;
+        int unreadableDirectories = 0;
+        while (!pending.isEmpty()
+                && !budget.directoriesExhausted() && !budget.filesExhausted()) {
+            PlayerCacheDirectory current = pending.removeFirst();
+            File directory = current.directory;
+            if (!directory.isDirectory()) {
+                // 绝大多数候选目录在机器上并不存在，这不需要写诊断日志。
+                missingDirectories++;
+                continue;
+            }
+            if (!budget.takeDirectory()) break;
+            File[] children;
+            try {
+                children = directory.listFiles();
+            } catch (Throwable error) {
+                children = null;
+            }
+            if (children == null) {
+                unreadableDirectories++;
+                continue;
+            }
+            // 只有目录属于当前播放器时才拿它的歌曲 ID 去匹配，避免把别家的 ID 当歌名。
+            String trackId = directoryBelongsTo(directory.getAbsolutePath(), sourcePackage)
+                    ? mediaId : "";
+            // 先收子目录再读文件：像 files/ 这种目录里往往先排着别的文件，先收目录才不会
+            // 因为“每目录文件上限”而漏掉真正的歌词子目录。
+            for (File child : children) {
+                boolean childIsDirectory;
+                try {
+                    childIsDirectory = child.isDirectory();
+                } catch (Throwable error) {
+                    continue;
+                }
+                if (!childIsDirectory) continue;
+                if (current.depth >= PlayerLyricCacheRules.MAX_DEPTH) continue;
+                if (queuedPaths.add(child.getAbsolutePath())) {
+                    pending.addLast(new PlayerCacheDirectory(child, current.depth + 1));
+                }
+            }
+            int visitedInDirectory = 0;
+            for (File child : children) {
+                if (visitedInDirectory >= PlayerLyricCacheRules.MAX_FILES_PER_DIRECTORY) break;
+                if (!budget.takeFile()) break;
+                visitedInDirectory++;
+                boolean childIsDirectory;
+                try {
+                    childIsDirectory = child.isDirectory();
+                } catch (Throwable error) {
+                    continue;
+                }
+                if (childIsDirectory) continue;
+                int score = PlayerLyricCacheRules.scoreFileName(
+                        child.getName(), title, artist, trackId);
+                if (score > PlayerLyricCacheRules.SCORE_NONE) {
+                    candidates.add(new PlayerCacheCandidate(child, score));
+                }
+            }
+        }
+        boolean limited = budget.directoriesExhausted() || budget.filesExhausted();
+        if (PLAYER_CACHE_SUMMARY_LOGGED.compareAndSet(false, true)) {
+            record("播放器缓存探测 候选目录=" + directories.size()
+                    + " 已扫描目录=" + budget.directories()
+                    + " 文件=" + budget.files()
+                    + " 命中候选=" + candidates.size()
+                    + " 不存在目录=" + missingDirectories
+                    + " 不可读目录=" + unreadableDirectories
+                    + (limited ? " 已达上限" : "")
+                    + " " + accessState());
+        }
+        if (candidates.isEmpty()) return Hit.EMPTY;
+        Collections.sort(candidates, (left, right) -> Integer.compare(right.score, left.score));
+        int attempts = Math.min(candidates.size(), PlayerLyricCacheRules.MAX_CANDIDATES);
+        for (int index = 0; index < attempts; index++) {
+            PlayerCacheCandidate candidate = candidates.get(index);
+            try (FileInputStream input = new FileInputStream(candidate.file)) {
+                LrcTimeline found = parse(input);
+                if (!found.isEmpty()) {
+                    record("播放器缓存命中 file=" + candidate.file.getAbsolutePath()
+                            + " score=" + candidate.score + " lines=" + found.lineCount());
+                    return new Hit(found, false);
+                }
+            } catch (Throwable error) {
+                if (PLAYER_CACHE_READ_ERROR_LOGGED.compareAndSet(false, true)) {
+                    record("播放器缓存文件不可读=" + failureCause(error)
+                            + " file=" + candidate.file.getAbsolutePath());
+                }
+            }
+        }
+        return Hit.EMPTY;
+    }
+
+    /** 外部存储根目录：主外置存储，加上 SD 卡等额外卷（从应用专属目录往上取出卷根）。 */
+    private List<String> playerCacheStorageRoots() {
+        List<String> roots = new ArrayList<>();
+        try {
+            File external = Environment.getExternalStorageDirectory();
+            if (external != null) roots.add(external.getAbsolutePath());
+        } catch (Throwable ignored) { }
+        try {
+            File[] directories = context.getExternalFilesDirs(null);
+            if (directories != null) {
+                for (File directory : directories) {
+                    if (directory == null) continue;
+                    String path = directory.getAbsolutePath().replace('\\', '/');
+                    int index = path.indexOf("/Android/");
+                    if (index > 0) roots.add(path.substring(0, index));
+                }
+            }
+        } catch (Throwable ignored) { }
+        return roots;
+    }
+
+    /** 只有缓存目录属于当前播放器时才用它的歌曲 ID 匹配文件名。 */
+    private static boolean directoryBelongsTo(String path, String sourcePackage) {
+        if (TextUtils.isEmpty(sourcePackage) || path == null) return false;
+        String normalized = path.replace('\\', '/').toLowerCase(Locale.ROOT);
+        String packageName = sourcePackage.toLowerCase(Locale.ROOT);
+        return normalized.contains("/android/data/" + packageName + "/")
+                || normalized.contains("/android/media/" + packageName);
+    }
+
+    /** 一个待列出的候选目录，以及它在候选目录之下又深入了几层。 */
+    private static final class PlayerCacheDirectory {
+        final File directory;
+        final int depth;
+
+        PlayerCacheDirectory(File directory, int depth) {
+            this.directory = directory;
+            this.depth = depth;
+        }
+    }
+
+    /** 一个文件名匹配上当前歌曲的缓存文件，以及匹配得分。 */
+    private static final class PlayerCacheCandidate {
+        final File file;
+        final int score;
+
+        PlayerCacheCandidate(File file, int score) {
+            this.file = file;
+            this.score = score;
         }
     }
 

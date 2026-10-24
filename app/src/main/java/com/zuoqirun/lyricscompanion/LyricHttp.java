@@ -83,12 +83,18 @@ final class LyricHttp {
         for (int attempt = 0; attempt < attempts; attempt++) {
             checkInterrupted();
             try {
-                return executeOnce(method, address, referer, body, headers, timeouts);
+                byte[] result = executeOnce(method, address, referer, body, headers, timeouts);
+                NetworkDirectPolicy.noteSuccess();
+                return result;
             } catch (HttpStatusException error) {
                 if (error.status < 500 || attempt == attempts - 1) throw error;
             } catch (IOException error) {
                 checkInterrupted();
-                if (attempt == attempts - 1) throw error;
+                if (attempt == attempts - 1) {
+                    // 传输层最终失败才计数（issue #153）：状态码错误说明代理是通的。
+                    NetworkDirectPolicy.noteFailure();
+                    throw error;
+                }
             }
             Thread.sleep(attempt == 0 ? 250L : 650L);
         }

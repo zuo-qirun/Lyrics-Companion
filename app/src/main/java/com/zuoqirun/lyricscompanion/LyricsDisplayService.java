@@ -99,6 +99,9 @@ public final class LyricsDisplayService extends Service implements DisplayManage
     private final PlaybackHideGrace playbackHideGrace = new PlaybackHideGrace();
     private final String[] lyricUnavailableTrackKey = {"", ""};
     private boolean secondaryHiddenForPlayback;
+    /** issue #152：打开指定播放器时自动拉起歌词的前台去重状态。 */
+    private final ForegroundAppDetector.AutoLaunchGate autoLaunchGate =
+            new ForegroundAppDetector.AutoLaunchGate();
     private String lastVisibilityDiagnostic = "";
     private final int[] panelScreenPosition = new int[2];
     private final int[] touchScreenPosition = new int[2];
@@ -1833,7 +1836,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 || !DisplaySlotRegistry.entries(context).isEmpty()
                 || AppPreferences.notificationLyrics(context)
                 || AppPreferences.topLyricStrip(context)
-                || AppPreferences.bottomSpectrum(context));
+                || AppPreferences.bottomSpectrum(context)
+                // issue #152：只开了自动拉起时也要保持服务在跑，否则没有前台轮询；未选播放器时不必空转。
+                || AppPreferences.autoLaunchPlayer(context)
+                && !AppPreferences.autoLaunchPackage(context).isEmpty());
     }
 
     private static boolean hasRememberedOverlayTarget(Context context) {
@@ -1977,6 +1983,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         boolean hideMain = shouldHideOverlays(snapshot, false, foreground);
         boolean hideSecondary = shouldHideOverlays(snapshot, true, foreground);
+        maybeAutoShowForForeground(foreground, hideMain, nowElapsed);
         boolean usageAccess = ForegroundAppDetector.hasUsageAccess(this);
         String diagnostic = "visibility mainHidden=" + hideMain
                 + " secondaryHidden=" + hideSecondary
@@ -2020,6 +2027,42 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                     && secondaryRecovery.ready(nowElapsed)) showSecondary();
             if (extraRecovery.ready(nowElapsed)) ensureExtraOverlays();
         }
+    }
+
+    /**
+     * issue #152：目标播放器在前台、开关打开、设置页未显示、歌词层还没显示时，自动拉起一次主屏歌词。
+     * 例外都收敛在 {@link ForegroundAppDetector.AutoLaunchGate} 里，这里只做权限、暂停规则兜底、
+     * 真正显示和诊断。Android 10+ 后台启动限制下任何一步抛异常都只写诊断，不影响服务。
+     */
+    private void maybeAutoShowForForeground(String foregroundPackage, boolean hideMain,
+                                            long nowElapsedMs) {
+        if (!AppPreferences.autoLaunchPlayer(this) || !canDrawOverlays()) return;
+        // 用户明确「停止悬浮窗」后不要自动再弹出来。
+        if (AppPreferences.serviceStoppedByUser(this)) return;
+        // 被播放状态 / 指定应用 / 无歌词等规则判定要隐藏时先不拉起，等规则允许后下一轮再判定。
+        if (hideMain) return;
+        try {
+            String targetPackage = AppPreferences.autoLaunchPackage(this);
+            boolean trigger = autoLaunchGate.shouldTrigger(true, targetPackage, foregroundPackage,
+                    settingsVisible, hasVisibleLyricLayer(), nowElapsedMs);
+            if (!trigger) return;
+            AppPreferences.get(this).edit()
+                    .putBoolean(AppPreferences.KEY_MAIN_OVERLAY, true).apply();
+            showMain();
+            DiagnosticLog.record(this, "Overlay", "auto launch player=" + targetPackage
+                    + " foreground=" + foregroundPackage);
+            lastVisibilityDiagnostic = "";
+        } catch (Throwable error) {
+            DiagnosticLog.record(this, "Overlay", "auto launch failed="
+                    + error.getClass().getSimpleName() + ": " + error.getMessage());
+            Log.w(TAG, "Unable to auto show lyrics for the foreground player", error);
+        }
+    }
+
+    /** 任意一屏歌词层（含通知栏歌词条 / 底部频谱）是否已经显示。 */
+    private boolean hasVisibleLyricLayer() {
+        return mainPanel != null || secondaryPanel != null || statusLyricStrip != null
+                || bottomSpectrumView != null || !extraOverlays.isEmpty();
     }
 
     private void recoverMissingDisplayWindows(boolean hidden, long now) {

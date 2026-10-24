@@ -65,6 +65,24 @@ final class SettingsCatalog {
                 && oneOf(style, "compact", "island")) return "当前样式没有上一句歌词行";
         if (AppPreferences.KEY_CONTENT_ALIGN.equals(key)
                 && !oneOf(style, "default", "pure")) return "仅经典、纯净样式支持垂直对齐";
+        // issue #155：当前句行位只对经典（整套行位）与纯净（行位窗口）样式有意义。
+        if (AppPreferences.KEY_LYRIC_ANCHOR.equals(key)
+                && !oneOf(style, "default", "pure")) return "仅经典、纯净样式支持当前句行位";
+        // issue #138：行间距先覆盖经典、紧凑、Refined 三种会排多行的样式。
+        if (AppPreferences.KEY_LYRIC_LINE_SPACING.equals(key)
+                && !oneOf(style, "default", "compact", "refined")) {
+            return "仅经典、紧凑、Refined 样式支持行间距";
+        }
+        // issue #147：folia 与自定义样式没有「♪ · · ·」间奏占位，不做保留上一句。
+        if (AppPreferences.KEY_HOLD_PREVIOUS_LYRIC.equals(key)
+                && (FoliaModeCatalog.isStyle(style) || "custom".equals(style))) {
+            return "当前样式没有可保留的间奏占位";
+        }
+        // issue #134：封面与歌词上下排列只给紧凑 / AMLL 两种「左图右词」样式。
+        if (AppPreferences.KEY_COVER_STACKED.equals(key)
+                && !oneOf(style, "compact", "amll")) {
+            return "仅紧凑、AMLL 样式支持封面与歌词上下排列";
+        }
         if (AppPreferences.KEY_LONG_LINE_MODE.equals(key)
                 && !oneOf(style, "compact", "pure")) return "仅紧凑、纯净样式使用此长句设置";
         if (AppPreferences.KEY_ROUND_COVER.equals(key)

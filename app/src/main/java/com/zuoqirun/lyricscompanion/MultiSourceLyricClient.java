@@ -80,6 +80,16 @@ final class MultiSourceLyricClient {
                 return new Result(localHit.timeline, sourceName, "local");
             }
         }
+        // 播放器自己的歌词缓存（issue #154，默认关）：在本地 LRC 链之后、联网/缓存查询之前
+        // 试一次。开关在 loadPlayerCache 内判断；关闭时这里只多一次内存读，行为与以前一致。
+        // providerId 用 "local"，让 MusicStateStore 沿用本地歌词的会话状态处理。
+        LocalLyricClient.Hit playerCacheHit = local.loadPlayerCache(
+                sourcePackage, mediaId, title, artist);
+        if (!playerCacheHit.timeline.isEmpty()) {
+            DiagnosticLog.record(appContext, "Lyrics", "provider=player_cache result=matched lines="
+                    + playerCacheHit.timeline.lineCount() + " package=" + sourcePackage);
+            return new Result(playerCacheHit.timeline, "播放器缓存歌词", "local");
+        }
         CatalogPlan plan = catalogPlan(currentSource, selectedCatalog, playerCatalogFallback,
                 forceSelectedCatalog);
         DiagnosticLog.record(appContext, "Lyrics", "lookup start source=" + currentSource

@@ -20,14 +20,17 @@ final class SecondaryPositionJoystickView extends View {
             if (magnitude > radius * 0.12f) {
                 float strength = Math.min(1f, (magnitude - radius * 0.12f) / (radius * 0.88f));
                 int maximum = Math.max(1, Math.round(dp(9)));
-                int dx = Math.round(knobX / Math.max(1f, radius) * maximum * strength);
-                int dy = Math.round(knobY / Math.max(1f, radius) * maximum * strength);
+                int dx = PositionStepMath.horizontalDelta(axisMode,
+                        Math.round(knobX / Math.max(1f, radius) * maximum * strength));
+                int dy = PositionStepMath.verticalDelta(axisMode,
+                        Math.round(knobY / Math.max(1f, radius) * maximum * strength));
                 if (listener != null && (dx != 0 || dy != 0)) listener.onMove(dx, dy);
             }
             postDelayed(this, 33L);
         }
     };
     private Listener listener;
+    private int axisMode = PositionStepMath.AXIS_BOTH;
     private float centerX;
     private float centerY;
     private float radius;
@@ -43,6 +46,9 @@ final class SecondaryPositionJoystickView extends View {
     }
 
     void setListener(Listener listener) { this.listener = listener; }
+
+    /** 单轴锁定（issue #136）：锁定后摇杆只会在一个方向上移动。 */
+    void setAxisMode(int axisMode) { this.axisMode = axisMode; }
 
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         centerX = width / 2f;
@@ -156,5 +162,41 @@ final class SecondaryPositionJoystickView extends View {
 
     private float dp(float value) {
         return value * getResources().getDisplayMetrics().density;
+    }
+
+    /**
+     * 数值步进用到的纯计算（issue #136）：单轴锁定和手动输入解析。放在这里是为了复用摇杆同一套
+     * 「移动多少像素」语义，同时保持可单测，不碰任何 Android 控件。
+     */
+    static final class PositionStepMath {
+        static final int AXIS_BOTH = 0;
+        static final int AXIS_HORIZONTAL = 1;
+        static final int AXIS_VERTICAL = 2;
+        /** 手动输入单次位移的上限（像素），避免手滑输入把歌词层直接推出屏幕。 */
+        static final int MAX_INPUT_OFFSET = 1000;
+
+        private PositionStepMath() { }
+
+        static int horizontalDelta(int axisMode, int dx) {
+            return axisMode == AXIS_VERTICAL ? 0 : dx;
+        }
+
+        static int verticalDelta(int axisMode, int dy) {
+            return axisMode == AXIS_HORIZONTAL ? 0 : dy;
+        }
+
+        /**
+         * 解析手输位移（像素，可为负数），超出单次上限时收敛到边界。
+         *
+         * @throws NumberFormatException 不是整数字符串时抛出
+         */
+        static int parseInputOffset(String text) {
+            String trimmed = text == null ? "" : text.trim();
+            if (trimmed.isEmpty()) throw new NumberFormatException("empty offset");
+            int value = Integer.parseInt(trimmed);
+            if (value > MAX_INPUT_OFFSET) return MAX_INPUT_OFFSET;
+            if (value < -MAX_INPUT_OFFSET) return -MAX_INPUT_OFFSET;
+            return value;
+        }
     }
 }

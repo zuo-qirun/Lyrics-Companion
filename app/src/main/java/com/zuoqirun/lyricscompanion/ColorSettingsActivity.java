@@ -3,6 +3,7 @@ package com.zuoqirun.lyricscompanion;
 import android.annotation.SuppressLint;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -50,6 +51,9 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         navigation = new SettingsNavigator(this, "颜色与描边", scopeLabel, style,
                 new SettingsValues(this, displaySlot > 0));
         root = navigation.content;
+
+        // 预设配色方案（issue #131）：放在页面最顶部，一键套用本屏 × 当前样式。
+        if (selectedScope != 2) addPresetCard();
 
         // 页内实时预览（issue #24）。
         previewHost = new LinearLayout(this);
@@ -179,6 +183,14 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         addColor(parent, "非当前歌词颜色", AppPreferences.KEY_INACTIVE_LYRIC_COLOR, "留在自动时沿用“歌词颜色”。",
                 AppPreferences.inactiveLyricColor(this, secondary), 0xFFB1BCCB,
                 color -> AppPreferences.setInactiveLyricColor(this, secondary, color));
+        // 当前句不透明度（issue #148）：与上方颜色自带的不透明度相乘，100 为完全不透明。
+        addPercentSeek(parent, "当前句不透明度", AppPreferences.KEY_CURRENT_LYRIC_OPACITY,
+                AppPreferences.currentLyricOpacity(this, secondary),
+                value -> AppPreferences.setCurrentLyricOpacity(this, secondary, value));
+        TextView opacityNote = text("与颜色自带的不透明度相乘；上一句 / 下一句的不透明度在“显示设置”里分开调整。",
+                12, 0xFF8392A8, false);
+        opacityNote.setPadding(0, 0, 0, dp(6));
+        parent.addView(opacityNote);
         LinearLayout outlines = colorSection("文字描边", SettingsCatalog.Category.COLOR_OUTLINE);
         addOutlineControls(outlines, secondary, true, "当前歌词");
         addOutlineControls(outlines, secondary, false, "非当前歌词");
@@ -308,8 +320,10 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
                           int fallback, ColorConsumer consumer) {
         parent = navigation.row(parent, key, title);
         navigation.scopeNote(parent, key);
+        // 顶部歌词条的 setStatusLyric* 仍是旧版不透明写入（issue #148 的 alpha 只覆盖悬浮歌词），
+        // 所以在该区域先隐藏透明度输入，避免用户调了 alpha 却被静默丢弃。
         ColorPaletteControls.add(this, parent, title, description, initial, fallback,
-                color -> consumer.accept(color), this::changed);
+                selectedScope != 2, color -> consumer.accept(color), this::changed);
     }
 
     private void addPercentSeek(LinearLayout parent, String title, String key, int initial,
@@ -348,6 +362,135 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         LyricsDisplayService.refreshSecondary(this);
         // 页内实时预览（issue #24）：改颜色、描边、背景都立刻在预览里看到，不必回总览页。
         if (colorPreview != null) colorPreview.reloadStyle();
+    }
+
+    /**
+     * 预设配色方案（issue #131）：色球一键把本屏 × 当前样式写入一组歌词颜色，并记住方案名。
+     */
+    private void addPresetCard() {
+        boolean secondary = selectedScope != 0;
+        String stored = AppPreferences.colorPreset(this, secondary);
+        ColorPaletteControls.Scheme applied = ColorPaletteControls.schemeFor(stored);
+        LinearLayout section = card("预设配色方案");
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        grid.setPadding(0, dp(8), 0, 0);
+        ColorPaletteControls.Scheme[] schemes = ColorPaletteControls.schemes();
+        LinearLayout row = null;
+        for (int index = 0; index < schemes.length; index++) {
+            if (index % 3 == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                if (index > 0) row.setPadding(0, dp(10), 0, 0);
+                grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            }
+            boolean selected = applied != null && applied.id.equals(schemes[index].id);
+            row.addView(schemeCell(schemes[index], selected, secondary),
+                    new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        section.addView(grid);
+        LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setPadding(0, dp(10), 0, 0);
+        String statusText;
+        if (applied != null) statusText = "当前：" + applied.name;
+        else if (stored.isEmpty()) statusText = "当前：跟随样式默认配色";
+        else statusText = "当前：自定义配色（未套用预设）";
+        footer.addView(text(statusText, 12, 0xFF6EE7F2, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        com.google.android.material.button.MaterialButton restore =
+                new com.google.android.material.button.MaterialButton(this);
+        restore.setText("恢复跟随样式");
+        restore.setTextSize(12f);
+        restore.setAllCaps(false);
+        restore.setOnClickListener(v -> resetPresetColors(secondary));
+        footer.addView(restore, new LinearLayout.LayoutParams(-2, dp(44)));
+        section.addView(footer);
+        TextView note = text("点按色球会把当前句 / 非当前句 / 描边 / 背景 / 律动颜色一起写成该方案的初值，"
+                + "之后仍可逐项微调；只影响本屏 · 当前样式。", 12, 0xFF8392A8, false);
+        note.setPadding(0, dp(6), 0, 0);
+        section.addView(note);
+        navigation.addSection(section, SettingsCatalog.Category.COMMON, "预设配色方案");
+    }
+
+    /** 一个预设色球：当前句 → 非当前句的渐变，选中时描亮边并高亮名字。 */
+    private View schemeCell(ColorPaletteControls.Scheme scheme, boolean selected,
+                            boolean secondary) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setPadding(dp(2), dp(4), dp(2), dp(2));
+        View ball = new View(this);
+        GradientDrawable gradient = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{scheme.current, scheme.inactive});
+        gradient.setShape(GradientDrawable.OVAL);
+        gradient.setStroke(dp(selected ? 3 : 1), selected ? 0xFF6EE7F2 : 0xFF3A5470);
+        ball.setBackground(gradient);
+        cell.addView(ball, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        TextView name = text(scheme.name, 12, selected ? 0xFF6EE7F2 : 0xFFD7E1EE, selected);
+        name.setPadding(0, dp(6), 0, 0);
+        cell.addView(name);
+        cell.setContentDescription(scheme.name);
+        cell.setOnClickListener(v -> applyPreset(scheme, secondary));
+        return cell;
+    }
+
+    /** 套用预设：写当前屏 × 当前样式的一组颜色，并记下方案名用于色球选中态。 */
+    private void applyPreset(ColorPaletteControls.Scheme scheme, boolean secondary) {
+        AppPreferences.putDisplayString(this, secondary,
+                AppPreferences.KEY_CURRENT_LYRIC_COLOR_MODE, "fixed");
+        AppPreferences.putDisplayString(this, secondary,
+                AppPreferences.KEY_INACTIVE_LYRIC_COLOR_MODE, "fixed");
+        // 基础歌词颜色也写成当前句颜色：只认“歌词颜色”的样式套用预设才会有变化。
+        AppPreferences.setLyricColor(this, secondary, scheme.current);
+        AppPreferences.setCurrentLyricColor(this, secondary, scheme.current);
+        AppPreferences.setInactiveLyricColor(this, secondary, scheme.inactive);
+        // 日夜配色里的成对颜色优先级更高，套用预设前清空，避免旧的自定义颜色把预设盖掉。
+        clearThemedLyricColors(secondary);
+        AppPreferences.putDisplayBoolean(this, secondary,
+                AppPreferences.KEY_CURRENT_LYRIC_OUTLINE, true);
+        AppPreferences.putDisplayBoolean(this, secondary,
+                AppPreferences.KEY_INACTIVE_LYRIC_OUTLINE, true);
+        AppPreferences.setLyricOutlineColor(this, secondary, true, scheme.outline);
+        AppPreferences.setLyricOutlineColor(this, secondary, false, scheme.outline);
+        AppPreferences.setBackgroundColor(this, secondary, true, scheme.backgroundLight);
+        AppPreferences.setBackgroundColor(this, secondary, false, scheme.backgroundDark);
+        AppPreferences.setCompactSpectrumColor(this, secondary, scheme.spectrum);
+        AppPreferences.setColorPreset(this, secondary, scheme.id);
+        changed();
+        rebuildColors();
+    }
+
+    /** 清空预设，恢复"跟随当前样式默认配色"（issue #131）。 */
+    private void resetPresetColors(boolean secondary) {
+        AppPreferences.setLyricColor(this, secondary, 0);
+        AppPreferences.setCurrentLyricColor(this, secondary, 0);
+        AppPreferences.setInactiveLyricColor(this, secondary, 0);
+        AppPreferences.putDisplayString(this, secondary,
+                AppPreferences.KEY_CURRENT_LYRIC_COLOR_MODE, "fixed");
+        AppPreferences.putDisplayString(this, secondary,
+                AppPreferences.KEY_INACTIVE_LYRIC_COLOR_MODE, "fixed");
+        clearThemedLyricColors(secondary);
+        AppPreferences.putDisplayBoolean(this, secondary,
+                AppPreferences.KEY_CURRENT_LYRIC_OUTLINE, false);
+        AppPreferences.putDisplayBoolean(this, secondary,
+                AppPreferences.KEY_INACTIVE_LYRIC_OUTLINE, false);
+        AppPreferences.setLyricOutlineColor(this, secondary, true, 0);
+        AppPreferences.setLyricOutlineColor(this, secondary, false, 0);
+        AppPreferences.setBackgroundColor(this, secondary, true, 0);
+        AppPreferences.setBackgroundColor(this, secondary, false, 0);
+        AppPreferences.setCompactSpectrumColor(this, secondary, 0);
+        AppPreferences.setColorPreset(this, secondary, "");
+        changed();
+        rebuildColors();
+    }
+
+    /** 清空日夜配色自己的当前 / 非当前句颜色，让套用的基础色重新生效。 */
+    private void clearThemedLyricColors(boolean secondary) {
+        AppPreferences.setCurrentLyricLightColor(this, secondary, 0);
+        AppPreferences.setCurrentLyricDarkColor(this, secondary, 0);
+        AppPreferences.setInactiveLyricLightColor(this, secondary, 0);
+        AppPreferences.setInactiveLyricDarkColor(this, secondary, 0);
     }
 
     /**

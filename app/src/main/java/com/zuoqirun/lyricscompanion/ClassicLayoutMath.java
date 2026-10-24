@@ -23,6 +23,9 @@ final class ClassicLayoutMath {
     static final float MIN_TITLE_GAP_DP = 27f;
     /** 本句与翻译之间单独排：翻译跟着本句走，不参与统一行距（否则多行时会离得很远）。 */
     static final float MIN_TRANSLATION_GAP_DP = 22f;
+    /** 行间距设置（issue #138）：80–200%，100% = 原有排版。 */
+    static final int MIN_LINE_SPACING_PERCENT = 80;
+    static final int MAX_LINE_SPACING_PERCENT = 200;
 
     private ClassicLayoutMath() { }
 
@@ -58,6 +61,10 @@ final class ClassicLayoutMath {
         float uniformGapPx;
         float scale = 1f;
         float heightPx;
+        /** 本帧实际生效的行间距百分比（80–200）；100 = 原有排版（issue #138）。 */
+        int lineSpacingPercent = 100;
+        /** 请求的行间距因面板高度不够被下调过；下调的是行距，字号没有跟着缩。 */
+        boolean lineSpacingLimited;
 
         Block(int capacity) {
             baselinesPx = new float[Math.max(1, capacity)];
@@ -74,16 +81,61 @@ final class ClassicLayoutMath {
     }
 
     /**
-     * 本句之后画几句。1 行 = 只有本句；2 行 = 本句 + 下一句；3 行 = 上一句 + 本句 + 下一句；
-     * 之后本句两侧交替补行（4 行再补一句下一句，5 行再补一句上一句……）。
+     * 当前句在可见行窗口里的行号（issue #155）：顶部=0、第二行=1、居中=中间行。
+     *
+     * <p>行数为 1 时三种取值都退化成 0，也就是「当前句行位」对单行没有影响。
      */
-    static int followingRowCount(int rows) {
-        return Math.max(0, visibleRowCount(rows) / 2);
+    static int anchorRow(int rows, String anchor) {
+        int visible = visibleRowCount(rows);
+        if ("top".equals(anchor)) return 0;
+        if ("second".equals(anchor)) return Math.min(1, visible - 1);
+        return (visible - 1) / 2;
     }
 
-    /** 本句之前画几句，与 {@link #followingRowCount(int)} 配对。 */
+    /**
+     * 本句之后画几句，与 {@link #precedingRowCount(int, String)} 配对。
+     *
+     * <p>本句放顶部时后面全排下一句；放第二行时上面留一句上一句；居中时两侧对称，
+     * 和旧行为一致（默认空字符串）。总行数不够时由 {@link #anchorRow} 收窄，不会越界。
+     */
+    static int followingRowCount(int rows, String anchor) {
+        return Math.max(0, visibleRowCount(rows) - 1 - anchorRow(rows, anchor));
+    }
+
+    /** 本句之前画几句，取决于「当前句行位」（issue #155）。 */
+    static int precedingRowCount(int rows, String anchor) {
+        return anchorRow(rows, anchor);
+    }
+
+    static int followingRowCount(int rows) {
+        return followingRowCount(rows, "");
+    }
+
     static int precedingRowCount(int rows) {
-        return Math.max(0, (visibleRowCount(rows) - 1) / 2);
+        return precedingRowCount(rows, "");
+    }
+
+    /** 行间距百分比归一化到 80–200，默认 100（issue #138）。 */
+    static int normalizeLineSpacing(int percent) {
+        return Math.max(MIN_LINE_SPACING_PERCENT, Math.min(MAX_LINE_SPACING_PERCENT, percent));
+    }
+
+    /** 行间距百分比换算成行距倍数，1 = 原有间距。 */
+    static float lineSpacingFactor(int percent) {
+        return normalizeLineSpacing(percent) / 100f;
+    }
+
+    /**
+     * 竖排布局里封面的边长上限（issue #134）。
+     *
+     * <p>封面、歌名与歌词共用一条高度预算：封面最多长到 {@code availablePx} 减去歌名等信息
+     * 和歌词保底空间之后剩下的高度。{@code 封面大小} 调得再大也不会把歌词挤没。
+     */
+    static float stackedCoverSize(float requestedPx, float availablePx, float reservedPx,
+                                  float minLyricPx) {
+        float room = Math.max(1f, availablePx) - Math.max(0f, reservedPx)
+                - Math.max(0f, minLyricPx);
+        return Math.min(Math.max(1f, requestedPx), Math.max(1f, room));
     }
 
     /**
@@ -138,10 +190,32 @@ final class ClassicLayoutMath {
     static void pack(Block out, int count, float[] sizesDp, boolean[] scales,
                      float[] minimumGapsDp, boolean[] uniform, float densityUnit,
                      float requestedScale, float availableHeightPx) {
+        pack(out, count, sizesDp, scales, minimumGapsDp, uniform, densityUnit,
+                requestedScale, availableHeightPx, 100, null);
+    }
+
+    /**
+     * 带「行间距」百分比的重载（issue #138）。
+     *
+     * <p>字号仍然只按面板高度收缩：缩放比例先用 100% 行距算出来，行间距随后只作用在
+     * {@code spacingRows[i]} 为 true 的行距上（相邻两行都是歌词时才缩放，歌名、翻译保持
+     * 原行距）。调大后装不下时先把行间距收回到能装下的最大值，文字不因此缩小；
+     * {@link Block#lineSpacingPercent} / {@link Block#lineSpacingLimited} 记录实际生效值。
+     *
+     * @param spacingPercent 80–200，100 = 原有排版
+     * @param spacingRows    某行行距是否跟随行间距缩放；null 表示都不缩放
+     */
+    static void pack(Block out, int count, float[] sizesDp, boolean[] scales,
+                     float[] minimumGapsDp, boolean[] uniform, float densityUnit,
+                     float requestedScale, float availableHeightPx, int spacingPercent,
+                     boolean[] spacingRows) {
         float safeUnit = Math.max(0.01f, densityUnit);
         float available = Math.max(1f, availableHeightPx);
         float scale = Math.max(MIN_TEXT_SCALE, Math.min(4f, requestedScale));
+        int spacing = normalizeLineSpacing(spacingPercent);
         out.ensureCapacity(count);
+        out.lineSpacingPercent = spacing;
+        out.lineSpacingLimited = false;
         if (count <= 0) {
             out.scale = scale;
             out.heightPx = 0f;
@@ -150,8 +224,8 @@ final class ClassicLayoutMath {
         }
         // 装不下就缩字。高度对字号是单调不减的（行距也只跟着减小到自己的下限），所以直接二分：
         // 比例收缩会被「行距下限不随字号缩小」卡住，二分一次就能收到真正的可行解。
-        if (heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit) > available
-                && scale > MIN_TEXT_SCALE) {
+        if (heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit)
+                > available && scale > MIN_TEXT_SCALE) {
             float low = MIN_TEXT_SCALE;
             float high = scale;
             for (int iteration = 0; iteration < 16; iteration++) {
@@ -165,6 +239,31 @@ final class ClassicLayoutMath {
             }
             scale = low;
         }
+        // 字号定下来之后再分配行间距：>100% 装不下就收回到能装下的最大值（字号不动），
+        // 已经缩到最小字号还装不下时同样不再额外放大行距。
+        float factor = spacing / 100f;
+        if (factor > 1f) {
+            if (heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit)
+                    > available) {
+                factor = 1f;
+                out.lineSpacingLimited = true;
+            } else if (heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit,
+                    spacingRows, factor) > available) {
+                float low = 1f;
+                float high = factor;
+                for (int iteration = 0; iteration < 8; iteration++) {
+                    float middle = (low + high) * 0.5f;
+                    if (heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, safeUnit,
+                            spacingRows, middle) <= available) {
+                        low = middle;
+                    } else {
+                        high = middle;
+                    }
+                }
+                factor = low;
+                out.lineSpacingLimited = true;
+            }
+        }
         float uniformGap = uniformGapPx(count, sizesDp, scales, minimumGapsDp, uniform,
                 safeUnit, scale);
         float baseline = 0f;
@@ -176,22 +275,37 @@ final class ClassicLayoutMath {
             } else {
                 float required = requiredGapPx(index, sizesDp, scales, minimumGapsDp,
                         safeUnit, scale);
-                baseline += uniform[index] ? Math.max(required, uniformGap) : required;
+                float gap = uniform[index] ? Math.max(required, uniformGap) : required;
+                baseline += gap * rowSpacingFactor(index, spacingRows, factor);
             }
             out.baselinesPx[index] = baseline;
             previousSize = size;
         }
         out.scale = scale;
         out.uniformGapPx = uniformGap;
+        out.lineSpacingPercent = Math.round(factor * 100f);
         out.heightPx = baseline + descent(previousSize);
+    }
+
+    /** 行距是否跟随行间距缩放：只有相邻两行都是歌词的行会被调用方标记。 */
+    private static float rowSpacingFactor(int index, boolean[] spacingRows, float factor) {
+        if (spacingRows == null || index >= spacingRows.length || !spacingRows[index]) return 1f;
+        return factor;
     }
 
     private static float heightAt(float scale, int count, float[] sizesDp, boolean[] scales,
                                   float[] minimumGapsDp, boolean[] uniform, float densityUnit) {
+        return heightAt(scale, count, sizesDp, scales, minimumGapsDp, uniform, densityUnit,
+                null, 1f);
+    }
+
+    private static float heightAt(float scale, int count, float[] sizesDp, boolean[] scales,
+                                  float[] minimumGapsDp, boolean[] uniform, float densityUnit,
+                                  boolean[] spacingRows, float spacingFactor) {
         float uniformGap = uniformGapPx(count, sizesDp, scales, minimumGapsDp, uniform,
                 densityUnit, scale);
         return blockHeightPx(count, sizesDp, scales, minimumGapsDp, uniform, densityUnit,
-                scale, uniformGap);
+                scale, uniformGap, spacingRows, spacingFactor);
     }
 
     /** 主行共用的那份基线行距：不小于各行自己的下限，也不小于任意一对相邻行的需求。 */
@@ -210,13 +324,22 @@ final class ClassicLayoutMath {
     private static float blockHeightPx(int count, float[] sizesDp, boolean[] scales,
                                        float[] minimumGapsDp, boolean[] uniform,
                                        float densityUnit, float scale, float uniformGap) {
+        return blockHeightPx(count, sizesDp, scales, minimumGapsDp, uniform, densityUnit,
+                scale, uniformGap, null, 1f);
+    }
+
+    private static float blockHeightPx(int count, float[] sizesDp, boolean[] scales,
+                                       float[] minimumGapsDp, boolean[] uniform,
+                                       float densityUnit, float scale, float uniformGap,
+                                       boolean[] spacingRows, float spacingFactor) {
         float baseline = ascent(rowSizePx(sizesDp[0], scales[0], densityUnit, scale));
         float previousSize = rowSizePx(sizesDp[0], scales[0], densityUnit, scale);
         for (int index = 1; index < count; index++) {
             float size = rowSizePx(sizesDp[index], scales[index], densityUnit, scale);
             float required = requiredGapPx(index, sizesDp, scales, minimumGapsDp,
                     densityUnit, scale);
-            baseline += uniform[index] ? Math.max(required, uniformGap) : required;
+            float gap = uniform[index] ? Math.max(required, uniformGap) : required;
+            baseline += gap * rowSpacingFactor(index, spacingRows, spacingFactor);
             previousSize = size;
         }
         return baseline + descent(previousSize);

@@ -172,4 +172,149 @@ public class ClassicLayoutMathTest {
         assertEquals(-80f, ClassicLayoutMath.alignedRowShift("center", 90f, 260f, 10f, 200f),
                 0.0001f);
     }
+
+    @Test public void currentLineAnchorRebalancesPrecedingAndFollowingRows() {
+        // issue #155：顶部时当前句上面不再排上一句，7 行设置下后面排 6 行。
+        assertEquals(0, ClassicLayoutMath.anchorRow(7, "top"));
+        assertEquals(0, ClassicLayoutMath.precedingRowCount(7, "top"));
+        assertEquals(6, ClassicLayoutMath.followingRowCount(7, "top"));
+        // 第二行：上面留一句上一句、当前句落第 2 行、后面还有 5 行（7 行设置的验收场景）。
+        assertEquals(1, ClassicLayoutMath.anchorRow(7, "second"));
+        assertEquals(1, ClassicLayoutMath.precedingRowCount(7, "second"));
+        assertEquals(5, ClassicLayoutMath.followingRowCount(7, "second"));
+        // 居中（空字符串）与旧的两参数行为一致：3 前 / 3 后。
+        assertEquals(ClassicLayoutMath.precedingRowCount(7), ClassicLayoutMath.anchorRow(7, ""));
+        assertEquals(3, ClassicLayoutMath.precedingRowCount(7, ""));
+        assertEquals(3, ClassicLayoutMath.followingRowCount(7, ""));
+        // 行数不足时自动退化，不会出现负行位。
+        assertEquals(0, ClassicLayoutMath.anchorRow(1, "second"));
+        assertEquals(0, ClassicLayoutMath.followingRowCount(1, "top"));
+        assertEquals(1, ClassicLayoutMath.anchorRow(2, "second"));
+    }
+
+    /** 按 drawDefault 的行表造 7 行歌词（歌名 + 若干上一句/当前句/下一句），返回当前句的行号。 */
+    private static int packAnchoredRows(ClassicLayoutMath.Block block, int lyricRows,
+                                        String anchor) {
+        int preceding = ClassicLayoutMath.precedingRowCount(lyricRows, anchor);
+        int following = ClassicLayoutMath.followingRowCount(lyricRows, anchor);
+        // 歌名行 + 上一句 preceding 行 + 当前句 + 下一句 following 行 = 2 + preceding + following。
+        int count = 2 + preceding + following;
+        float[] sizes = new float[count];
+        boolean[] scales = new boolean[count];
+        float[] mins = new float[count];
+        boolean[] uniform = new boolean[count];
+        boolean[] spacing = new boolean[count];
+        sizes[0] = 15f;
+        scales[0] = false;
+        mins[0] = ClassicLayoutMath.MIN_LYRIC_GAP_DP;
+        uniform[0] = true;
+        int currentRow = -1;
+        int index = 1;
+        for (int offset = -preceding; offset <= following; offset++) {
+            sizes[index] = offset == 0 ? 22f : 22f * 0.7f;
+            scales[index] = true;
+            mins[index] = index == 1 ? ClassicLayoutMath.MIN_TITLE_GAP_DP
+                    : ClassicLayoutMath.MIN_LYRIC_GAP_DP;
+            uniform[index] = true;
+            spacing[index] = true;
+            if (offset == 0) currentRow = index;
+            index++;
+        }
+        ClassicLayoutMath.pack(block, count, sizes, scales, mins, uniform, 1f, 1f, 400f, 100,
+                spacing);
+        return currentRow;
+    }
+
+    @Test public void currentLineAnchorPlacesTheCurrentLineOnTheRequestedRow() {
+        ClassicLayoutMath.Block top = new ClassicLayoutMath.Block(8);
+        assertEquals("顶部时当前句紧贴歌名下面一行", 1,
+                packAnchoredRows(top, 7, "top"));
+        ClassicLayoutMath.Block second = new ClassicLayoutMath.Block(8);
+        assertEquals("第二行时歌名与当前句中间隔一行上一句", 2,
+                packAnchoredRows(second, 7, "second"));
+        ClassicLayoutMath.Block center = new ClassicLayoutMath.Block(8);
+        assertEquals("默认居中仍是原有行位", 4,
+                packAnchoredRows(center, 7, ""));
+    }
+
+    @Test public void lineSpacingPercentIsClampedToTheSupportedRange() {
+        // issue #138：滑杆范围 80–200，默认 100 = 原有排版。
+        assertEquals(80, ClassicLayoutMath.MIN_LINE_SPACING_PERCENT);
+        assertEquals(200, ClassicLayoutMath.MAX_LINE_SPACING_PERCENT);
+        assertEquals(80, ClassicLayoutMath.normalizeLineSpacing(0));
+        assertEquals(80, ClassicLayoutMath.normalizeLineSpacing(79));
+        assertEquals(100, ClassicLayoutMath.normalizeLineSpacing(100));
+        assertEquals(200, ClassicLayoutMath.normalizeLineSpacing(201));
+        assertEquals(200, ClassicLayoutMath.normalizeLineSpacing(999));
+        assertEquals(1f, ClassicLayoutMath.lineSpacingFactor(100), 0.0001f);
+        assertEquals(1.5f, ClassicLayoutMath.lineSpacingFactor(150), 0.0001f);
+        assertEquals(2f, ClassicLayoutMath.lineSpacingFactor(200), 0.0001f);
+        assertEquals(0.8f, ClassicLayoutMath.lineSpacingFactor(20), 0.0001f);
+    }
+
+    private static void packSpacingRows(ClassicLayoutMath.Block block, int percent) {
+        float[] sizes = {22f, 22f, 22f};
+        boolean[] scales = {true, true, true};
+        float[] mins = {0f, ClassicLayoutMath.MIN_LYRIC_GAP_DP,
+                ClassicLayoutMath.MIN_LYRIC_GAP_DP};
+        boolean[] uniform = {true, true, true};
+        boolean[] spacingRows = {false, true, true};
+        ClassicLayoutMath.pack(block, 3, sizes, scales, mins, uniform, 1f, 1f, 400f, percent,
+                spacingRows);
+    }
+
+    @Test public void lineSpacingScalesOnlyAdjacentLyricRowGaps() {
+        ClassicLayoutMath.Block base = new ClassicLayoutMath.Block(3);
+        ClassicLayoutMath.Block wide = new ClassicLayoutMath.Block(3);
+        ClassicLayoutMath.Block tight = new ClassicLayoutMath.Block(3);
+        packSpacingRows(base, 100);
+        packSpacingRows(wide, 200);
+        packSpacingRows(tight, 80);
+        float baseGap = base.baselinesPx[1] - base.baselinesPx[0];
+        float wideGap = wide.baselinesPx[1] - wide.baselinesPx[0];
+        float tightGap = tight.baselinesPx[1] - tight.baselinesPx[0];
+        assertEquals("200% 只放大歌词行之间的行距", 2f * baseGap, wideGap, 0.01f);
+        assertEquals("80% 收窄到原来的八成", 0.8f * baseGap, tightGap, 0.01f);
+        assertEquals(100, base.lineSpacingPercent);
+        assertEquals(200, wide.lineSpacingPercent);
+        assertEquals(80, tight.lineSpacingPercent);
+        assertTrue(!wide.lineSpacingLimited);
+        // 字号没有被行间距带着变，块高只由行距增长。
+        assertEquals(base.scale, wide.scale, 0.0001f);
+        assertTrue(wide.heightPx > base.heightPx);
+    }
+
+    @Test public void lineSpacingShrinksBackWhenThePanelCannotFitIt() {
+        // 字号边界：默认字号在 180dp 高度下正好排得下 7 行歌词；200% 行距装不进去。
+        float[] sizes = {22f, 22f, 22f, 22f, 22f, 22f, 22f};
+        boolean[] scales = {true, true, true, true, true, true, true};
+        float[] mins = {0f, ClassicLayoutMath.MIN_LYRIC_GAP_DP, ClassicLayoutMath.MIN_LYRIC_GAP_DP,
+                ClassicLayoutMath.MIN_LYRIC_GAP_DP, ClassicLayoutMath.MIN_LYRIC_GAP_DP,
+                ClassicLayoutMath.MIN_LYRIC_GAP_DP, ClassicLayoutMath.MIN_LYRIC_GAP_DP};
+        boolean[] uniform = {true, true, true, true, true, true, true};
+        boolean[] spacingRows = {false, true, true, true, true, true, true};
+        ClassicLayoutMath.Block base = new ClassicLayoutMath.Block(7);
+        ClassicLayoutMath.pack(base, 7, sizes, scales, mins, uniform, 1f, 1f, 180f, 100,
+                spacingRows);
+        ClassicLayoutMath.Block crowded = new ClassicLayoutMath.Block(7);
+        ClassicLayoutMath.pack(crowded, 7, sizes, scales, mins, uniform, 1f, 1f, 180f, 200,
+                spacingRows);
+        assertEquals("字号不因行间距缩小", base.scale, crowded.scale, 0.0001f);
+        assertTrue("200% 放不下时应记录被收住", crowded.lineSpacingLimited);
+        assertTrue("实际生效行距应低于 200%", crowded.lineSpacingPercent < 200);
+        assertTrue("实际生效行距不应低于 100%", crowded.lineSpacingPercent >= 100);
+        assertTrue("收住行距后必须装得下，实际 " + crowded.heightPx, crowded.heightPx <= 180.5f);
+    }
+
+    @Test public void stackedCoverSizeLeavesRoomForMetadataAndLyrics() {
+        // issue #134：竖排封面大小给上限，封面 + 歌名 + 歌词共用高度预算。
+        assertEquals(120f,
+                ClassicLayoutMath.stackedCoverSize(120f, 300f, 40f, 60f), 0.001f);
+        assertEquals(80f,
+                ClassicLayoutMath.stackedCoverSize(200f, 180f, 40f, 60f), 0.001f);
+        assertEquals(1f,
+                ClassicLayoutMath.stackedCoverSize(200f, 50f, 40f, 60f), 0.001f);
+        assertTrue(ClassicLayoutMath.stackedCoverSize(200f, 300f, 40f, 60f)
+                <= 300f - 40f - 60f);
+    }
 }

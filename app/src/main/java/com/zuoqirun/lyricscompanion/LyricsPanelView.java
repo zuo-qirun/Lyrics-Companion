@@ -136,6 +136,8 @@ final class LyricsPanelView extends View {
     private final boolean[] classicRowUniform = new boolean[CLASSIC_ROW_CAPACITY];
     private final int[] classicRowKinds = new int[CLASSIC_ROW_CAPACITY];
     private final int[] classicRowOffsets = new int[CLASSIC_ROW_CAPACITY];
+    /** 该行的行距是否跟随「行间距」缩放：相邻两行都是歌词时才跟着动（issue #138）。 */
+    private final boolean[] classicRowSpacing = new boolean[CLASSIC_ROW_CAPACITY];
     private final ClassicLayoutMath.Block classicBlock =
             new ClassicLayoutMath.Block(CLASSIC_ROW_CAPACITY);
     /** 星空背景的固定种子：同一片星空每帧都一样（issue #59）。 */
@@ -1420,9 +1422,11 @@ final class LyricsPanelView extends View {
         boolean hasTranslation = !translation.isEmpty();
         // 「歌词显示行数」：经典样式最多摆 7 行歌词（上一句 ×3 / 本句 / 下一句 ×3）。1 行时只画本句，
         // 2 行时画本句与下一句，之后本句两侧交替补行，空行位保留着不动（issue #26 / #64）。
+        // 「当前句行位」（issue #155）把本句固定在顶部 / 第二行 / 居中，行数为 1 时三种都退化成只画本句。
+        String currentAnchor = AppPreferences.lyricAnchor(getContext(), secondary);
         int lyricRows = ClassicLayoutMath.visibleRowCount(lyricLineCount);
-        int followingRows = ClassicLayoutMath.followingRowCount(lyricRows);
-        int precedingRows = ClassicLayoutMath.precedingRowCount(lyricRows);
+        int followingRows = ClassicLayoutMath.followingRowCount(lyricRows, currentAnchor);
+        int precedingRows = ClassicLayoutMath.precedingRowCount(lyricRows, currentAnchor);
         float controlReserve = AppPreferences.showPlaybackControls(getContext(), secondary)
                 ? 31f * density * contentScale : 0f;
         // 可用区：所有行都排在这条线以上。频谱打开时它再往上让出频谱那一段。
@@ -1452,6 +1456,7 @@ final class LyricsPanelView extends View {
             classicRowScales[rowCount] = true;
             classicRowMinGaps[rowCount] = 0f;
             classicRowUniform[rowCount] = true;
+            classicRowSpacing[rowCount] = false;
             rowCount++;
         }
         int titleIndex = rowCount;
@@ -1464,6 +1469,7 @@ final class LyricsPanelView extends View {
         classicRowScales[titleIndex] = false;
         classicRowMinGaps[titleIndex] = titleIndex > 0 ? ClassicLayoutMath.MIN_LYRIC_GAP_DP : 0f;
         classicRowUniform[titleIndex] = true;
+        classicRowSpacing[titleIndex] = false;
         rowCount++;
         for (int offset = -precedingRows; offset <= followingRows; offset++) {
             boolean current = offset == 0;
@@ -1479,6 +1485,9 @@ final class LyricsPanelView extends View {
                             ? ClassicLayoutMath.MIN_TITLE_GAP_DP
                             : ClassicLayoutMath.MIN_LYRIC_GAP_DP);
             classicRowUniform[rowCount] = true;
+            // 只有上下相邻的两行都是歌词时才把这段行距交给「行间距」；歌名、翻译前后保持原样。
+            classicRowSpacing[rowCount] = rowCount > 0
+                    && classicRowKinds[rowCount - 1] == CLASSIC_ROW_LYRIC;
             rowCount++;
             if (current && hasTranslation) {
                 classicRowKinds[rowCount] = CLASSIC_ROW_TRANSLATION;
@@ -1488,6 +1497,7 @@ final class LyricsPanelView extends View {
                 classicRowMinGaps[rowCount] = ClassicLayoutMath.MIN_TRANSLATION_GAP_DP;
                 // 翻译贴着本句走，不参与统一行距，否则多行时它会离本句很远。
                 classicRowUniform[rowCount] = false;
+                classicRowSpacing[rowCount] = false;
                 rowCount++;
             }
         }
@@ -1510,7 +1520,8 @@ final class LyricsPanelView extends View {
             }
         }
         ClassicLayoutMath.pack(classicBlock, rowCount, classicRowSizes, classicRowScales,
-                classicRowMinGaps, classicRowUniform, densityUnit, textScale, availableHeight);
+                classicRowMinGaps, classicRowUniform, densityUnit, textScale, availableHeight,
+                AppPreferences.lyricLineSpacing(getContext(), secondary), classicRowSpacing);
         float classicTextScale = classicBlock.scale;
         float blockTop;
         if (contentAlign.isEmpty()) {
@@ -1540,6 +1551,8 @@ final class LyricsPanelView extends View {
         float lyricAnchor = lyricAnchorX(pad, usableWidth, lyricAlign);
         int classicTextSave = canvas.save();
         canvas.clipRect(0f, 0f, width, Math.max(1f, areaBottom));
+        // 间奏保留上一句时，本句行已经把上一句画出来了；再上面那一行不再重复画同一句（issue #147）。
+        String heldClassic = snapshot.lyrics.interlude ? heldInterludeText(snapshot) : "";
         for (int index = 0; index < rowCount; index++) {
             int kind = classicRowKinds[index];
             float baseline = ClassicLayoutMath.rowBaseline(blockTop, classicBlock.baselinesPx[index],
@@ -1573,10 +1586,16 @@ final class LyricsPanelView extends View {
             int offset = classicRowOffsets[index];
             if (offset == 0) {
                 if (snapshot.lyrics.interlude) {
-                    float dotRadius = currentSize * 0.35f;
-                    float dotWidth = interludeDotsWidth(dotRadius);
-                    drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
-                            baseline - dotRadius, dotRadius, currentLyricColor(0xFFFFCA66));
+                    if (!heldClassic.isEmpty()) {
+                        drawAlignedLyric(canvas, heldClassic, pad, usableWidth, baseline, currentSize,
+                                heldInterludeColor(currentLyricColor(0xFFFFCA66)),
+                                Typeface.NORMAL);
+                    } else {
+                        float dotRadius = currentSize * 0.35f;
+                        float dotWidth = interludeDotsWidth(dotRadius);
+                        drawInterludeDots(canvas, snapshot, width / 2f - dotWidth / 2f,
+                                baseline - dotRadius, dotRadius, currentLyricColor(0xFFFFCA66));
+                    }
                 } else {
                     if ("legacy".equals(classicLongLineMode)) {
                         drawKaraoke(canvas, snapshot, currentText(snapshot), lyricAnchor, baseline,
@@ -1600,6 +1619,7 @@ final class LyricsPanelView extends View {
                 }
                 continue;
             }
+            if (offset == -1 && !heldClassic.isEmpty()) continue;
             LrcTimeline.NearbyLine line = classicNearbyLine(snapshot, offset);
             String text = line != null ? line.text : classicFallbackText(snapshot, offset);
             if (text.isEmpty()) continue;
@@ -1821,9 +1841,15 @@ final class LyricsPanelView extends View {
         if (secondRow) canvas.clipRect(textLeft, top + islandRows.mainTop,
                 textLeft + textWidth, top + islandRows.mainBottom);
         if (snapshot.lyrics.interlude) {
-            float dotRadius = lyricSize * 0.22f;
-            drawInterludeDots(canvas, snapshot, textLeft, lyricBaseline - lyricSize * 0.85f,
-                    dotRadius, currentLyricColor(0xFFFFFFFF));
+            String held = heldInterludeText(snapshot);
+            if (!held.isEmpty()) {
+                drawAlignedLyric(canvas, held, textLeft, textWidth, lyricBaseline, lyricSize,
+                        heldInterludeColor(currentLyricColor(0xFFFFFFFF)), Typeface.NORMAL);
+            } else {
+                float dotRadius = lyricSize * 0.22f;
+                drawInterludeDots(canvas, snapshot, textLeft, lyricBaseline - lyricSize * 0.85f,
+                        dotRadius, currentLyricColor(0xFFFFFFFF));
+            }
         } else {
             // 单行：跑马灯负责长句（与紧凑 / 纯净同一条路径，顶部条除外）。
             drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot), textLeft,
@@ -1886,7 +1912,9 @@ final class LyricsPanelView extends View {
         // 结尾不足的行位留空。以前窗口会随着已有行数缩水，第一句因此被顶到窗口最上面那一行，
         // 正好压住车机的车道信息（issue #31）。
         int count = requestedCount;
-        int firstLineIndex = PureLyricLayout.windowStart(currentIndex, count);
+        // 当前句行位（issue #155）：默认居中，可改成第二行或顶部（行数不足时自动退化）。
+        int firstLineIndex = PureLyricLayout.windowStart(currentIndex, count,
+                AppPreferences.lyricAnchor(getContext(), secondary));
         int translatedLineCount = 0;
         boolean currentTranslated = false;
         if (pureShowTranslation) {
@@ -1946,6 +1974,8 @@ final class LyricsPanelView extends View {
             }
         }
         float lineTop = top + titleReserve;
+        // 间奏保留上一句时，本句行已经画了这句，紧邻的上一句行不再重复（issue #147）。
+        String heldPure = heldInterludeText(snapshot);
         for (int slot = 0; slot < count; slot++) {
             LrcTimeline.NearbyLine line = pureWindowLine(nearby, firstLineIndex + slot);
             boolean current = line != null && line.offset == 0;
@@ -1959,18 +1989,25 @@ final class LyricsPanelView extends View {
                     compactMarqueeActive = false;
                     compactMarqueeText = "";
                     compactMarqueeElapsedMs = 0L;
-                    float radius = size * 0.22f;
-                    drawInterludeDots(canvas, snapshot,
-                            lyricAlign == Paint.Align.LEFT ? lyricLeft
-                                    : (width - interludeDotsWidth(radius)) * 0.5f,
-                            baseline - size * 0.72f, radius, lyricColor(0xFFFFFFFF));
+                    String held = heldPure;
+                    if (!held.isEmpty()) {
+                        drawAlignedLyric(canvas, held, lyricLeft, maxWidth, baseline, size,
+                                heldInterludeColor(currentLyricColor(0xFFFFFFFF)),
+                                Typeface.NORMAL);
+                    } else {
+                        float radius = size * 0.22f;
+                        drawInterludeDots(canvas, snapshot,
+                                lyricAlign == Paint.Align.LEFT ? lyricLeft
+                                        : (width - interludeDotsWidth(radius)) * 0.5f,
+                                baseline - size * 0.72f, radius, lyricColor(0xFFFFFFFF));
+                    }
                 } else {
                     drawCompactMarqueeKaraoke(canvas, snapshot, currentText(snapshot),
                             lyricLeft, baseline, size, maxWidth, density,
                             inactiveLyricColor(0x99FFFFFF), currentLyricColor(0xFFFFFFFF),
                             Math.max(1f, height - 16f * density));
                 }
-            } else if (line != null) {
+            } else if (line != null && !(line.offset == -1 && !heldPure.isEmpty())) {
                 int distance = Math.min(3, Math.abs(line.offset));
                 int alpha = Math.max(72, 184 - distance * 30);
                 int lineColor = adjacentLyricColor(inactiveLyricColor(withAlpha(0xFFFFFFFF, alpha)),
@@ -2145,12 +2182,44 @@ final class LyricsPanelView extends View {
 
         float contentScale = canvasAreaScale(620f, 350f, density);
         float pad = contentPad(Math.max(12f * density * contentScale, width * 0.028f));
+        // 竖排挡位（issue #134）：AMLL 浮窗默认封面在左、歌词在右；打开后封面在上、歌词整幅在下。
+        boolean stackedCover = AppPreferences.coverStacked(getContext(), secondary);
+        if (stackedCover) {
+            float top = Math.max(pad, height * 0.075f);
+            float titleSize = 16f * density * contentScale * titleScale;
+            float artistSize = MetadataTypeScaleMath.artistSize(titleSize, 0.72f,
+                    artistScalePercent);
+            float metadataHeight = titleSize * 1.45f + titleSize * 1.25f + artistSize * 0.4f;
+            float lyricFont = 23f * density * contentScale * textScale;
+            float bottom = height - (secondary ? 10f : 42f) * density * contentScale;
+            float minLyricStage = Math.max(lyricFont * 2.1f, height * 0.24f);
+            // 封面大小在竖排时收一个上限，别把歌词区挤没。
+            float coverSize = ClassicLayoutMath.stackedCoverSize(
+                    158f * density * contentScale * coverScale,
+                    Math.max(1f, height - top - pad), metadataHeight, minLyricStage);
+            float lyricTop = drawAmllSongInfo(canvas, snapshot, density, width, pad,
+                    contentScale, coverSize, true) + Math.max(4f * density, lyricFont * 0.2f);
+            float currentY = Math.max(lyricTop + lyricFont, lyricTop
+                    + Math.max(0f, bottom - lyricTop) * 0.42f);
+            // 竖排时只让歌词落在封面与歌名下方，避免上一句淡淡地浮到封面上（issue #134）。
+            int lyricSave = canvas.save();
+            canvas.clipRect(0f, lyricTop, width, Math.min(height, bottom + lyricFont));
+            drawAmllLyrics(canvas, snapshot, density, pad,
+                    Math.max(1f, width - pad * 2f), currentY, bottom, contentScale);
+            canvas.restoreToCount(lyricSave);
+            drawProgress(canvas, pad, height - 3f * density * contentScale,
+                    Math.max(1f, width - pad * 2f), 1.5f * density * contentScale, snapshot,
+                    0x28FFFFFF, 0xD9FFFFFF);
+            canvas.restoreToCount(contentSave);
+            return;
+        }
         float leftWidth = width * 0.45f;
         float lyricLeft = leftWidth + Math.max(6f * density * contentScale,
                 width * 0.015f);
         float lyricWidth = Math.max(1f, width - lyricLeft - pad);
         float currentY = height * 0.34f;
-        drawAmllSongInfo(canvas, snapshot, density, leftWidth, pad, contentScale);
+        drawAmllSongInfo(canvas, snapshot, density, leftWidth, pad, contentScale,
+                Float.MAX_VALUE, false);
         drawAmllLyrics(canvas, snapshot, density, lyricLeft, lyricWidth, currentY,
                 height - (secondary ? 10f : 42f) * density * contentScale, contentScale);
 
@@ -2248,14 +2317,23 @@ final class LyricsPanelView extends View {
         drawCoverRotated(canvas, snapshot.albumArt, cover, radius, palette[0]);
     }
 
-    private void drawAmllSongInfo(Canvas canvas, MusicSnapshot snapshot, float density,
-                                  float columnWidth, float pad, float contentScale) {
+    /**
+     * 画 AMLL 浮窗的左栏（封面 + 歌名/歌手）。
+     *
+     * @param coverCapPx 封面边长上限（px）；竖排挡位用它把封面限制在歌词区上方（issue #134）
+     * @return 歌名/歌手信息的底边（px），竖排时作为歌词区的起点
+     */
+    private float drawAmllSongInfo(Canvas canvas, MusicSnapshot snapshot, float density,
+                                   float columnWidth, float pad, float contentScale,
+                                   float coverCapPx, boolean stacked) {
         float height = getHeight();
         float top = Math.max(pad, height * 0.075f);
         float titleSize = 16f * density * contentScale * titleScale;
         // 无封面且选了「隐藏封面区域」：封面收掉，歌名 / 歌手从列顶往下排（issue #50）。
         boolean hideCover = coverAreaHidden();
-        float coverSize = hideCover ? 0f : 158f * density * contentScale * coverScale;
+        float coverSize = hideCover ? 0f
+                : Math.min(158f * density * contentScale * coverScale,
+                Math.max(1f, coverCapPx));
         float left = (columnWidth - coverSize) * 0.5f;
         coverRect.set(left, top, left + coverSize, top + coverSize);
         // 「圆形封面」打开后 AMLL 也用正圆——碟片旋转只对圆形封面生效（issue #22）。
@@ -2270,18 +2348,23 @@ final class LyricsPanelView extends View {
             drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverRadius, palette[0]);
         }
 
-        float textLeft = hideCover ? pad : Math.max(pad, left);
-        float textWidth = hideCover ? Math.max(1f, columnWidth - pad * 2f)
-                : Math.min(columnWidth - textLeft - pad, coverSize);
+        // 竖排（issue #134）时歌词在下方，歌名 / 歌手可以占满整幅宽度，不必再压到封面宽度里。
+        float textLeft = stacked ? pad
+                : (hideCover ? pad : Math.max(pad, left));
+        float textWidth = stacked ? Math.max(1f, columnWidth - pad * 2f)
+                : (hideCover ? Math.max(1f, columnWidth - pad * 2f)
+                : Math.min(columnWidth - textLeft - pad, coverSize));
         float y = coverRect.bottom + titleSize * 1.45f;
         drawAmllSingleLine(canvas, snapshot.active ? snapshot.title : "等待播放",
                 textLeft, y, titleSize, 0xFFFFFFFF, textWidth,
                 Typeface.BOLD, 230);
         y += titleSize * 1.25f;
         // 歌手字号可单独调（issue #63）；没调过时仍是写死的 72%。
+        float artistSize = MetadataTypeScaleMath.artistSize(titleSize, 0.72f,
+                artistScalePercent);
         drawAmllSingleLine(canvas, snapshot.artist, textLeft, y,
-                MetadataTypeScaleMath.artistSize(titleSize, 0.72f, artistScalePercent),
-                0xFFFFFFFF, textWidth, Typeface.NORMAL, 115);
+                artistSize, 0xFFFFFFFF, textWidth, Typeface.NORMAL, 115);
+        return y + artistSize * 0.4f;
     }
 
     private void drawAmllLyrics(Canvas canvas, MusicSnapshot snapshot, float density,
@@ -2331,10 +2414,13 @@ final class LyricsPanelView extends View {
         boolean previewing = manualPreviewActive();
         float scrollShift = animatedAmllScrollShift(snapshot.lyrics.lineStartMs,
                 refinedLineHeights[current] + gap) + browseVisualOffsetPx;
+        // 间奏保留上一句时，本句行已经画出这句；紧邻的上一句行不再重复画（issue #147）。
+        String heldAmll = heldInterludeText(snapshot);
         for (int i = 0; i < lines.size(); i++) {
             LrcTimeline.NearbyLine line = lines.get(i);
             int offset = line.offset;
             if (Math.abs(offset) > 3) continue;
+            if (offset == -1 && !heldAmll.isEmpty()) continue;
             float top = refinedLineTops[i] + scrollShift;
             float centerY = top + refinedLineHeights[i] * 0.5f;
             float edgeFade = clamp(Math.min((centerY + fontSize) / Math.max(1f, currentY),
@@ -2353,8 +2439,15 @@ final class LyricsPanelView extends View {
             float blurRadius = AmllStyleMotion.lineBlur(offset, snapshot.playing, previewing) * density;
             int lineColor = withAlpha(inactiveLyricColor(0xFFFFFFFF), 255);
             if (line.interlude) {
-                drawInterludeDots(canvas, snapshot, left, top + fontSize * 0.24f,
-                        fontSize * 0.105f, withAlpha(lineColor, Math.round(opacityValue * 255f)));
+                String held = offset == 0 ? heldAmll : "";
+                if (!held.isEmpty()) {
+                    drawBlurredLine(canvas, held, left, top, fontSize,
+                            currentLyricColor(0xFFFFFFFF), opacityValue * 0.55f, width,
+                            Typeface.BOLD, 3, blurRadius, false, line.timeMs);
+                } else {
+                    drawInterludeDots(canvas, snapshot, left, top + fontSize * 0.24f,
+                            fontSize * 0.105f, withAlpha(lineColor, Math.round(opacityValue * 255f)));
+                }
             } else if (offset == 0) {
                 drawAmllWrappedKaraoke(canvas, snapshot, currentText(snapshot), left, top,
                         fontSize, width, 3, currentLyricColor(0xFFFFFFFF));
@@ -2513,7 +2606,11 @@ final class LyricsPanelView extends View {
                 : AppPreferences.spectrumEnabled(getContext(), secondary);
         float barsHeight = showBars ? 22f * density * responsiveScale : 0f;
         float barsTop = showBars ? height - pad * 0.42f - barsHeight : height - pad;
+        // 竖排挡位（issue #134）：紧凑样式默认封面在右、歌词在左；打开后封面在上、歌词在下。
+        boolean stackedCover = !compactTextOnly
+                && AppPreferences.coverStacked(getContext(), secondary);
         float coverLeft = width - pad;
+        float stackedLyricTop = Float.NaN;
         if (showCover) {
             float coverTop = pad * 0.62f;
             float titleSize = 10.5f * density * responsiveScale * titleScale;
@@ -2523,10 +2620,26 @@ final class LyricsPanelView extends View {
             float metadataHeight = titleSize + artistSize + 5f * density;
             float naturalCoverSize = 58f * density * responsiveScale * coverScale;
             float availableCoverHeight = Math.max(1f, barsTop - coverTop);
-            float coverSize = naturalCoverSize;
-            boolean overlayMetadata = availableCoverHeight - coverSize < metadataHeight;
-            coverLeft = width - pad - coverSize;
-            coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
+            float coverSize;
+            boolean overlayMetadata;
+            if (stackedCover) {
+                // 封面在上、歌名在封面下、歌词在再下方；封面大小在这里收一个上限，别把歌词挤没。
+                float minLyricStage = Math.max(18f * density * responsiveScale,
+                        metadataHeight * 0.8f + 8f * density);
+                coverSize = ClassicLayoutMath.stackedCoverSize(
+                        Math.min(naturalCoverSize, Math.max(1f, width - pad * 2f)),
+                        availableCoverHeight, metadataHeight, minLyricStage);
+                overlayMetadata = availableCoverHeight - coverSize < metadataHeight;
+                coverLeft = Math.max(pad, (width - coverSize) * 0.5f);
+                coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
+                stackedLyricTop = coverRect.bottom + 2f * density
+                        + (overlayMetadata ? 0f : metadataHeight + 1.5f * density);
+            } else {
+                coverSize = naturalCoverSize;
+                overlayMetadata = availableCoverHeight - coverSize < metadataHeight;
+                coverLeft = width - pad - coverSize;
+                coverRect.set(coverLeft, coverTop, coverLeft + coverSize, coverTop + coverSize);
+            }
             // 紧凑样式的「圆形封面」（issue #22）：打开后封面是正圆，碟片旋转才会生效。
             float coverRadius = roundCover ? coverSize * 0.5f : 10f * density;
             drawCoverRotated(canvas, snapshot.albumArt, coverRect, coverRadius,
@@ -2545,12 +2658,16 @@ final class LyricsPanelView extends View {
                     ? coverRect.bottom - 3f * density
                     : titleY + artistSize + 3f * density;
             int metadataColor = overlayMetadata ? Color.WHITE : primaryText;
+            // 竖排时歌词在下方，歌名 / 歌手可以横向铺开，不再被封面宽度截断（issue #134）。
+            float metadataCenterX = stackedCover ? width * 0.5f : coverRect.centerX();
+            float metadataWidth = stackedCover
+                    ? Math.max(1f, width - pad * 2f) : coverRect.width();
             drawingMetadata = true;
             drawRefinedText(canvas, snapshot.active ? snapshot.title : "等待音乐",
-                    coverRect.centerX(), titleY, titleSize, metadataColor, coverRect.width(),
+                    metadataCenterX, titleY, titleSize, metadataColor, metadataWidth,
                     Paint.Align.CENTER, Typeface.BOLD, 255);
-            drawRefinedText(canvas, snapshot.artist, coverRect.centerX(), artistY, artistSize,
-                    withAlpha(metadataColor, 200), coverRect.width(), Paint.Align.CENTER,
+            drawRefinedText(canvas, snapshot.artist, metadataCenterX, artistY, artistSize,
+                    withAlpha(metadataColor, 200), metadataWidth, Paint.Align.CENTER,
                     Typeface.NORMAL, 175);
             drawingMetadata = false;
         }
@@ -2558,6 +2675,11 @@ final class LyricsPanelView extends View {
         float lyricLeft = pad;
         float lyricWidth = Math.max(1f, coverLeft - lyricLeft - 4f * density);
         float lyricTop = showCover ? coverRect.top : pad;
+        if (showCover && stackedCover) {
+            // 竖排时歌词拿到整幅宽度，排在封面（以及封面下的歌名）下方。
+            lyricWidth = Math.max(1f, width - pad * 2f);
+            lyricTop = Math.max(pad, stackedLyricTop);
+        }
         float lyricBottom = barsTop - 3f * density;
         float lyricStageHeight = Math.max(1f, lyricBottom - lyricTop);
         boolean preferTranslation = compactTextOnly
@@ -2588,8 +2710,16 @@ final class LyricsPanelView extends View {
         setTextPaint(secondaryLineSize, Typeface.NORMAL);
         float secondaryAscent = paint.ascent();
         float secondaryDescent = paint.descent();
-        float lineGap = Math.max(3f * density, lyricSize * 0.12f);
+        // 行间距（issue #138）：100% 与改动前一致；只拉开当前句和下一句/翻译之间的距离，
+        // 字号仍由面板高度决定，不会被行间距偷偷缩小。
+        float lineGap = Math.max(3f * density, lyricSize * 0.12f)
+                * ClassicLayoutMath.lineSpacingFactor(
+                        AppPreferences.lyricLineSpacing(getContext(), secondary));
         boolean showSecondaryLine = showNextLine || showTranslation;
+        // 面板实在放不下时收住行距，但不再动字号。
+        float maxGap = Math.max(3f * density, lyricStageHeight
+                - (originalDescent - originalAscent) - (secondaryDescent - secondaryAscent));
+        lineGap = Math.min(lineGap, maxGap);
         float groupHeight = showSecondaryLine
                 ? originalDescent - originalAscent + lineGap
                 + secondaryDescent - secondaryAscent
@@ -2604,6 +2734,12 @@ final class LyricsPanelView extends View {
         // alignment, so the dissolve eraser sweeps exactly over the glyphs it is replacing.
         Paint.Align lyricAlign = lyricTextAlign(Paint.Align.CENTER);
         float lyricAnchor = lyricAnchorX(lyricLeft, lyricWidth, lyricAlign);
+        // 竖排时歌词区被封面压在下面，极端矮面板里也别让溢出歌词盖住封面或律动条（issue #134）。
+        int stackedClip = -1;
+        if (showCover && stackedCover) {
+            stackedClip = canvas.save();
+            canvas.clipRect(0f, lyricTop, width, lyricBottom);
+        }
         if (showNextLine) {
             drawRefinedText(canvas, secondaryText,
                     lyricAnchor, secondaryBaseline, secondaryLineSize,
@@ -2636,6 +2772,7 @@ final class LyricsPanelView extends View {
                     showTranslation, compactSlotColor(false, withAlpha(primaryText, 120)),
                     compactSlotColor(true, primaryText), lyricColor(withAlpha(primaryText, 165)));
         }
+        if (stackedClip >= 0) canvas.restoreToCount(stackedClip);
         if (showBars) {
             drawCompactPlaybackBars(canvas, snapshot, lyricLeft, barsTop,
                     width - pad, barsHeight, lyricColor(primaryText),
@@ -2696,10 +2833,16 @@ final class LyricsPanelView extends View {
             compactMarqueeActive = false;
             compactMarqueeText = "";
             compactMarqueeElapsedMs = 0L;
-            float dotRadius = lyricSize * 0.20f;
-            float dotWidth = interludeDotsWidth(dotRadius);
-            drawInterludeDots(canvas, snapshot, lyricLeft + (lyricWidth - dotWidth) * 0.5f,
-                    baseline - lyricSize * 0.72f, dotRadius, activeColor);
+            String held = heldInterludeText(snapshot);
+            if (!held.isEmpty()) {
+                drawAlignedLyric(canvas, held, lyricLeft, lyricWidth, baseline, lyricSize,
+                        heldInterludeColor(activeColor), Typeface.NORMAL);
+            } else {
+                float dotRadius = lyricSize * 0.20f;
+                float dotWidth = interludeDotsWidth(dotRadius);
+                drawInterludeDots(canvas, snapshot, lyricLeft + (lyricWidth - dotWidth) * 0.5f,
+                        baseline - lyricSize * 0.72f, dotRadius, activeColor);
+            }
             return;
         }
         // 换行档要按可用高度决定最多几行；这里用面板高度减边距当近似（上限 3 行，且块居中在原行位置）。
@@ -3074,7 +3217,10 @@ final class LyricsPanelView extends View {
                 }
             }
         }
-        float gap = fontSize * 0.52f;
+        // 「行间距」只拉开相邻歌词行之间的基线距离，字号仍由面板高度决定（issue #138）。
+        float gap = fontSize * 0.52f
+                * ClassicLayoutMath.lineSpacingFactor(
+                        AppPreferences.lyricLineSpacing(getContext(), secondary));
         lastRefinedBrowseStepPx = Math.max(1f, heights[current] + gap);
         float[] tops = refinedLineTops;
         tops[current] = currentY - Math.min(fontSize, heights[current] * 0.45f);
@@ -3086,10 +3232,13 @@ final class LyricsPanelView extends View {
         }
         float scrollShift = animatedLyricScrollShift(snapshot.lyrics.lineStartMs,
                 heights[current] + gap) + browseVisualOffsetPx;
+        // 间奏保留上一句时，本句行已经画出这句；紧邻的上一句行不再重复画（issue #147）。
+        String heldRefined = heldInterludeText(snapshot);
         for (int i = 0; i < lines.size(); i++) {
             LrcTimeline.NearbyLine line = lines.get(i);
             int offset = line.offset;
             if (Math.abs(offset) > 3) continue;
+            if (offset == -1 && !heldRefined.isEmpty()) continue;
             float top = tops[i] + scrollShift;
             RefinedLyricCurve.Transform curve = refinedLyricRotate
                     ? RefinedLyricCurve.calculate(tops[current] - top, heights[i],
@@ -3121,9 +3270,16 @@ final class LyricsPanelView extends View {
                     ? Math.min(4.5f * density, (0.5f + Math.abs(offset)) * density) : 0f;
             int lineStyle = refinedOriginalBold ? Typeface.BOLD : Typeface.NORMAL;
             if (line.interlude) {
-                drawInterludeDots(canvas, snapshot, lineLeft, top + fontSize * 0.30f,
-                        fontSize * 0.35f,
-                        withAlpha(primaryText, Math.round(225f * opacity)));
+                String held = offset == 0 ? heldRefined : "";
+                if (!held.isEmpty()) {
+                    drawBlurredLine(canvas, held, lineLeft, top, fontSize,
+                            currentLyricColor(primaryText), opacity * 0.55f, width,
+                            lineStyle, 3, blurRadius, false, line.timeMs);
+                } else {
+                    drawInterludeDots(canvas, snapshot, lineLeft, top + fontSize * 0.30f,
+                            fontSize * 0.35f,
+                            withAlpha(primaryText, Math.round(225f * opacity)));
+                }
             } else if (offset == 0) {
                 drawWrappedKaraoke(canvas, snapshot, currentText(snapshot), lineLeft, top,
                         fontSize, width, currentLyricColor(primaryText), 3);
@@ -3645,10 +3801,24 @@ final class LyricsPanelView extends View {
 
     private int currentLyricColor(int fallback) {
         int topOverride = topLyricOverrideColor();
-        if (topOverride != 0) return withAlpha(topOverride, Color.alpha(fallback));
-        if (currentLyricRandom || currentLyricArtwork && !frameAlbumArtMissing) return artworkSlotColor(true, fallback);
-        return slotLyricColor(currentLyricColor, currentLyricLightColor,
-                currentLyricDarkColor, fallback);
+        if (topOverride != 0) {
+            return applyCurrentLyricOpacity(withAlpha(topOverride, Color.alpha(fallback)));
+        }
+        if (currentLyricRandom || currentLyricArtwork && !frameAlbumArtMissing) {
+            return applyCurrentLyricOpacity(artworkSlotColor(true, fallback));
+        }
+        return applyCurrentLyricOpacity(slotLyricColor(currentLyricColor, currentLyricLightColor,
+                currentLyricDarkColor, fallback));
+    }
+
+    /**
+     * 当前句不透明度（issue #148）：只压暗当前句的前景色，描边与光晕继续用自己的 alpha。
+     */
+    private int applyCurrentLyricOpacity(int color) {
+        int percent = AppPreferences.currentLyricOpacity(getContext(), secondary);
+        if (percent >= 100) return color;
+        int alpha = Math.round(Color.alpha(color) * Math.max(0, percent) / 100f);
+        return withAlpha(color, Math.max(0, Math.min(255, alpha)));
     }
 
     private int inactiveLyricColor(int fallback) {
@@ -3663,7 +3833,17 @@ final class LyricsPanelView extends View {
     private int slotLyricColor(int flat, int light, int dark, int fallback) {
         int selected = AppPreferences.resolveThemedSlotColor(lyricsFollowTheme,
                 lyricEnvironmentUsesLightColors(), flat, light, dark);
-        return selected == 0 ? lyricColor(fallback) : withAlpha(selected, Color.alpha(fallback));
+        return selected == 0 ? lyricColor(fallback) : mergeColorAlpha(selected, fallback);
+    }
+
+    /**
+     * 保留颜色自带的 alpha，再乘上 fallback 的 alpha（#148）：半透明的 #AARRGGBB 不会被
+     * 直接抹成不透明，不透明颜色的结果和原来完全一样。
+     */
+    private static int mergeColorAlpha(int color, int fallback) {
+        int fallbackAlpha = Math.max(0, Math.min(255, Color.alpha(fallback)));
+        int merged = Math.round(Color.alpha(color) * (fallbackAlpha / 255f));
+        return withAlpha(color, Math.max(0, Math.min(255, merged)));
     }
 
     private void drawTopLyricBackground(Canvas canvas, MusicSnapshot snapshot, float density) {
@@ -4370,7 +4550,9 @@ final class LyricsPanelView extends View {
 
         float lyricY = progressY + 34f * density * contentScale + browseVisualOffsetPx;
         float lyricWidth = width - pad * 2f;
-        if (lyricLineCount >= 3) {
+        // 间奏保留上一句时，主行已经画这句话了，别再在上面重复一行（issue #147）。
+        String held = heldInterludeText(snapshot);
+        if (lyricLineCount >= 3 && held.isEmpty()) {
             drawLeftDissolving(canvas, snapshot.lyrics.previousLyric, pad, lyricY,
                     12f * density * contentScale * textScale,
                     inactiveLyricColor(0x705A5148), lyricWidth,
@@ -4379,7 +4561,12 @@ final class LyricsPanelView extends View {
         }
         float pipLyricSize = minimalStyleLyricSize(density) * (secondary ? 1.06f : 1f);
         float currentHeight;
-        if (snapshot.lyrics.interlude) {
+        if (!held.isEmpty()) {
+            drawLeft(canvas, held, pad, lyricY, pipLyricSize,
+                    heldInterludeColor(currentLyricColor(0xFF181513)), lyricWidth,
+                    Typeface.NORMAL);
+            currentHeight = pipLyricSize * 1.22f;
+        } else if (snapshot.lyrics.interlude) {
             drawInterludeDots(canvas, snapshot, pad, lyricY - pipLyricSize * 0.55f,
                     pipLyricSize * 0.35f, currentLyricColor(0xFF181513));
             currentHeight = pipLyricSize * 1.22f;
@@ -5085,6 +5272,22 @@ final class LyricsPanelView extends View {
     private boolean blankWhileMatching(MusicSnapshot snapshot) {
         return LyricPlaceholderRules.blankMatching(hideMatchingPlaceholder,
                 snapshot.active, snapshot.lyricLoaded, snapshot.lyricAvailable);
+    }
+
+    /**
+     * 间奏时保留上一句（issue #147）：开启且确实有上一句时返回那句话，否则返回空串，让各样式
+     * 继续画原来的「♪ · · ·」占位。等待 / 匹配中的占位规则不经过这里。
+     */
+    private String heldInterludeText(MusicSnapshot snapshot) {
+        boolean enabled = AppPreferences.holdPreviousLyric(getContext(), secondary);
+        String previous = snapshot.lyrics.previousLyric;
+        return LyricPlaceholderRules.holdPreviousLine(enabled, snapshot.lyrics.interlude,
+                snapshot.lyricLoaded, snapshot.lyricAvailable, previous) ? previous : "";
+    }
+
+    /** 保留的上一句沿用当前句配色，但亮度降到约 55%，和本句区分开。 */
+    private int heldInterludeColor(int baseColor) {
+        return withAlpha(baseColor, LyricPlaceholderRules.heldLineAlpha(Color.alpha(baseColor)));
     }
 
     private String sourceSuffix(MusicSnapshot snapshot) {

@@ -7,6 +7,8 @@ import androidx.multidex.MultiDexApplication;
 public final class LyricsCompanionApp extends MultiDexApplication {
     @Override public void onCreate() {
         super.onCreate();
+        // 网络直连（issue #153）要在任何请求之前落地：崩溃上报、更新检查和词库都会走 HttpCompat。
+        NetworkDirectPolicy.apply(AppPreferences.networkDirect(this));
         CrashReporter.install(this);
         // 按时间段的配色在启动时就要落地（issue #34），否则设置页会停在系统主题上。
         applyMaterialTheme(AppPreferences.resolvedThemeMode(this));

@@ -71,6 +71,8 @@ final class ConfigurationCodec {
             editor.putBoolean(change.getKey(), change.getValue());
         }
         editor.apply();
+        // 导入可能改了「网络直连」（issue #153），立刻让新策略生效，不必等进程重启。
+        NetworkDirectPolicy.apply(AppPreferences.networkDirect(context));
         return imported;
     }
 
