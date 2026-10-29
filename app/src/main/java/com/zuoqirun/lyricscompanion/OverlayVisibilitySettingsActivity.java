@@ -2,7 +2,6 @@ package com.zuoqirun.lyricscompanion;
 
 import android.annotation.SuppressLint;
 import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -10,27 +9,22 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.materialswitch.MaterialSwitch;
-import com.google.android.material.shape.MaterialShapeDrawable;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -48,6 +42,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     /** 蓝牙 AVRCP 的"来源包名"，它是通道而不是普通播放器。 */
     private static final String BLUETOOTH_PACKAGE = "com.android.bluetooth";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private SettingsUi ui;
     private TextView hiddenAppsSummary;
     private TextView ignoredAppsSummary;
     /** 常驻的前台读取状态提示（issue #61）。 */
@@ -55,29 +50,22 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_overlay_visibility);
         if (Build.VERSION.SDK_INT >= 21) {
-            getWindow().setStatusBarColor(0xFF07111F);
-            getWindow().setNavigationBarColor(0xFF07111F);
+            int background = ContextCompat.getColor(this, R.color.lc_background);
+            getWindow().setStatusBarColor(background);
+            getWindow().setNavigationBarColor(background);
         }
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF07111F);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(12), dp(18), dp(32));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-        MaterialToolbar toolbar = new MaterialToolbar(this);
+        MaterialToolbar toolbar = findViewById(R.id.overlay_toolbar);
         toolbar.setTitle("悬浮窗隐藏规则");
         toolbar.setSubtitle("规则命中时隐藏，条件解除后自动恢复");
-        toolbar.setTitleTextColor(Color.WHITE);
-        toolbar.setSubtitleTextColor(0xFFA9B6C8);
-        toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
         toolbar.setNavigationOnClickListener(v -> finish());
-        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(76)));
 
-        LinearLayout rules = card("自动隐藏");
+        LinearLayout root = findViewById(R.id.overlay_content);
+        ui = new SettingsUi(this);
+
+        LinearLayout rules = ui.card(root, "自动隐藏");
         addRuleToggle(rules, "暂停或停止播放后隐藏",
                 "恢复播放时自动显示已启用的主屏悬浮窗和副屏歌词",
                 AppPreferences.KEY_HIDE_OVERLAYS_WHEN_NOT_PLAYING,
@@ -105,78 +93,42 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         addTargetToggle(rules, "副屏：匹配期间歌词区留白", AppPreferences.KEY_HIDE_MATCHING_PLACEHOLDER,
                 true, AppPreferences.hideMatchingPlaceholder(this, true));
         addGraceRow(rules);
-        addCard(root, rules);
 
-        LinearLayout appRules = card("指定应用（黑名单 / 白名单）");
+        LinearLayout appRules = ui.card(root, "指定应用（黑名单 / 白名单）");
         addTargetToggle(appRules, "主屏启用这条规则", AppPreferences.KEY_HIDE_SELECTED_APPS_ON_MAIN,
                 AppPreferences.hideSelectedAppsOnMain(this));
         addModeToggle(appRules, "主屏改为白名单：只在名单内的应用里显示", false);
         addTargetToggle(appRules, "副屏启用这条规则", AppPreferences.KEY_HIDE_SELECTED_APPS_ON_SECONDARY,
                 AppPreferences.hideSelectedAppsOnSecondary(this));
         addModeToggle(appRules, "副屏改为白名单：只在名单内的应用里显示", true);
-        hiddenAppsSummary = text("", 13, 0xFFD8E1EE, false);
-        hiddenAppsSummary.setPadding(0, dp(10), 0, dp(10));
-        hiddenAppsSummary.setLineSpacing(0f, 1.2f);
-        appRules.addView(hiddenAppsSummary);
-        MaterialButton chooseApps = button("选择应用");
-        chooseApps.setOnClickListener(v -> showAppPicker(PICK_HIDDEN_APPS));
-        appRules.addView(chooseApps, new LinearLayout.LayoutParams(-1, dp(48)));
-        MaterialButton desktopOnly = button("只在桌面显示（白名单里只放桌面）");
-        desktopOnly.setOnClickListener(v -> applyDesktopOnlyRule());
-        LinearLayout.LayoutParams desktopParams = new LinearLayout.LayoutParams(-1, dp(48));
-        desktopParams.topMargin = dp(8);
-        appRules.addView(desktopOnly, desktopParams);
-        TextView appRuleNote = text("黑名单：名单内隐藏。白名单：只在名单内显示，识别不到前台应用时也隐藏。"
-                + "两者都依赖「使用情况访问」权限，未授权时白名单不生效。", 12,
-                0xFF8392A8, false);
-        appRuleNote.setPadding(0, dp(8), 0, 0);
-        appRuleNote.setLineSpacing(0f, 1.2f);
-        appRules.addView(appRuleNote);
+        hiddenAppsSummary = addSummaryRow(appRules);
+        ui.actionButton(appRules, "选择应用", v -> showAppPicker(PICK_HIDDEN_APPS));
+        ui.actionButton(appRules, "只在桌面显示（白名单里只放桌面）",
+                v -> applyDesktopOnlyRule());
+        ui.note(appRules, "黑名单：名单内隐藏。白名单：只在名单内显示，识别不到前台应用时也隐藏。"
+                + "两者都依赖「使用情况访问」权限，未授权时白名单不生效。");
         // 常驻提示（issue #61）：读不到前台应用时必须说清原因，否则用户只会以为规则坏了。
-        foregroundStatus = text("", 12, 0xFFFFCA66, false);
-        foregroundStatus.setPadding(0, dp(8), 0, 0);
-        foregroundStatus.setLineSpacing(0f, 1.2f);
-        appRules.addView(foregroundStatus);
-        addCard(root, appRules);
+        foregroundStatus = addSummaryRow(appRules);
+        foregroundStatus.setTextSize(12f);
+        foregroundStatus.setTextColor(ContextCompat.getColor(this, R.color.lc_tertiary));
 
-        LinearLayout ignored = card("忽略这些应用的媒体元数据");
-        ignoredAppsSummary = text("", 13, 0xFFD8E1EE, false);
-        ignoredAppsSummary.setPadding(0, dp(10), 0, dp(10));
-        ignoredAppsSummary.setLineSpacing(0f, 1.2f);
-        ignored.addView(ignoredAppsSummary);
-        MaterialButton chooseIgnored = button("选择要忽略的应用");
-        chooseIgnored.setOnClickListener(v -> showAppPicker(PICK_IGNORED_PLAYERS));
-        ignored.addView(chooseIgnored, new LinearLayout.LayoutParams(-1, dp(48)));
-        MaterialButton ignoreBluetooth = button("加入蓝牙音频（com.android.bluetooth）");
-        ignoreBluetooth.setOnClickListener(v -> addIgnoredBluetooth());
-        LinearLayout.LayoutParams bluetoothParams = new LinearLayout.LayoutParams(-1, dp(48));
-        bluetoothParams.topMargin = dp(8);
-        ignored.addView(ignoreBluetooth, bluetoothParams);
-        TextView ignoredNote = text("被忽略的应用不再更新歌词状态（车机媒体中心、导航或蓝牙通道抢歌词时用）。"
-                + "只影响它们发布给本应用的元数据。", 12,
-                0xFF8392A8, false);
-        ignoredNote.setPadding(0, dp(8), 0, 0);
-        ignoredNote.setLineSpacing(0f, 1.2f);
-        ignored.addView(ignoredNote);
+        LinearLayout ignored = ui.card(root, "忽略这些应用的媒体元数据");
+        ignoredAppsSummary = addSummaryRow(ignored);
+        ui.actionButton(ignored, "选择要忽略的应用", v -> showAppPicker(PICK_IGNORED_PLAYERS));
+        ui.actionButton(ignored, "加入蓝牙音频（com.android.bluetooth）",
+                v -> addIgnoredBluetooth());
+        ui.note(ignored, "被忽略的应用不再更新歌词状态（车机媒体中心、导航或蓝牙通道抢歌词时用）。"
+                + "只影响它们发布给本应用的元数据。");
         // 东风车机的常驻会话会把活跃位按死，酷我之类的播放器出不来的话用这个开关（issue #75）。
-        MaterialSwitch dftcPriority = new MaterialSwitch(this);
-        dftcPriority.setText("东风播放器会话始终优先\n关闭时：它长时间没有换歌 / 状态变化就让位给正在播放的其它播放器");
-        dftcPriority.setTextColor(0xFFF3F7FC);
-        dftcPriority.setTextSize(14f);
-        dftcPriority.setGravity(Gravity.CENTER_VERTICAL);
-        dftcPriority.setPadding(0, dp(14), 0, dp(4));
-        dftcPriority.setLineSpacing(0f, 1.15f);
-        dftcPriority.setChecked(AppPreferences.dftcAlwaysPreferred(this));
-        dftcPriority.setOnCheckedChangeListener((button, checked) -> {
-            AppPreferences.get(this).edit()
-                    .putBoolean(AppPreferences.KEY_DFTC_ALWAYS_PREFERRED, checked).apply();
-            AppPreferences.changed(this);
-        });
-        ignored.addView(dftcPriority);
-        addCard(root, ignored);
+        ui.addToggle(ignored, "东风播放器会话始终优先",
+                "关闭时：它长时间没有换歌 / 状态变化就让位给正在播放的其它播放器",
+                AppPreferences.dftcAlwaysPreferred(this), (button, checked) -> {
+                    AppPreferences.get(this).edit()
+                            .putBoolean(AppPreferences.KEY_DFTC_ALWAYS_PREFERRED, checked).apply();
+                    AppPreferences.changed(this);
+                });
 
-        setContentView(scroll);
-        CustomFontStore.applyToViewTree(this, scroll);
+        CustomFontStore.applyToViewTree(this, findViewById(R.id.overlay_root));
         refreshHiddenAppsSummary();
         refreshIgnoredAppsSummary();
     }
@@ -198,15 +150,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     private void addRuleToggle(LinearLayout parent, String title, String subtitle, String key,
                                boolean initial, boolean needsUsageAccess) {
-        MaterialSwitch toggle = new MaterialSwitch(this);
-        toggle.setText(title + "\n" + subtitle);
-        toggle.setTextColor(0xFFF3F7FC);
-        toggle.setTextSize(14f);
-        toggle.setGravity(Gravity.CENTER_VERTICAL);
-        toggle.setPadding(0, dp(12), 0, dp(6));
-        toggle.setLineSpacing(0f, 1.15f);
-        toggle.setChecked(initial);
-        toggle.setOnCheckedChangeListener((button, checked) -> {
+        ui.addToggle(parent, title, subtitle, initial, (button, checked) -> {
             AppPreferences.get(this).edit().putBoolean(key, checked).apply();
             AppPreferences.changed(this);
             if (checked && needsUsageAccess && !ForegroundAppDetector.hasUsageAccess(this)) {
@@ -214,7 +158,6 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                         Toast.LENGTH_LONG);
             }
         });
-        parent.addView(toggle);
     }
 
     private void addTargetToggle(LinearLayout parent, String title, String key, boolean initial) {
@@ -224,13 +167,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     /** 按屏开关（issue #67 的无歌词隐藏也用它）：写这一屏的 slot 文件，主 / 副屏各一份。 */
     private void addTargetToggle(LinearLayout parent, String title, String key, boolean secondary,
                                  boolean initial) {
-        MaterialSwitch toggle = new MaterialSwitch(this);
-        toggle.setText(title);
-        toggle.setTextColor(0xFFF3F7FC);
-        toggle.setTextSize(14f);
-        toggle.setPadding(0, dp(8), 0, 0);
-        toggle.setChecked(initial);
-        toggle.setOnCheckedChangeListener((button, checked) -> {
+        ui.addToggle(parent, title, null, initial, (button, checked) -> {
             if (secondary || isPerScreenKey(key)) {
                 AppPreferences.putDisplayBoolean(this, secondary, key, checked);
             } else {
@@ -239,7 +176,6 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
             AppPreferences.changed(this);
             refreshHiddenAppsSummary();
         });
-        parent.addView(toggle);
     }
 
     /** 这些键是按屏存的（主 / 副屏各一份），其余是本页原有的全局开关。 */
@@ -250,100 +186,63 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     /** 「无歌词多久后隐藏」滑杆（issue #67）：主 / 副屏写同一个值，省得两地各有各的宽限期。 */
     private void addGraceRow(LinearLayout parent) {
-        TextView label = text("无歌词多久后隐藏", 14, 0xFFD7E1EE, true);
-        label.setPadding(0, dp(12), 0, dp(2));
-        parent.addView(label);
         int seconds = AppPreferences.noLyricGraceMs(this, false) / 1_000;
-        TextView value = text(seconds + " 秒", 13, 0xFF6EE7F2, true);
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(text("切歌匹配期间不会闪", 13, 0xFF93A4B9, true),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(value);
-        parent.addView(row);
-        android.widget.SeekBar seek = new android.widget.SeekBar(this);
-        seek.setMax(NoLyricVisibilityRules.MAX_GRACE_MS / 1_000);
-        seek.setProgress(seconds);
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
-        }
-        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
-                                                    boolean fromUser) {
-                value.setText(progress + " 秒");
-                if (!fromUser) return;
-                AppPreferences.putDisplayInt(OverlayVisibilitySettingsActivity.this, false,
-                        AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
-                AppPreferences.putDisplayInt(OverlayVisibilitySettingsActivity.this, true,
-                        AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
-                AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
-            }
-            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
-            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
-        });
-        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+        ui.addSeek(parent, "无歌词多久后隐藏", NoLyricVisibilityRules.MAX_GRACE_MS / 1_000,
+                seconds, " 秒", progress -> {
+                    AppPreferences.putDisplayInt(
+                            OverlayVisibilitySettingsActivity.this, false,
+                            AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
+                    AppPreferences.putDisplayInt(
+                            OverlayVisibilitySettingsActivity.this, true,
+                            AppPreferences.KEY_NO_LYRIC_GRACE_MS, progress * 1_000);
+                    AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
+                });
+        ui.note(parent, "切歌匹配期间不会闪");
     }
 
     private void addPauseGraceRow(LinearLayout parent) {
-        TextView value = text("暂停多久后隐藏：" + AppPreferences.pauseHideGraceMs(this) / 1000L
-                + " 秒", 14, 0xFFD7E1EE, true);
-        parent.addView(value);
-        android.widget.SeekBar seek = new android.widget.SeekBar(this);
-        seek.setMax(60);
-        seek.setProgress((int) (AppPreferences.pauseHideGraceMs(this) / 1000L));
-        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
-                                                    boolean fromUser) {
-                value.setText("暂停多久后隐藏：" + progress + " 秒");
-                if (!fromUser) return;
-                AppPreferences.get(OverlayVisibilitySettingsActivity.this).edit()
-                        .putInt(AppPreferences.KEY_PAUSE_HIDE_GRACE_SECONDS, progress).apply();
-                AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
-            }
-            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
-            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
-        });
-        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+        ui.addSeek(parent, "暂停多久后隐藏", 60,
+                (int) (AppPreferences.pauseHideGraceMs(this) / 1000L), " 秒", progress -> {
+                    AppPreferences.get(OverlayVisibilitySettingsActivity.this).edit()
+                            .putInt(AppPreferences.KEY_PAUSE_HIDE_GRACE_SECONDS, progress)
+                            .apply();
+                    AppPreferences.changed(OverlayVisibilitySettingsActivity.this);
+                });
     }
 
     /** 某一屏的规则方向：黑名单（名单内隐藏）或白名单（只在名单内显示，issue #43）。 */
     private void addModeToggle(LinearLayout parent, String title, boolean secondary) {
-        MaterialSwitch toggle = new MaterialSwitch(this);
-        toggle.setText(title);
-        toggle.setTextColor(0xFFF3F7FC);
-        toggle.setTextSize(14f);
-        toggle.setPadding(0, dp(6), 0, 0);
-        toggle.setChecked(AppPreferences.appRuleWhitelist(this, secondary));
-        toggle.setOnCheckedChangeListener((button, checked) -> {
-            if (checked == AppPreferences.appRuleWhitelist(this, secondary)) return;
-            Runnable apply = () -> {
-                AppPreferences.setAppRuleWhitelist(this, secondary, checked);
-                AppPreferences.changed(this);
-                refreshHiddenAppsSummary();
-                if (checked && !ForegroundAppDetector.hasUsageAccess(this)) {
-                    SafeToast.show(this, "白名单需要「使用情况访问」权限：未授权时它不会生效，"
-                            + "请到首页“使用权限”里授予", Toast.LENGTH_LONG);
-                }
-            };
-            if (AppPreferences.hiddenOverlayApps(this).isEmpty()) {
-                apply.run();
-                return;
-            }
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle(checked ? "切换为白名单" : "切换为黑名单")
-                    .setMessage(checked ? "名单将变为「只在这些应用显示」。名单由主副屏共用，清空也会影响另一屏。"
-                            : "名单将变为「在这些应用隐藏」；如果包含桌面，桌面歌词会隐藏。名单由主副屏共用，清空也会影响另一屏。")
-                    .setPositiveButton("保留名单并切换", (dialog, which) -> apply.run())
-                    .setNeutralButton("清空名单并切换", (dialog, which) -> {
-                        AppPreferences.setHiddenOverlayApps(this, Collections.emptySet());
+        ui.addToggle(parent, title, null, AppPreferences.appRuleWhitelist(this, secondary),
+                (button, checked) -> {
+                    if (checked == AppPreferences.appRuleWhitelist(this, secondary)) return;
+                    Runnable apply = () -> {
+                        AppPreferences.setAppRuleWhitelist(this, secondary, checked);
+                        AppPreferences.changed(this);
+                        refreshHiddenAppsSummary();
+                        if (checked && !ForegroundAppDetector.hasUsageAccess(this)) {
+                            SafeToast.show(this, "白名单需要「使用情况访问」权限：未授权时它不会生效，"
+                                    + "请到首页“使用权限”里授予", Toast.LENGTH_LONG);
+                        }
+                    };
+                    if (AppPreferences.hiddenOverlayApps(this).isEmpty()) {
                         apply.run();
-                    })
-                    .setNegativeButton("取消", (dialog, which) -> toggle.setChecked(!checked))
-                    .setOnCancelListener(dialog -> toggle.setChecked(!checked))
-                    .show();
-        });
-        parent.addView(toggle);
+                        return;
+                    }
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle(checked ? "切换为白名单" : "切换为黑名单")
+                            .setMessage(checked
+                                    ? "名单将变为「只在这些应用显示」。名单由主副屏共用，清空也会影响另一屏。"
+                                    : "名单将变为「在这些应用隐藏」；如果包含桌面，桌面歌词会隐藏。"
+                                    + "名单由主副屏共用，清空也会影响另一屏。")
+                            .setPositiveButton("保留名单并切换", (dialog, which) -> apply.run())
+                            .setNeutralButton("清空名单并切换", (dialog, which) -> {
+                                AppPreferences.setHiddenOverlayApps(this, Collections.emptySet());
+                                apply.run();
+                            })
+                            .setNegativeButton("取消", (dialog, which) -> button.setChecked(!checked))
+                            .setOnCancelListener(dialog -> button.setChecked(!checked))
+                            .show();
+                });
     }
 
     /**
@@ -395,13 +294,16 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     private void showAppPicker(int kind) {
         LinearLayout loading = new LinearLayout(this);
-        loading.setGravity(Gravity.CENTER_VERTICAL);
-        loading.setPadding(dp(24), dp(12), dp(24), dp(12));
+        loading.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        loading.setPadding(ui.dp(24), ui.dp(12), ui.dp(24), ui.dp(12));
         ProgressBar spinner = new ProgressBar(this);
-        loading.addView(spinner, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        TextView loadingText = text("正在读取已安装应用…", 14, 0xFFD8E1EE, false);
+        loading.addView(spinner, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
+        TextView loadingText = new TextView(this);
+        loadingText.setText("正在读取已安装应用…");
+        loadingText.setTextSize(14f);
+        loadingText.setTextColor(ContextCompat.getColor(this, R.color.lc_on_surface_variant));
         LinearLayout.LayoutParams loadingTextParams = new LinearLayout.LayoutParams(-2, -2);
-        loadingTextParams.leftMargin = dp(14);
+        loadingTextParams.leftMargin = ui.dp(14);
         loading.addView(loadingText, loadingTextParams);
         final androidx.appcompat.app.AlertDialog loadingDialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(kind == PICK_IGNORED_PLAYERS ? "选择要忽略的应用" : "选择应用")
@@ -429,17 +331,16 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         Set<String> selected = new HashSet<>(pickedPackages(kind));
         ListView list = new ListView(this);
         list.setDividerHeight(0);
-        list.setBackgroundColor(0xFF101E31);
+        list.setBackgroundColor(ContextCompat.getColor(this, R.color.lc_surface_container_low));
         AppChoiceListAdapter adapter = new AppChoiceListAdapter(this, apps, selected);
         list.setAdapter(adapter);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(4), 0, dp(4), 0);
+        content.setPadding(ui.dp(4), 0, ui.dp(4), 0);
         content.addView(appSearchField(adapter));
-        MaterialButton manual = button("手动添加包名（含无桌面入口应用）");
-        manual.setOnClickListener(v -> addInstalledPackage(adapter));
-        content.addView(manual, new LinearLayout.LayoutParams(-1, dp(48)));
-        content.addView(list, new LinearLayout.LayoutParams(-1, dp(440)));
+        ui.actionButton(content, "手动添加包名（含无桌面入口应用）",
+                v -> addInstalledPackage(adapter));
+        content.addView(list, new LinearLayout.LayoutParams(-1, ui.dp(440)));
         new MaterialAlertDialogBuilder(this)
                 .setTitle(kind == PICK_IGNORED_PLAYERS ? "忽略哪些应用的媒体元数据"
                         : "在哪些应用上隐藏歌词")
@@ -454,8 +355,9 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         editor.setSingleLine(true); editor.setHint("例如 com.example.voice");
         editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL); content.setPadding(dp(24), dp(8), dp(24), dp(8));
-        content.addView(text("输入已安装应用的准确包名；系统应用和没有桌面入口的应用也可添加。", 13, 0xFFA9B6C8, false));
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), ui.dp(8));
+        noteView(content, "输入已安装应用的准确包名；系统应用和没有桌面入口的应用也可添加。");
         content.addView(editor, new LinearLayout.LayoutParams(-1, -2));
         androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("添加已安装应用").setView(content).setNegativeButton("取消", null)
@@ -473,13 +375,14 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         TextInputLayout input = new TextInputLayout(this);
         input.setHint("搜索应用名称或包名");
         input.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
-        input.setBoxBackgroundColor(0xFF17263A);
-        input.setBoxStrokeColor(0xFF6EE7F2);
-        input.setHintTextColor(ColorStateList.valueOf(0xFFA9B6C8));
+        input.setBoxBackgroundColor(ContextCompat.getColor(this, R.color.lc_surface_container_lowest));
+        input.setBoxStrokeColor(ContextCompat.getColor(this, R.color.lc_primary));
+        input.setHintTextColor(ColorStateList.valueOf(
+                ContextCompat.getColor(this, R.color.lc_on_surface_variant)));
         TextInputEditText editor = new TextInputEditText(this);
         editor.setSingleLine(true);
         editor.setInputType(InputType.TYPE_CLASS_TEXT);
-        editor.setTextColor(0xFFF3F7FC);
+        editor.setTextColor(ContextCompat.getColor(this, R.color.lc_on_surface));
         editor.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count,
                                                     int after) { }
@@ -491,7 +394,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         });
         input.addView(editor, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.setMargins(dp(6), dp(4), dp(6), dp(8));
+        params.setMargins(ui.dp(6), ui.dp(4), ui.dp(6), ui.dp(8));
         input.setLayoutParams(params);
         return input;
     }
@@ -583,47 +486,20 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         return joined.toString();
     }
 
-    private LinearLayout card(String title) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(15), dp(14), dp(15), dp(15));
-        MaterialShapeDrawable surface = new MaterialShapeDrawable();
-        surface.setFillColor(ColorStateList.valueOf(0xFF101E31));
-        surface.setCornerSize(dp(20));
-        card.setBackground(surface);
-        card.addView(text(title, 13, 0xFF6EE7F2, true));
-        return card;
-    }
-
-    private void addCard(LinearLayout root, LinearLayout card) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(14);
-        root.addView(card, params);
-    }
-
-    private MaterialButton button(String value) {
-        MaterialButton button = new MaterialButton(this);
-        button.setText(value);
-        button.setTextSize(13f);
-        button.setTextColor(0xFFF1F5FA);
-        button.setAllCaps(false);
-        button.setCornerRadius(dp(15));
-        button.setBackgroundTintList(ColorStateList.valueOf(0xFF25364D));
-        return button;
-    }
-
-    private TextView text(String value, int sp, int color, boolean bold) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(sp);
-        view.setTextColor(color);
-        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT,
-                android.graphics.Typeface.BOLD);
+    /** 名单/状态这类段落文字：比普通 note 亮一点、大一点，仍走主题排版。 */
+    private TextView addSummaryRow(LinearLayout parent) {
+        TextView view = noteView(parent, "");
+        view.setTextSize(13f);
+        view.setTextColor(ContextCompat.getColor(this, R.color.lc_on_surface));
         return view;
     }
 
-    private int dp(float value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private TextView noteView(LinearLayout parent, CharSequence text) {
+        TextView view = (TextView) getLayoutInflater()
+                .inflate(R.layout.item_setting_note, parent, false);
+        view.setText(text);
+        parent.addView(view);
+        return view;
     }
 
 }

@@ -1,0 +1,21 @@
+<resources>
+    <style name="ShapeAppearance.LC.Card" parent="ShapeAppearance.Material3.Corner.Large">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/lc_card_corner</item>
+    </style>
+
+    <style name="ShapeAppearance.LC.Button" parent="ShapeAppearance.Material3.Corner.Full">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/lc_button_corner</item>
+    </style>
+
+    <style name="ShapeAppearance.LC.Search" parent="ShapeAppearance.Material3.Corner.Medium">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/lc_search_corner</item>
+    </style>
+
+    <style name="ShapeAppearance.LC.Dialog" parent="ShapeAppearance.Material3.Corner.ExtraLarge">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">24dp</item>
+    </style>
+</resources>

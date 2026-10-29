@@ -12,6 +12,8 @@ final class SettingsNavLayout {
     static final String SIDE_RIGHT = "right";
     /** 手动留白上限（dp）：再大就把内容挤没了。 */
     static final int MAX_MANUAL_INSET_DP = 240;
+    /** 设置页整页左边距上限（dp，issue #164）。 */
+    static final int MAX_PAGE_INSET_DP = 200;
 
     private SettingsNavLayout() { }
 
@@ -37,5 +39,39 @@ final class SettingsNavLayout {
 
     static int clampInsetDp(int value) {
         return Math.max(0, Math.min(MAX_MANUAL_INSET_DP, value));
+    }
+
+    /**
+     * 整页左边距（issue #164）：手动值与系统左插边取较大者。车机把设置页整体往右让开系统悬浮栏时，
+     * 分类栏和正文要一起移动；系统能报插边时就不必再手动补一样的距离。
+     */
+    static int pageInsetPx(int manualInsetPx, int systemInsetPx) {
+        return Math.max(Math.max(0, manualInsetPx), Math.max(0, systemInsetPx));
+    }
+
+    static int clampPageInsetDp(int value) {
+        return Math.max(0, Math.min(MAX_PAGE_INSET_DP, value));
+    }
+
+    /**
+     * 「页面左边距」应用时的上限（像素，issue #164）：整页让位也不能把正文挤到读不了。availablePx 为
+     * 分类栏、正文留白和最小正文宽度都扣掉之后剩下的可让位空间；调用方只在布局已测量时使用。
+     */
+    static int clampPageStartPx(int desiredPx, int availablePx) {
+        int desired = Math.max(0, desiredPx);
+        if (desired == 0) return 0;
+        return Math.max(0, Math.min(desired, availablePx));
+    }
+
+    /**
+     * 分类栏外侧 margin 的上限（像素，issue #163）：留白再大也要给正文留下最小可点宽度，
+     * 否则分类栏自己会被挤出可视区、连滑杆都点不到。布局尺寸未知（<=0）时按原值返回，等布局完成再重算。
+     */
+    static int clampNavMarginPx(int desiredPx, int shellWidthPx, int navWidthPx, int minContentPx) {
+        int desired = Math.max(0, desiredPx);
+        if (desired == 0) return 0;
+        if (shellWidthPx <= 0 || navWidthPx <= 0) return desired;
+        int max = shellWidthPx - navWidthPx - Math.max(0, minContentPx);
+        return Math.max(0, Math.min(desired, max));
     }
 }

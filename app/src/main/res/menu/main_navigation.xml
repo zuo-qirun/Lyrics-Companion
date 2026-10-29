@@ -1,0 +1,18 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_home"
+        android:icon="@drawable/ic_overview"
+        android:title="@string/nav_home" />
+    <item
+        android:id="@+id/nav_display"
+        android:icon="@drawable/ic_display"
+        android:title="@string/nav_display" />
+    <item
+        android:id="@+id/nav_lyrics"
+        android:icon="@drawable/ic_lyrics"
+        android:title="@string/nav_lyrics" />
+    <item
+        android:id="@+id/nav_system"
+        android:icon="@drawable/ic_settings"
+        android:title="@string/nav_system" />
+</menu>

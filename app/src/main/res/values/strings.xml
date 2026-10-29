@@ -3,4 +3,15 @@
     <string name="notification_listener_label">歌词伴侣 · 音乐读取</string>
     <string name="service_channel_name">歌词显示</string>
     <string name="service_notification_title">歌词伴侣正在运行</string>
+
+    <string name="nav_home">总览</string>
+    <string name="nav_display">显示</string>
+    <string name="nav_lyrics">歌词</string>
+    <string name="nav_system">高级</string>
+    <string name="action_more">更多</string>
+    <string name="action_back">返回</string>
+    <string name="settings_search_hint">搜索设置，如透明度、封面、换行</string>
+    <string name="main_brand">歌词伴侣</string>
+    <string name="main_subtitle">主屏悬浮窗 · 副屏歌词</string>
+    <string name="main_eyebrow">LYRICS · COMPANION</string>
 </resources>

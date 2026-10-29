@@ -2,7 +2,6 @@ package com.zuoqirun.lyricscompanion;
 
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
@@ -10,7 +9,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.GestureDetector;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -19,6 +17,7 @@ import android.widget.FrameLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.AppCompatImageButton;
+import androidx.core.content.ContextCompat;
 
 /** Full-bleed host for the currently selected main-display lyric style. */
 public final class FullscreenLyricsActivity extends AppCompatActivity {
@@ -35,38 +34,37 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         configureWindow();
         MusicStateStore.initialize(this);
+        setContentView(R.layout.activity_fullscreen_lyrics);
 
-        FullscreenGestureLayout root = new FullscreenGestureLayout(this);
-        root.setBackgroundColor(Color.BLACK);
+        FrameLayout host = findViewById(R.id.fullscreen_root);
+        FullscreenGestureLayout gestureLayer = new FullscreenGestureLayout(this);
+        gestureLayer.setBackgroundColor(ContextCompat.getColor(this, R.color.lc_background));
         panel = new LyricsPanelView(this, false, true);
-        root.setPanel(panel);
-        root.setInteractionListener(this::showCloseTemporarily);
-        root.addView(panel, new FrameLayout.LayoutParams(
+        gestureLayer.setPanel(panel);
+        gestureLayer.setInteractionListener(this::showCloseTemporarily);
+        gestureLayer.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        addExitButton(root);
-        setContentView(root);
-        CustomFontStore.applyToViewTree(this, root);
+        host.addView(gestureLayer, 0, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        attachExitButton(host);
+        CustomFontStore.applyToViewTree(this, host);
     }
 
-    private void addExitButton(FrameLayout root) {
-        AppCompatImageButton exit = new AppCompatImageButton(this);
+    private void attachExitButton(FrameLayout host) {
+        AppCompatImageButton exit = findViewById(R.id.fullscreen_exit);
         exitButton = exit;
         exit.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        exit.setColorFilter(Color.WHITE);
+        exit.setColorFilter(ContextCompat.getColor(this, R.color.lc_on_surface));
         exit.setBackground(closeButtonBackground());
         exit.setContentDescription("退出全屏");
-        exit.setPadding(dp(13), dp(13), dp(13), dp(13));
         exit.setOnClickListener(v -> returnToSettings());
         if (Build.VERSION.SDK_INT >= 21) exit.setElevation(dp(6));
 
-        int margin = dp(16);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(48), dp(48),
-                Gravity.TOP | Gravity.END);
-        params.setMargins(margin, margin, margin, margin);
-        root.addView(exit, params);
+        final int margin = dp(16);
         applyCloseMode();
         if (Build.VERSION.SDK_INT >= 28) {
-            root.setOnApplyWindowInsetsListener((view, insets) -> {
+            host.setOnApplyWindowInsetsListener((view, insets) -> {
                 android.view.DisplayCutout cutout = insets.getDisplayCutout();
                 int safeTop = cutout == null ? 0 : cutout.getSafeInsetTop();
                 int safeRight = cutout == null ? 0 : cutout.getSafeInsetRight();
@@ -81,19 +79,25 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
     }
 
     private StateListDrawable closeButtonBackground() {
+        int scrim = ContextCompat.getColor(this, R.color.lc_scrim);
+        int stroke = withAlpha(ContextCompat.getColor(this, R.color.lc_on_surface), 0x48);
         StateListDrawable states = new StateListDrawable();
         states.addState(new int[]{android.R.attr.state_pressed},
-                oval(0x8A000000));
-        states.addState(new int[0], oval(0x52000000));
+                oval(withAlpha(scrim, 0x8A), stroke));
+        states.addState(new int[0], oval(withAlpha(scrim, 0x52), stroke));
         return states;
     }
 
-    private static GradientDrawable oval(int color) {
+    private static GradientDrawable oval(int color, int strokeColor) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setShape(GradientDrawable.OVAL);
         drawable.setColor(color);
-        drawable.setStroke(1, 0x48FFFFFF);
+        drawable.setStroke(1, strokeColor);
         return drawable;
+    }
+
+    private static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | (alpha << 24);
     }
 
     private int dp(int value) {
@@ -143,8 +147,8 @@ public final class FullscreenLyricsActivity extends AppCompatActivity {
                 | WindowManager.LayoutParams.FLAG_FULLSCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         if (Build.VERSION.SDK_INT >= 21) {
-            window.setStatusBarColor(Color.TRANSPARENT);
-            window.setNavigationBarColor(Color.TRANSPARENT);
+            window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         }
         if (Build.VERSION.SDK_INT >= 28) {
             WindowManager.LayoutParams params = window.getAttributes();

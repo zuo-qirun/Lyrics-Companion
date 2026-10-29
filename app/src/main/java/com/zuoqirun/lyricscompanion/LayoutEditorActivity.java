@@ -1,8 +1,8 @@
 package com.zuoqirun.lyricscompanion;
 
+import android.content.res.Configuration;
 import android.os.Bundle;
-import android.view.Gravity;
-import android.widget.LinearLayout;
+import android.widget.FrameLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -12,39 +12,29 @@ import com.google.android.material.button.MaterialButton;
 public final class LayoutEditorActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF101418);
+        setContentView(R.layout.activity_layout_editor);
 
-        MaterialToolbar toolbar = new MaterialToolbar(this);
+        MaterialToolbar toolbar = findViewById(R.id.layout_editor_toolbar);
         toolbar.setTitle("个性化显示内容");
         toolbar.setSubtitle(useTwoColumnLayout()
                 ? "拖入左侧显示，拖回右侧隐藏"
                 : "拖入上方显示，拖回下方隐藏");
-        toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
         toolbar.setNavigationOnClickListener(v -> finish());
-        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(72)));
 
         LyricsLayoutEditorView editor = new LyricsLayoutEditorView(this);
-        root.addView(editor, new LinearLayout.LayoutParams(-1, 0, 1f));
+        FrameLayout host = findViewById(R.id.layout_editor_host);
+        host.addView(editor, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
-        actions.setPadding(dp(16), dp(8), dp(16), dp(16));
-        MaterialButton reset = new MaterialButton(this);
+        MaterialButton reset = findViewById(R.id.layout_editor_reset);
         reset.setText("恢复默认布局");
         reset.setOnClickListener(v -> editor.reset());
-        actions.addView(reset, new LinearLayout.LayoutParams(0, dp(52), 1f));
-        MaterialButton done = new MaterialButton(this);
+        MaterialButton done = findViewById(R.id.layout_editor_done);
         done.setText("完成");
         done.setOnClickListener(v -> finish());
-        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
-        doneParams.leftMargin = dp(12);
-        actions.addView(done, doneParams);
-        root.addView(actions);
+
         editor.setOnLayoutChangedListener(() -> AppPreferences.changed(this));
-        setContentView(root);
-        CustomFontStore.applyToViewTree(this, root);
+        CustomFontStore.applyToViewTree(this, findViewById(R.id.layout_editor_root));
     }
 
     @Override protected void onResume() {
@@ -57,15 +47,11 @@ public final class LayoutEditorActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    private int dp(float value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
     private boolean useTwoColumnLayout() {
         float widthDp = getResources().getDisplayMetrics().widthPixels
                 / getResources().getDisplayMetrics().density;
         return getResources().getConfiguration().orientation
-                == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                == Configuration.ORIENTATION_LANDSCAPE
                 && widthDp >= 600f;
     }
 }

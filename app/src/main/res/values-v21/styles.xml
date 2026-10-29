@@ -1,0 +1,9 @@
+<resources>
+    <style name="Widget.LC.SeekBar" parent="android:style/Widget.SeekBar">
+        <item name="android:minHeight">40dp</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:progressTint">@color/lc_primary</item>
+        <item name="android:progressBackgroundTint">@color/lc_outline_variant</item>
+        <item name="android:thumbTint">@color/lc_primary</item>
+    </style>
+</resources>

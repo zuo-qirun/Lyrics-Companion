@@ -1,17 +1,18 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.os.Build;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
+
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
-import com.google.android.material.shape.MaterialShapeDrawable;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -85,56 +86,53 @@ final class ColorPaletteControls {
         return null;
     }
 
+    /**
+     * 颜色行：标题 + 「手动调色盘」开关 + 自动说明；打开调色盘后是色值预览、色号输入、不透明度、
+     * 纯黑/纯白快捷入口、圆形调色盘、亮度轴与 RGB 通道。控件全部来自 M3 主题与
+     * {@code item_setting_*} 模板，颜色不再写死旧色板。
+     */
     static void add(Context context, LinearLayout parent, String title, String automaticNote,
                     int savedColor, int automaticPreviewColor, boolean supportsAlpha,
                     ColorStore store, Runnable changed) {
-        int pad = dp(context, 16);
-        TextView heading = text(context, title, 14, 0xFFD7E1EE, true);
-        heading.setPadding(0, pad, 0, 0);
-        parent.addView(heading);
+        SettingsUi ui = new SettingsUi(context);
+        ui.sectionLabel(parent, title);
         int initial = savedColor == 0 ? automaticPreviewColor : savedColor;
         if (!supportsAlpha) initial |= 0xFF000000;
         int initialAlpha = (initial >>> 24) & 0xFF;
-        int[] alpha = {initialAlpha == 0 ? 0xFF : initialAlpha};
-        int[] rgb = {(initial >> 16) & 0xFF, (initial >> 8) & 0xFF, initial & 0xFF};
-        MaterialSwitch manual = new MaterialSwitch(context);
-        manual.setText("手动调色盘");
-        manual.setTextColor(0xFFF1F5FA);
-        manual.setTextSize(14f);
-        manual.setGravity(Gravity.CENTER_VERTICAL);
-        manual.setPadding(0, dp(context, 6), 0, 0);
-        manual.setChecked(savedColor != 0);
-        parent.addView(manual);
+        final int[] alpha = {initialAlpha == 0 ? 0xFF : initialAlpha};
+        final int[] rgb = {(initial >> 16) & 0xFF, (initial >> 8) & 0xFF, initial & 0xFF};
+        final Runnable[] pickerApply = new Runnable[1];
 
-        TextView automatic = text(context, automaticNote, 12, 0xFF8392A8, false);
-        automatic.setPadding(0, 0, 0, dp(context, 4));
-        automatic.setVisibility(savedColor == 0 ? View.VISIBLE : View.GONE);
+        final MaterialSwitch manual = ui.addToggle(parent, "手动调色盘", null, savedColor != 0, null);
+        final TextView automatic = note(context);
+        automatic.setText(automaticNote);
         parent.addView(automatic);
+        automatic.setVisibility(savedColor == 0 ? View.VISIBLE : View.GONE);
+
         LinearLayout controls = new LinearLayout(context);
         controls.setOrientation(LinearLayout.VERTICAL);
         controls.setVisibility(savedColor == 0 ? View.GONE : View.VISIBLE);
-        TextView state = text(context, colorLabel(initial), 12, 0xFF8392A8, false);
+        final LinearLayout palette = controls;
+
         LinearLayout stateRow = new LinearLayout(context);
         stateRow.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView state = note(context);
         stateRow.addView(state, new LinearLayout.LayoutParams(0, -2, 1f));
-        View swatch = new View(context);
+        final View swatch = new View(context);
         LinearLayout.LayoutParams swatchParams = new LinearLayout.LayoutParams(dp(context, 34), dp(context, 22));
         swatchParams.leftMargin = dp(context, 10);
         stateRow.addView(swatch, swatchParams);
+        state.setText(colorLabel(initial));
         updateSwatch(context, swatch, initial);
         controls.addView(stateRow);
-        LinearLayout inputRow = new LinearLayout(context);
-        inputRow.setGravity(Gravity.CENTER_VERTICAL);
-        inputRow.setPadding(0, dp(context, 6), 0, 0);
-        TextInputLayout colorInput = new TextInputLayout(context);
+
+        LinearLayout inputRow = (LinearLayout) LayoutInflater.from(context)
+                .inflate(R.layout.item_setting_color_input, null, false);
+        final TextInputLayout colorInput = inputRow.findViewById(R.id.settings_color_input);
+        final TextInputEditText colorValue = inputRow.findViewById(R.id.settings_color_value);
+        MaterialButton applyText = inputRow.findViewById(R.id.settings_color_apply);
         colorInput.setHint(supportsAlpha ? "色号：#RRGGBB、#AARRGGBB 或 R,G,B"
                 : "色号：#RRGGBB 或 R,G,B");
-        colorInput.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
-        TextInputEditText colorValue = new TextInputEditText(context);
-        colorValue.setSingleLine(true);
-        colorValue.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        // 这个输入框以前没设文字颜色，在深色底上几乎是黑的（issue #79），显式给个亮色。
-        colorValue.setTextColor(0xFFF1F5FA);
         colorValue.setText(formatColor(initial));
         // 「应用」按输入框内容取色，而输入框只在创建时写过一次；调色盘选完色再点「应用」就会被这个
         // 旧值覆盖回原色（issue #79）。用一个"用户正在编辑"的标记来决定谁说了算。
@@ -147,82 +145,52 @@ final class ColorPaletteControls {
             }
             @Override public void afterTextChanged(android.text.Editable s) { }
         });
-        colorInput.addView(colorValue);
-        inputRow.addView(colorInput, new LinearLayout.LayoutParams(0, -2, 1f));
-        MaterialButton applyText = new MaterialButton(context);
-        applyText.setText("应用");
-        applyText.setTextSize(12f);
-        applyText.setAllCaps(false);
-        inputRow.addView(applyText, new LinearLayout.LayoutParams(-2, dp(context, 48)));
         controls.addView(inputRow);
-        // 不透明度滑杆（issue #148）：0 = 完全透明，255 = 完全不透明；只在支持 alpha 的区域显示。
-        LinearLayout alphaRow = new LinearLayout(context);
-        alphaRow.setGravity(Gravity.CENTER_VERTICAL);
-        alphaRow.setPadding(0, dp(context, 8), 0, 0);
-        alphaRow.addView(text(context, "不透明度", 13, 0xFFD7E1EE, false),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView alphaValue = text(context, alphaLabel(alpha[0]), 13, 0xFF6EE7F2, true);
-        alphaRow.addView(alphaValue);
-        alphaRow.setVisibility(supportsAlpha ? View.VISIBLE : View.GONE);
-        controls.addView(alphaRow);
-        SeekBar alphaSeek = new SeekBar(context);
-        alphaSeek.setMax(255);
-        alphaSeek.setProgress(alpha[0]);
-        if (Build.VERSION.SDK_INT >= 21) {
-            alphaSeek.setProgressTintList(ColorStateList.valueOf(0xFF6EE7F2));
-            alphaSeek.setThumbTintList(ColorStateList.valueOf(0xFFFFCA66));
-        }
-        alphaSeek.setVisibility(supportsAlpha ? View.VISIBLE : View.GONE);
-        controls.addView(alphaSeek, new LinearLayout.LayoutParams(-1, dp(context, 38)));
+
+        SeekBar alphaBar = null;
+        TextView alphaValue = null;
         if (supportsAlpha) {
-            TextView alphaHint = text(context,
-                    "0 = 完全透明，255 = 完全不透明。", 12, 0xFF8392A8, false);
-            alphaHint.setPadding(0, 0, 0, dp(context, 2));
-            controls.addView(alphaHint);
+            // 不透明度滑杆（issue #148）：0 = 完全透明，255 = 完全不透明。
+            alphaBar = ui.addSeek(controls, "不透明度", 255, alpha[0], null, null);
+            alphaValue = ((View) alphaBar.getParent()).findViewById(R.id.settings_row_value);
+            alphaValue.setText(alphaLabel(alpha[0]));
+            ui.note(controls, "0 = 完全透明，255 = 完全不透明。");
         }
+        final SeekBar alphaSeek = alphaBar;
+        final TextView alphaLabelView = alphaValue;
+
         // 纯黑 / 纯白快捷入口（issue #60）：用户想设纯黑时不用记色号。
-        LinearLayout quickRow = new LinearLayout(context);
-        quickRow.setPadding(0, dp(context, 6), 0, 0);
-        MaterialButton pureBlack = new MaterialButton(context);
-        pureBlack.setText("纯黑");
-        pureBlack.setTextSize(12f);
-        pureBlack.setAllCaps(false);
-        MaterialButton pureWhite = new MaterialButton(context);
-        pureWhite.setText("纯白");
-        pureWhite.setTextSize(12f);
-        pureWhite.setAllCaps(false);
-        quickRow.addView(pureBlack, new LinearLayout.LayoutParams(0, dp(context, 44), 1f));
-        LinearLayout.LayoutParams whiteParams = new LinearLayout.LayoutParams(0, dp(context, 44), 1f);
-        whiteParams.leftMargin = dp(context, 8);
-        quickRow.addView(pureWhite, whiteParams);
+        LinearLayout quickRow = (LinearLayout) LayoutInflater.from(context)
+                .inflate(R.layout.item_setting_color_quick, null, false);
+        MaterialButton pureBlack = quickRow.findViewById(R.id.settings_color_black);
+        MaterialButton pureWhite = quickRow.findViewById(R.id.settings_color_white);
         controls.addView(quickRow);
-        TextView hint = text(context, "圆形调色盘：沿外圈选择色相，向中心降低饱和度", 12,
-                0xFF8392A8, false);
-        hint.setPadding(0, dp(context, 8), 0, dp(context, 3));
-        controls.addView(hint);
-        ColorCirclePickerView circle = new ColorCirclePickerView(context);
+
+        ui.note(controls, "圆形调色盘：沿外圈选择色相，向中心降低饱和度");
+        final ColorCirclePickerView circle = new ColorCirclePickerView(context);
         LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(-1, dp(context, 210));
         circleParams.gravity = Gravity.CENTER_HORIZONTAL;
         controls.addView(circle, circleParams);
         circle.setColor(0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]);
         // 亮度轴（issue #60）：放在圆盘外面，自己的 SeekBar，避免和圆盘 / ScrollView 抢手势。
-        LinearLayout brightnessRow = new LinearLayout(context);
-        brightnessRow.setGravity(Gravity.CENTER_VERTICAL);
-        brightnessRow.setPadding(0, dp(context, 8), 0, 0);
-        brightnessRow.addView(text(context, "亮度", 13, 0xFFD7E1EE, true),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView brightnessValue = text(context, "100%", 13, 0xFF6EE7F2, true);
-        brightnessRow.addView(brightnessValue);
-        controls.addView(brightnessRow);
-        android.widget.SeekBar brightnessSeek = new android.widget.SeekBar(context);
-        brightnessSeek.setMax(100);
-        brightnessSeek.setProgress(Math.round(circle.value() * 100f));
-        brightnessValue.setText(Math.round(circle.value() * 100f) + "%");
-        if (Build.VERSION.SDK_INT >= 21) {
-            brightnessSeek.setProgressTintList(ColorStateList.valueOf(0xFF6EE7F2));
-            brightnessSeek.setThumbTintList(ColorStateList.valueOf(0xFFFFCA66));
-        }
-        controls.addView(brightnessSeek, new LinearLayout.LayoutParams(-1, dp(context, 38)));
+        final int brightness = Math.round(circle.value() * 100f);
+        SeekBar brightnessSeek = ui.addSeek(controls, "亮度", 100, brightness, "%",
+                value -> circle.setValue(ColorWheelMath.normalizeValue(value)));
+        SeekBar redSeek = ui.addSeek(controls, "红", 255, rgb[0], null, value -> {
+            rgb[0] = value;
+            pickerApply[0].run();
+        });
+        SeekBar greenSeek = ui.addSeek(controls, "绿", 255, rgb[1], null, value -> {
+            rgb[1] = value;
+            pickerApply[0].run();
+        });
+        SeekBar blueSeek = ui.addSeek(controls, "蓝", 255, rgb[2], null, value -> {
+            rgb[2] = value;
+            pickerApply[0].run();
+        });
+        final SeekBar[] channelSeeks = {redSeek, greenSeek, blueSeek};
+        parent.addView(controls);
+
         Runnable apply = () -> {
             alpha[0] = storedAlpha(alpha[0]);
             int color = storableColor(alpha[0], rgb[0], rgb[1], rgb[2]);
@@ -230,7 +198,7 @@ final class ColorPaletteControls {
             state.setText(colorLabel(color));
             updateSwatch(context, swatch, color);
             circle.setColor(0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]);
-            alphaValue.setText(alphaLabel(alpha[0]));
+            if (alphaLabelView != null) alphaLabelView.setText(alphaLabel(alpha[0]));
             if (!textEdited[0]) {
                 // 输入框跟着当前颜色走：这样"选色后随手点一下应用"不会把颜色覆盖回旧值（issue #79）。
                 programmaticText[0] = true;
@@ -241,10 +209,11 @@ final class ColorPaletteControls {
             changed.run();
         };
         // 用调色盘 / 通道滑杆 / 亮度轴 / 纯黑纯白选色时，输入框以控件为准（清掉"用户正在编辑"标记）。
-        final Runnable pickerApply = () -> {
+        pickerApply[0] = () -> {
             textEdited[0] = false;
             apply.run();
         };
+
         applyText.setOnClickListener(v -> {
             String raw = colorValue.getText() == null ? "" : colorValue.getText().toString();
             int parsed = parseColor(raw);
@@ -271,48 +240,34 @@ final class ColorPaletteControls {
             textEdited[0] = false;
             apply.run();
         });
-        alphaSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                if (!fromUser) return;
-                alpha[0] = storedAlpha(progress);
-                if (alpha[0] != progress) bar.setProgress(alpha[0]);
-                pickerApply.run();
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar) { }
-            @Override public void onStopTrackingTouch(SeekBar bar) { }
-        });
-        Channel[] channels = new Channel[]{
-                addChannel(context, controls, "红", rgb, 0, pickerApply),
-                addChannel(context, controls, "绿", rgb, 1, pickerApply),
-                addChannel(context, controls, "蓝", rgb, 2, pickerApply)};
+        if (alphaSeek != null) {
+            alphaSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                    if (alphaLabelView != null) alphaLabelView.setText(alphaLabel(progress));
+                    if (!fromUser) return;
+                    alpha[0] = storedAlpha(progress);
+                    if (alpha[0] != progress) bar.setProgress(alpha[0]);
+                    pickerApply[0].run();
+                }
+                @Override public void onStartTrackingTouch(SeekBar bar) { }
+                @Override public void onStopTrackingTouch(SeekBar bar) { }
+            });
+        }
         circle.setListener(color -> {
             rgb[0] = (color >> 16) & 0xFF;
             rgb[1] = (color >> 8) & 0xFF;
             rgb[2] = color & 0xFF;
-            for (int index = 0; index < channels.length; index++) {
-                channels[index].value.setText(Integer.toString(rgb[index]));
-                channels[index].seek.setProgress(rgb[index]);
+            for (int index = 0; index < channelSeeks.length; index++) {
+                channelSeeks[index].setProgress(rgb[index]);
             }
-            pickerApply.run();
+            pickerApply[0].run();
         });
-        brightnessSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                brightnessValue.setText(progress + "%");
-                if (!fromUser) return;
-                circle.setValue(ColorWheelMath.normalizeValue(progress));
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar) { }
-            @Override public void onStopTrackingTouch(SeekBar bar) { }
-        });
-        pureBlack.setOnClickListener(v -> setRgb(rgb, 0x000000, circle, pickerApply, brightnessSeek,
-                brightnessValue));
-        pureWhite.setOnClickListener(v -> setRgb(rgb, 0xFFFFFF, circle, pickerApply, brightnessSeek,
-                brightnessValue));
-        parent.addView(controls);
+        pureBlack.setOnClickListener(v -> setRgb(rgb, 0x000000, circle, brightnessSeek, pickerApply[0]));
+        pureWhite.setOnClickListener(v -> setRgb(rgb, 0xFFFFFF, circle, brightnessSeek, pickerApply[0]));
         manual.setOnCheckedChangeListener((button, enabled) -> {
-            controls.setVisibility(enabled ? View.VISIBLE : View.GONE);
+            palette.setVisibility(enabled ? View.VISIBLE : View.GONE);
             automatic.setVisibility(enabled ? View.GONE : View.VISIBLE);
-            if (enabled) pickerApply.run();
+            if (enabled) pickerApply[0].run();
             else {
                 store.set(0);
                 changed.run();
@@ -321,8 +276,8 @@ final class ColorPaletteControls {
     }
 
     /** 纯黑 / 纯白快捷入口（issue #60）：写回 rgb[] 后走同一条 apply 路径，亮度轴同步。 */
-    private static void setRgb(int[] rgb, int color, ColorCirclePickerView circle, Runnable apply,
-                               SeekBar brightnessSeek, TextView brightnessValue) {
+    private static void setRgb(int[] rgb, int color, ColorCirclePickerView circle, SeekBar brightnessSeek,
+                               Runnable apply) {
         rgb[0] = (color >> 16) & 0xFF;
         rgb[1] = (color >> 8) & 0xFF;
         rgb[2] = color & 0xFF;
@@ -330,54 +285,20 @@ final class ColorPaletteControls {
         int percent = Math.round(ColorWheelMath.valueFromColorComponents(rgb[0], rgb[1], rgb[2])
                 * 100f);
         brightnessSeek.setProgress(percent);
-        brightnessValue.setText(percent + "%");
         apply.run();
     }
 
-    private static Channel addChannel(Context context, LinearLayout parent, String title, int[] rgb,
-                                      int channel, Runnable apply) {
-        LinearLayout row = new LinearLayout(context);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(context, 6), 0, 0);
-        row.addView(text(context, title, 13, 0xFFD7E1EE, false),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView value = text(context, Integer.toString(rgb[channel]), 13, 0xFF6EE7F2, true);
-        row.addView(value);
-        parent.addView(row);
-        SeekBar seek = new SeekBar(context);
-        seek.setMax(255);
-        seek.setProgress(rgb[channel]);
-        if (Build.VERSION.SDK_INT >= 21) {
-            seek.setProgressTintList(ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(ColorStateList.valueOf(0xFFFFCA66));
-        }
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean user) {
-                value.setText(Integer.toString(progress));
-                if (user) { rgb[channel] = progress; apply.run(); }
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar) { }
-            @Override public void onStopTrackingTouch(SeekBar bar) { }
-        });
-        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(context, 34)));
-        return new Channel(value, seek);
-    }
-
     private static void updateSwatch(Context context, View view, int color) {
-        MaterialShapeDrawable shape = new MaterialShapeDrawable();
-        shape.setFillColor(ColorStateList.valueOf(color));
-        shape.setStroke(dp(context, 1), ColorStateList.valueOf(0xFF6B7C94));
-        shape.setCornerSize(dp(context, 8));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.RECTANGLE);
+        shape.setCornerRadius(dp(context, 8));
+        shape.setColor(color);
+        shape.setStroke(dp(context, 1), ContextCompat.getColor(context, R.color.lc_outline));
         view.setBackground(shape);
     }
 
-    private static TextView text(Context context, String value, int sp, int color, boolean bold) {
-        TextView view = new TextView(context);
-        view.setText(value);
-        view.setTextSize(sp);
-        view.setTextColor(color);
-        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
-        return view;
+    private static TextView note(Context context) {
+        return (TextView) LayoutInflater.from(context).inflate(R.layout.item_setting_note, null, false);
     }
 
     /** 面板状态文字；带透明度时补充百分比，便于用户确认 alpha 生效。 */
@@ -463,11 +384,5 @@ final class ColorPaletteControls {
 
     private static int dp(Context context, float value) {
         return Math.round(value * context.getResources().getDisplayMetrics().density);
-    }
-
-    private static final class Channel {
-        final TextView value;
-        final SeekBar seek;
-        Channel(TextView value, SeekBar seek) { this.value = value; this.seek = seek; }
     }
 }

@@ -1,0 +1,8 @@
+<com.google.android.material.button.MaterialButton xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settings_row_action"
+    style="@style/Widget.LC.Button.Outlined"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:gravity="start|center_vertical"
+    android:minHeight="@dimen/lc_button_min_height" />

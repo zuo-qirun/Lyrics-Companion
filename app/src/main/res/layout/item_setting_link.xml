@@ -1,0 +1,6 @@
+<com.google.android.material.button.MaterialButton xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settings_row_link"
+    style="@style/Widget.LC.Button.Link"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp" />

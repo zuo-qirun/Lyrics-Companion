@@ -1,0 +1,140 @@
+<resources>
+    <!--
+        Shared Material 3 component styles for the settings surface. Activities inflate XML
+        layouts that reference these styles so visual changes stay in one place.
+    -->
+
+    <style name="Widget.LC.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">@color/lc_surface_container_low</item>
+        <item name="cardCornerRadius">@dimen/lc_card_corner</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">@color/lc_outline_variant</item>
+        <item name="strokeWidth">@dimen/lc_card_stroke</item>
+        <item name="cardPreventCornerOverlap">false</item>
+        <item name="android:layout_marginTop">@dimen/lc_card_gap</item>
+    </style>
+
+    <style name="Widget.LC.Card.Link" parent="Widget.LC.Card">
+        <item name="cardBackgroundColor">@color/lc_surface_container</item>
+        <item name="cardCornerRadius">16dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+    </style>
+
+    <style name="Widget.LC.Button" parent="Widget.Material3.Button">
+        <item name="backgroundTint">@color/lc_primary</item>
+        <item name="android:textColor">@color/lc_on_primary</item>
+        <item name="cornerRadius">@dimen/lc_button_corner</item>
+        <item name="android:minHeight">@dimen/lc_button_min_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.LC.Button</item>
+    </style>
+
+    <style name="Widget.LC.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="backgroundTint">@color/lc_secondary_container</item>
+        <item name="android:textColor">@color/lc_on_secondary_container</item>
+        <item name="cornerRadius">@dimen/lc_button_corner</item>
+        <item name="android:minHeight">@dimen/lc_button_min_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.LC.Button</item>
+    </style>
+
+    <style name="Widget.LC.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="backgroundTint">@color/lc_surface_container_low</item>
+        <item name="strokeColor">@color/lc_outline_variant</item>
+        <item name="android:textColor">@color/lc_on_surface</item>
+        <item name="cornerRadius">@dimen/lc_button_corner</item>
+        <item name="android:minHeight">@dimen/lc_button_min_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.LC.Button</item>
+    </style>
+
+    <style name="Widget.LC.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:textColor">@color/lc_primary</item>
+        <item name="cornerRadius">@dimen/lc_button_corner</item>
+        <item name="android:minHeight">@dimen/lc_button_min_height</item>
+        <item name="android:textAppearance">@style/TextAppearance.LC.Button</item>
+    </style>
+
+    <style name="Widget.LC.Button.Link" parent="Widget.LC.Button.Outlined">
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:minHeight">64dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:maxLines">3</item>
+    </style>
+
+    <style name="Widget.LC.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="android:minHeight">@dimen/lc_toolbar_min_height</item>
+        <item name="titleTextAppearance">@style/TextAppearance.LC.ToolbarTitle</item>
+        <item name="subtitleTextAppearance">@style/TextAppearance.LC.ToolbarSubtitle</item>
+        <item name="navigationIconTint">@color/lc_on_surface</item>
+    </style>
+
+    <style name="Widget.LC.BottomNavigationView" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:background">@color/lc_surface_container_low</item>
+        <item name="itemIconTint">@color/lc_nav_item_color</item>
+        <item name="itemTextColor">@color/lc_nav_item_color</item>
+        <item name="itemTextAppearanceActive">@style/TextAppearance.LC.NavLabel</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.LC.NavLabel</item>
+        <item name="labelVisibilityMode">labeled</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.LC.NavActiveIndicator</item>
+    </style>
+
+    <style name="Widget.LC.NavActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/lc_nav_active_indicator</item>
+    </style>
+
+    <style name="Widget.LC.NavigationRail" parent="Widget.Material3.NavigationRailView">
+        <item name="android:background">@color/lc_surface_container_low</item>
+        <item name="itemIconTint">@color/lc_nav_item_color</item>
+        <item name="itemTextColor">@color/lc_nav_item_color</item>
+        <item name="itemTextAppearanceActive">@style/TextAppearance.LC.NavLabel</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.LC.NavLabel</item>
+        <item name="labelVisibilityMode">labeled</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.LC.NavRailActiveIndicator</item>
+    </style>
+
+    <style name="Widget.LC.NavRailActiveIndicator" parent="Widget.Material3.NavigationRailView.ActiveIndicator">
+        <item name="android:color">@color/lc_nav_active_indicator</item>
+    </style>
+
+    <style name="Widget.LC.SearchField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
+        <item name="boxCornerRadiusTopStart">@dimen/lc_search_corner</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/lc_search_corner</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/lc_search_corner</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/lc_search_corner</item>
+        <item name="boxStrokeColor">@color/lc_outline_variant</item>
+        <item name="boxBackgroundColor">@color/lc_surface_container_low</item>
+        <item name="hintTextColor">@color/lc_on_surface_variant</item>
+        <item name="android:textColorHint">@color/lc_on_surface_variant</item>
+        <item name="endIconTint">@color/lc_on_surface_variant</item>
+        <item name="startIconTint">@color/lc_on_surface_variant</item>
+    </style>
+
+    <style name="Widget.LC.SeekBar" parent="android:style/Widget.SeekBar">
+        <item name="android:minHeight">40dp</item>
+        <item name="android:layout_marginTop">2dp</item>
+    </style>
+
+    <style name="Widget.LC.PopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">@color/lc_surface_container_high</item>
+        <item name="android:textColor">@color/lc_on_surface</item>
+    </style>
+
+    <style name="ThemeOverlay.LC.MaterialAlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/lc_surface_container_high</item>
+        <item name="colorSurfaceContainerHigh">@color/lc_surface_container_high</item>
+        <item name="colorOnSurface">@color/lc_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/lc_on_surface_variant</item>
+        <item name="colorPrimary">@color/lc_primary</item>
+        <item name="shapeAppearanceCornerExtraLarge">@style/ShapeAppearance.LC.Dialog</item>
+    </style>
+
+    <style name="TextAppearance.LC.Button" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">14sp</item>
+    </style>
+</resources>

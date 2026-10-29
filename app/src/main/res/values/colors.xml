@@ -1,10 +1,64 @@
 <resources>
-    <color name="app_background">#F7F9FC</color>
-    <color name="app_primary">#006D88</color>
-    <color name="md_theme_primary">#006D88</color>
-    <color name="md_theme_onPrimary">#FFFFFF</color>
-    <color name="md_theme_surface">#F7F9FC</color>
-    <color name="md_theme_surfaceContainer">#EAF0F6</color>
-    <color name="md_theme_onSurface">#17212E</color>
+    <!--
+        Lyrics Companion control surface palette. The companion windows are intentionally a
+        stable dark workspace; the lyric panel keeps its own light/dark environment setting.
+    -->
+
+    <!-- Base surfaces -->
+    <color name="lc_background">#07111F</color>
+    <color name="lc_surface">#0A1626</color>
+    <color name="lc_surface_container_lowest">#071320</color>
+    <color name="lc_surface_container_low">#0D1B2B</color>
+    <color name="lc_surface_container">#112133</color>
+    <color name="lc_surface_container_high">#162A3F</color>
+    <color name="lc_surface_container_highest">#1B3149</color>
+    <color name="lc_surface_variant">#22364B</color>
+    <color name="lc_surface_bright">#2C3F55</color>
+    <color name="lc_inverse_surface">#E6EDF5</color>
+    <color name="lc_inverse_on_surface">#17212E</color>
+    <color name="lc_on_background">#E6EDF5</color>
+    <color name="lc_on_surface">#E6EDF5</color>
+    <color name="lc_on_surface_variant">#A9B6C8</color>
+    <color name="lc_outline">#667687</color>
+    <color name="lc_outline_variant">#2A3D52</color>
+    <color name="lc_scrim">#000000</color>
+
+    <!-- Primary: cockpit cyan -->
+    <color name="lc_primary">#8ED7F8</color>
+    <color name="lc_on_primary">#003548</color>
+    <color name="lc_primary_container">#0B5670</color>
+    <color name="lc_on_primary_container">#C8EDFF</color>
+    <color name="lc_inverse_primary">#00658A</color>
+
+    <!-- Secondary: teal -->
+    <color name="lc_secondary">#8FD3E3</color>
+    <color name="lc_on_secondary">#00363F</color>
+    <color name="lc_secondary_container">#0E4A56</color>
+    <color name="lc_on_secondary_container">#B8EAF5</color>
+
+    <!-- Tertiary: warm accent, used for emphasis and highlighted values -->
+    <color name="lc_tertiary">#FFD79A</color>
+    <color name="lc_on_tertiary">#422C00</color>
+    <color name="lc_tertiary_container">#5E4200</color>
+    <color name="lc_on_tertiary_container">#FFE3B3</color>
+
+    <!-- Error -->
+    <color name="lc_error">#FFB4AB</color>
+    <color name="lc_on_error">#690005</color>
+    <color name="lc_error_container">#93000A</color>
+    <color name="lc_on_error_container">#FFDAD6</color>
+
+    <!-- Ripple / overlay tints -->
+    <color name="lc_ripple">#338ED7F8</color>
+    <color name="lc_nav_active_indicator">#1F8ED7F8</color>
+
+    <!-- Legacy names kept for existing resources and third-party snippets. -->
+    <color name="app_background">#07111F</color>
+    <color name="app_primary">#8ED7F8</color>
+    <color name="md_theme_primary">#8ED7F8</color>
+    <color name="md_theme_onPrimary">#003548</color>
+    <color name="md_theme_surface">#0A1626</color>
+    <color name="md_theme_surfaceContainer">#112133</color>
+    <color name="md_theme_onSurface">#E6EDF5</color>
     <color name="md_theme_outline">#667687</color>
 </resources>
