@@ -2689,20 +2689,35 @@ final class LyricsPanelView extends View {
         boolean showNextLine = (!preferTranslation || !showTranslation)
                 && (compactTextOnly || AppPreferences.compactShowNextLine(getContext(), secondary))
                 && !snapshot.lyrics.nextLyric.isEmpty();
-        if (compactTextOnly && !TopLyricLayout.secondRow(
-                AppPreferences.get(getContext()).getString(AppPreferences.KEY_TOP_LYRIC_ROWS, "double"),
-                "status".equals(AppPreferences.get(getContext()).getString(
-                        AppPreferences.KEY_TOP_LYRIC_PLACEMENT, "legacy")),
-                showTranslation || showNextLine)) {
+        // 顶部歌词条的行数偏好：只有「双行」固定占两行，单行 / 自动 / 状态栏同高保持原行为。
+        boolean topStripDoubleRows = false;
+        boolean topStripSecondRowVisible = false;
+        if (compactTextOnly) {
+            String rows = AppPreferences.get(getContext())
+                    .getString(AppPreferences.KEY_TOP_LYRIC_ROWS, "double");
+            boolean statusAligned = "status".equals(AppPreferences.get(getContext())
+                    .getString(AppPreferences.KEY_TOP_LYRIC_PLACEMENT, "legacy"));
+            topStripDoubleRows = TopLyricLayout.secondRow(rows, statusAligned, false);
+            topStripSecondRowVisible = TopLyricLayout.secondRow(rows, statusAligned,
+                    showTranslation || showNextLine);
+        }
+        // 双行模式打开后第二行行位固定（issue #165）：最后一句没有下一句（或翻译）时也按双行
+        // 字号画，第二行留空，整块不再忽然放大、重新居中。
+        boolean fixedSecondRow = CompactRowMetrics.fixedSecondRow(compactTextOnly,
+                AppPreferences.compactShowNextLine(getContext(), secondary),
+                topStripDoubleRows);
+        if (compactTextOnly && !topStripSecondRowVisible) {
             showTranslation = false;
             showNextLine = false;
         }
+        boolean showSecondRow = CompactRowMetrics.secondRow(fixedSecondRow,
+                showTranslation, showNextLine);
         // Window area supplies the automatic scale; the user's lyric percentage remains an
         // independent multiplier. Only the available stage height limits the final result.
         float requestedLyricSize = refinedLyricFontSize * density * textScale
                 * 1.50f * responsiveScale;
-        float lyricSize = (showNextLine || showTranslation)
-                ? requestedLyricSize * 0.78f : requestedLyricSize;
+        float lyricSize = requestedLyricSize
+                * CompactRowMetrics.lyricSizeFactor(showSecondRow);
         float secondaryLineSize = lyricSize * nextLyricScale;
         setTextPaint(lyricSize, Typeface.BOLD);
         float originalAscent = paint.ascent();
@@ -2715,21 +2730,20 @@ final class LyricsPanelView extends View {
         float lineGap = Math.max(3f * density, lyricSize * 0.12f)
                 * ClassicLayoutMath.lineSpacingFactor(
                         AppPreferences.lyricLineSpacing(getContext(), secondary));
-        boolean showSecondaryLine = showNextLine || showTranslation;
         // 面板实在放不下时收住行距，但不再动字号。
         float maxGap = Math.max(3f * density, lyricStageHeight
                 - (originalDescent - originalAscent) - (secondaryDescent - secondaryAscent));
         lineGap = Math.min(lineGap, maxGap);
-        float groupHeight = showSecondaryLine
-                ? originalDescent - originalAscent + lineGap
-                + secondaryDescent - secondaryAscent
-                : originalDescent - originalAscent;
-        float groupTop = lyricTop + Math.max(0f, (lyricStageHeight - groupHeight) * 0.5f);
-        float baseline = groupTop - originalAscent;
-        float secondaryBaseline = baseline + originalDescent + lineGap - secondaryAscent;
+        float groupHeight = CompactRowMetrics.groupHeight(showSecondRow,
+                originalAscent, originalDescent, lineGap, secondaryAscent, secondaryDescent);
+        float groupTop = CompactRowMetrics.groupTop(lyricTop, lyricStageHeight, groupHeight);
+        float baseline = CompactRowMetrics.baseline(groupTop, originalAscent);
+        float secondaryBaseline = CompactRowMetrics.secondaryBaseline(
+                baseline, originalDescent, lineGap, secondaryAscent);
         // Center the current/secondary line pair in the stage to the left of the cover.
-        String secondaryText = showSecondaryLine ? (showNextLine
-                ? snapshot.lyrics.nextLyric : secondaryLyric(snapshot)) : "";
+        // 固定行位但第二行没有内容时这里留空，不画任何文本。
+        String secondaryText = showNextLine ? snapshot.lyrics.nextLyric
+                : showTranslation ? secondaryLyric(snapshot) : "";
         // The current line, the line leaving it and the row under it all share this column and
         // alignment, so the dissolve eraser sweeps exactly over the glyphs it is replacing.
         Paint.Align lyricAlign = lyricTextAlign(Paint.Align.CENTER);
