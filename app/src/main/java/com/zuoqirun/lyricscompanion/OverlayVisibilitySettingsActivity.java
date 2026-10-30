@@ -47,6 +47,8 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
     private TextView ignoredAppsSummary;
     /** 常驻的前台读取状态提示（issue #61）。 */
     private TextView foregroundStatus;
+    /** 本页卡片内容的宿主：重建时只清空它，保留 toolbar、ScrollView 与滚动位置。 */
+    private LinearLayout pageRoot;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -55,19 +57,26 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     /** 就地重建本页，替代 recreate()：规则开关状态都写在偏好里，重新读一遍即可。 */
     private void rebuildPage() {
-        setContentView(R.layout.activity_overlay_visibility);
-        if (Build.VERSION.SDK_INT >= 21) {
-            int background = ContextCompat.getColor(this, R.color.lc_background);
-            getWindow().setStatusBarColor(background);
-            getWindow().setNavigationBarColor(background);
+        if (pageRoot == null) {
+            setContentView(R.layout.activity_overlay_visibility);
+            if (Build.VERSION.SDK_INT >= 21) {
+                int background = ContextCompat.getColor(this, R.color.lc_background);
+                getWindow().setStatusBarColor(background);
+                getWindow().setNavigationBarColor(background);
+            }
+
+            MaterialToolbar toolbar = findViewById(R.id.overlay_toolbar);
+            toolbar.setTitle("悬浮窗隐藏规则");
+            toolbar.setSubtitle("规则命中时隐藏，条件解除后自动恢复");
+            toolbar.setNavigationOnClickListener(v -> finish());
+            pageRoot = findViewById(R.id.overlay_content);
+        } else {
+            // 以前这里是整页 setContentView：重建后 ScrollView 回到顶部，用户点了页面下方的
+            // 「只在桌面显示」会突然被扔回页首。原地换掉卡片内容就不动滚动位置。
+            pageRoot.removeAllViews();
         }
 
-        MaterialToolbar toolbar = findViewById(R.id.overlay_toolbar);
-        toolbar.setTitle("悬浮窗隐藏规则");
-        toolbar.setSubtitle("规则命中时隐藏，条件解除后自动恢复");
-        toolbar.setNavigationOnClickListener(v -> finish());
-
-        LinearLayout root = findViewById(R.id.overlay_content);
+        LinearLayout root = pageRoot;
         ui = new SettingsUi(this);
 
         LinearLayout rules = ui.card(root, "自动隐藏");

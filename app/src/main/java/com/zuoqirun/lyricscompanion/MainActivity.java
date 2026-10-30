@@ -1056,9 +1056,8 @@ public final class MainActivity extends AppCompatActivity {
         View content = buildContent();
         setContentView(content);
         CustomFontStore.applyToViewTree(this, content);
-        if (mainScroll != null) {
-            mainScroll.post(() -> mainScroll.scrollTo(0, savedScrollY));
-        }
+        // 首帧绘制前就恢复滚动位置：用 post() 会先画一帧顶部再跳回来，看起来就是闪一下。
+        ScrollRestore.beforeFirstDraw(mainScroll, savedScrollY);
     }
 
     private LinearLayout buildSettingsModeCard() {

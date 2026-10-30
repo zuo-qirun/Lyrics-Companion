@@ -28,6 +28,8 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 @SuppressLint("SetTextI18n")
 public final class DisplaySettingsActivity extends AppCompatActivity implements DisplaySlotHost {
     static final String EXTRA_SECONDARY = "secondary";
+    /** 预览展开状态随配置变化保存，旋转后不自动收起。 */
+    private static final String STATE_PREVIEW_EXPANDED = "preview_expanded";
 
     private boolean secondary;
     /** Which screen this page edits: 0 = 主屏, 1 = 副屏, 2+ = an extra screen. */
@@ -38,6 +40,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     private SettingsUi ui;
     private LinearLayout cardHost;
     private boolean returningFromDetails;
+    /** 预览展开状态：从详情页返回原地重建时保留，用户不必重新点开。 */
+    private boolean previewExpanded;
 
     @Override public SharedPreferences displaySlotPreferences() {
         return DisplaySlotContext.preferencesFor(this, displaySlot);
@@ -53,33 +57,46 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
      * 不复用 recreate()，避免窗口退出再重进的黑屏闪烁。
      */
     private void buildPage(Bundle savedInstanceState) {
+        // Only a real configuration restore carries this key; rebuilds on the same instance keep the field.
+        if (savedInstanceState != null && savedInstanceState.containsKey(STATE_PREVIEW_EXPANDED)) {
+            previewExpanded = savedInstanceState.getBoolean(STATE_PREVIEW_EXPANDED);
+        }
         secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         displaySlot = DisplaySlotContext.slotFrom(getIntent(), secondary);
         secondary = displaySlot > DisplaySlotRegistry.MAIN_SLOT;
 
         String currentStyle = AppPreferences.overlayStyle(this, secondary);
-        navigation = new SettingsNavigator(this, "显示设置",
-                DisplaySlotRegistry.slotLabel(this, displaySlot) + " · " + styleName()
-                        + "（作用范围见各项说明）", currentStyle, new SettingsValues(this, secondary));
+        String scopeLabel = DisplaySlotRegistry.slotLabel(this, displaySlot) + " · " + styleName()
+                + "（作用范围见各项说明）";
+        if (navigation == null) {
+            navigation = new SettingsNavigator(this, "显示设置", scopeLabel, currentStyle,
+                    new SettingsValues(this, secondary));
+            navigation.toolbar.inflateMenu(R.menu.settings_toolbar);
+            navigation.toolbar.setOnMenuItemClickListener(item -> {
+                if (item.getItemId() != R.id.action_more) return false;
+                new MaterialAlertDialogBuilder(this).setTitle("更多操作")
+                        .setItems(new String[]{"复制外观到其它屏幕 / 样式"}, (dialog, which) ->
+                                SettingsCopyDialog.show(this, displaySlot, secondary))
+                        .show();
+                return true;
+            });
+        } else {
+            // 从详情页返回原地重建：复用同一个 shell，toolbar 菜单只 inflate 一次，
+            // 滚动位置和搜索词都不会被 setContentView 重置回顶部。
+            navigation.resetForRebuild();
+            navigation.updateScope(scopeLabel, currentStyle, new SettingsValues(this, secondary));
+        }
         ui = new SettingsUi(this);
         cardHost = new LinearLayout(this);
-        navigation.toolbar.inflateMenu(R.menu.settings_toolbar);
-        navigation.toolbar.setOnMenuItemClickListener(item -> {
-            if (item.getItemId() != R.id.action_more) return false;
-            new MaterialAlertDialogBuilder(this).setTitle("更多操作")
-                    .setItems(new String[]{"复制外观到其它屏幕 / 样式"}, (dialog, which) ->
-                            SettingsCopyDialog.show(this, displaySlot, secondary))
-                    .show();
-            return true;
-        });
         LinearLayout common = card("常用调整");
         preview = new LyricsPanelView(this, secondary);
-        preview.setVisibility(View.GONE);
-        MaterialButton previewToggle = ui.actionButton(common, "查看当前效果 ▾", null);
+        preview.setVisibility(previewExpanded ? View.VISIBLE : View.GONE);
+        MaterialButton previewToggle = ui.actionButton(common,
+                previewExpanded ? "收起效果预览 ▴" : "查看当前效果 ▾", null);
         previewToggle.setOnClickListener(v -> {
-            boolean show = preview.getVisibility() != View.VISIBLE;
-            preview.setVisibility(show ? View.VISIBLE : View.GONE);
-            previewToggle.setText(show ? "收起效果预览 ▴" : "查看当前效果 ▾");
+            previewExpanded = preview.getVisibility() != View.VISIBLE;
+            preview.setVisibility(previewExpanded ? View.VISIBLE : View.GONE);
+            previewToggle.setText(previewExpanded ? "收起效果预览 ▴" : "查看当前效果 ▾");
         });
         common.addView(preview, new LinearLayout.LayoutParams(-1, dp(150)));
         LinearLayout position = card("位置与交互");
@@ -648,6 +665,9 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
     @Override protected void onResume() {
         super.onResume();
+        // Details pages pause and hide the settings overlay; tell the service we are visible again
+        // before the early return, otherwise the floating lyrics get drawn on top of this page.
+        LyricsDisplayService.setSettingsVisible(this, true);
         if (returningFromDetails) {
             returningFromDetails = false;
             rebuildPage();
@@ -655,7 +675,6 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         }
         if (preview != null) preview.reloadStyle();
         if (navigation != null) navigation.refresh();
-        LyricsDisplayService.setSettingsVisible(this, true);
     }
 
     /** 从详情页返回时就地重建本页，保留分类 / 搜索词 / 滚动位置。 */
@@ -670,7 +689,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
-        navigation.save(state);
+        if (navigation != null) navigation.save(state);
+        state.putBoolean(STATE_PREVIEW_EXPANDED, previewExpanded);
         super.onSaveInstanceState(state);
     }
 

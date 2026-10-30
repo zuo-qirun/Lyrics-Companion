@@ -38,8 +38,6 @@ final class SettingsNavigator {
     private final AppCompatActivity activity;
     private final SettingsUi ui;
     private final String title;
-    private final String style;
-    private final SettingsCatalog.Values values;
     final LinearLayout content;
     final LinearLayout layout;
     final MaterialToolbar toolbar;
@@ -48,12 +46,19 @@ final class SettingsNavigator {
     private final LinearLayout links;
     private final LinearLayout results;
     private final List<Section> sections = new ArrayList<>();
+    /** 已挂到 content 上的卡片容器；原地重建时按这个列表摘掉旧内容。 */
+    private final List<View> sectionViews = new ArrayList<>();
     private final List<Row> rows = new ArrayList<>();
     private final List<SearchLink> searchLinks = new ArrayList<>();
     private final EnumMap<SettingsCatalog.Category, MaterialButton> categoryButtons =
             new EnumMap<>(SettingsCatalog.Category.class);
     private SettingsCatalog.Category selected = SettingsCatalog.Category.COMMON;
     private View highlighted;
+    /** 本页自己的 style / values 会随「编辑区域」「当前样式」变化，原地重建时要能更新。 */
+    private String style;
+    private SettingsCatalog.Values values;
+    /** 已经 setContentView 过一次：之后的重建只换 content，不再动窗口。 */
+    private boolean attached;
 
     SettingsNavigator(AppCompatActivity activity, String title, String scope, String style,
                       SettingsCatalog.Values values) {
@@ -100,9 +105,13 @@ final class SettingsNavigator {
     void addSection(LinearLayout card, SettingsCatalog.Category category, String label) {
         View container = SettingsUi.containerOf(card);
         sections.add(new Section(card, container, category, label));
+        sectionViews.add(container);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = ui.dp(12);
-        content.addView(container, params);
+        // Cards must stay above the category shortcuts: insert right before the links block
+        // instead of appending, otherwise the shortcuts float above the whole page.
+        int linkIndex = content.indexOfChild(links);
+        content.addView(container, linkIndex < 0 ? content.getChildCount() : linkIndex, params);
     }
 
     LinearLayout row(LinearLayout parent, String key, String label) {
@@ -125,6 +134,31 @@ final class SettingsNavigator {
         ui.linkButton(links, label, summary, v -> action.run());
     }
 
+    /** 页面作用域 / 当前样式变了（切换编辑区域、返回本页后发现样式被改）：同步副标题与判定条件。 */
+    void updateScope(String scope, String style, SettingsCatalog.Values values) {
+        toolbar.setSubtitle(scope);
+        this.style = style;
+        this.values = values;
+    }
+
+    /**
+     * 同一页原地重建：只摘掉旧卡片，保留 toolbar、搜索框、ScrollView 和滚动位置。
+     *
+     * <p>以前每次点击都 new 一个 SettingsNavigator 再 setContentView，整棵树重建后的第一帧按
+     * 滚动位置 0 绘制，随后才由 {@code scroll.post} 跳回原位，所以界面上会“闪一下顶部画面”。
+     */
+    void resetForRebuild() {
+        for (View container : sectionViews) content.removeView(container);
+        sectionViews.clear();
+        sections.clear();
+        rows.clear();
+        searchLinks.clear();
+        categoryButtons.clear();
+        highlighted = null;
+        results.removeAllViews();
+        links.removeAllViews();
+    }
+
     void finish(Bundle state) {
         arrangeCommonControls();
         for (SettingsCatalog.Category category : SettingsCatalog.Category.values()) {
@@ -133,16 +167,22 @@ final class SettingsNavigator {
                     v -> show(category));
             categoryButtons.put(category, button);
         }
-        if (state != null) {
-            try { selected = SettingsCatalog.Category.valueOf(state.getString(STATE_CATEGORY, "COMMON")); }
-            catch (IllegalArgumentException ignored) { selected = SettingsCatalog.Category.COMMON; }
-            search.setText(state.getString(STATE_QUERY, ""));
-            int y = state.getInt(STATE_SCROLL, 0);
-            scroll.post(() -> scroll.scrollTo(0, y));
-        } else if (activity.getIntent().hasExtra(EXTRA_QUERY)) {
-            search.setText(activity.getIntent().getStringExtra(EXTRA_QUERY));
+        if (!attached) {
+            if (state != null) {
+                try { selected = SettingsCatalog.Category.valueOf(state.getString(STATE_CATEGORY, "COMMON")); }
+                catch (IllegalArgumentException ignored) { selected = SettingsCatalog.Category.COMMON; }
+                search.setText(state.getString(STATE_QUERY, ""));
+                ScrollRestore.beforeFirstDraw(scroll, state.getInt(STATE_SCROLL, 0));
+            } else if (activity.getIntent().hasExtra(EXTRA_QUERY)) {
+                search.setText(activity.getIntent().getStringExtra(EXTRA_QUERY));
+            }
         }
         refresh();
+        if (attached) {
+            CustomFontStore.applyToViewTree(activity, content);
+            return;
+        }
+        attached = true;
         activity.setContentView(layout);
         CustomFontStore.applyToViewTree(activity, layout);
     }

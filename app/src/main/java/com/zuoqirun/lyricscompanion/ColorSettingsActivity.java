@@ -6,6 +6,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.AdapterView;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
@@ -23,6 +25,8 @@ import java.util.List;
 @SuppressLint("SetTextI18n")
 public final class ColorSettingsActivity extends AppCompatActivity implements DisplaySlotHost {
     static final String EXTRA_SCOPE = "scope";
+    /** 预览展开状态随配置变化保存，旋转后不自动收起。 */
+    private static final String STATE_PREVIEW_EXPANDED = "preview_expanded";
     /** LayoutInflater.from 需要已附着的 Activity，只能在 onCreate 里构造。 */
     private SettingsUi ui;
     private SettingsNavigator navigation;
@@ -34,6 +38,9 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
     /** 页内实时预览与它的容器（issue #24）。 */
     private LinearLayout previewHost;
     private LyricsPanelView colorPreview;
+    /** 预览展开状态、预览当前渲染的是哪个编辑区域：原地重建时保留，不再缩回 GONE。 */
+    private boolean previewExpanded;
+    private int previewScope = -1;
 
     @Override public SharedPreferences displaySlotPreferences() {
         return DisplaySlotContext.preferencesFor(this, displaySlot);
@@ -44,6 +51,9 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         ui = new SettingsUi(this);
         if (state != null) selectedScope = state.getInt(EXTRA_SCOPE, 0);
         else selectedScope = getIntent().getIntExtra(EXTRA_SCOPE, 0);
+        if (state != null && state.containsKey(STATE_PREVIEW_EXPANDED)) {
+            previewExpanded = state.getBoolean(STATE_PREVIEW_EXPANDED);
+        }
         buildPage(state);
     }
 
@@ -57,19 +67,31 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         String style = selectedScope == 2 ? "status" : AppPreferences.overlayStyle(this, displaySlot > 0);
         String scopeLabel = selectedScope == 2 ? "顶部歌词条" : DisplaySlotRegistry.slotLabel(this, displaySlot)
                 + " · " + DisplaySettingsActivity.styleName(style);
-        navigation = new SettingsNavigator(this, "颜色与描边", scopeLabel, style,
-                new SettingsValues(this, displaySlot > 0));
+        SettingsCatalog.Values values = new SettingsValues(this, displaySlot > 0);
+        if (navigation == null) {
+            navigation = new SettingsNavigator(this, "颜色与描边", scopeLabel, style, values);
+        } else {
+            // 原地重建：复用同一个 shell，滚动位置、搜索词、返回栈都不动。
+            navigation.resetForRebuild();
+            navigation.updateScope(scopeLabel, style, values);
+        }
 
         // 预设配色方案（issue #131）：放在页面最顶部，一键套用本屏 × 当前样式。
         if (selectedScope != 2) addPresetCard();
 
         // 页内实时预览（issue #24）。
-        previewHost = new LinearLayout(this);
-        previewHost.setOrientation(LinearLayout.VERTICAL);
-        previewHost.setVisibility(View.GONE);
+        if (previewHost == null) {
+            previewHost = new LinearLayout(this);
+            previewHost.setOrientation(LinearLayout.VERTICAL);
+            previewHost.setVisibility(previewExpanded ? View.VISIBLE : View.GONE);
+        }
         LinearLayout previewCard = card("效果预览");
-        ui.actionButton(previewCard, "查看 / 收起效果预览", v -> previewHost.setVisibility(
-                previewHost.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        // 每次重建都会换一张新卡片：先把预览容器从旧卡片上摘下来，否则 addView 会报已有 parent。
+        detach(previewHost);
+        ui.actionButton(previewCard, "查看 / 收起效果预览", v -> {
+            previewExpanded = !previewExpanded;
+            previewHost.setVisibility(previewExpanded ? View.VISIBLE : View.GONE);
+        });
         previewCard.addView(previewHost);
         navigation.addSection(previewCard, SettingsCatalog.Category.COMMON, "效果预览");
 
@@ -131,6 +153,7 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putInt(EXTRA_SCOPE, selectedScope);
+        state.putBoolean(STATE_PREVIEW_EXPANDED, previewExpanded);
         navigation.save(state);
         super.onSaveInstanceState(state);
     }
@@ -496,14 +519,27 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
     /**
      * 页内实时预览（issue #24）：按当前编辑的区域（主屏 / 副屏 / 顶部歌词条 / 某块附加屏）建一个
      * 小尺寸 LyricsPanelView，改颜色时 {@link #changed()} 会让它重新读一遍样式。
+     *
+     * <p>编辑区域没变就复用同一个 View（只刷新样式），这样原地重建不会把已展开的预览缩回去，
+     * 也不会每点一次按钮就丢掉一次播放到一半的预览。
      */
     private void rebuildPreview() {
         if (previewHost == null) return;
+        if (colorPreview != null && previewScope == selectedScope) {
+            colorPreview.reloadStyle();
+            return;
+        }
+        previewScope = selectedScope;
         previewHost.removeAllViews();
         colorPreview = selectedScope == 2
                 ? new LyricsPanelView(this, false, false, true)
                 : new LyricsPanelView(this, displaySlot > DisplaySlotRegistry.MAIN_SLOT);
         previewHost.addView(colorPreview, new LinearLayout.LayoutParams(-1, dp(140)));
+    }
+
+    private static void detach(View view) {
+        ViewParent parent = view.getParent();
+        if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(view);
     }
 
     private int dp(float value) {
