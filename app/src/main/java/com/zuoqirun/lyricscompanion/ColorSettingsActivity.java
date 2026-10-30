@@ -44,7 +44,15 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
         ui = new SettingsUi(this);
         if (state != null) selectedScope = state.getInt(EXTRA_SCOPE, 0);
         else selectedScope = getIntent().getIntExtra(EXTRA_SCOPE, 0);
+        buildPage(state);
+    }
 
+    /**
+     * 按最新偏好重建整页：切换颜色规则、描边开关、套用预设或换编辑区域时页面内容会变，
+     * 但没必要 recreate() 这个 Activity —— 那样会先退出再重进，看起来像黑屏闪一下。
+     */
+    private void buildPage(Bundle state) {
+        ready = false;
         displaySlot = displaySlotForScope(selectedScope);
         String style = selectedScope == 2 ? "status" : AppPreferences.overlayStyle(this, displaySlot > 0);
         String scopeLabel = selectedScope == 2 ? "顶部歌词条" : DisplaySlotRegistry.slotLabel(this, displaySlot)
@@ -138,7 +146,11 @@ public final class ColorSettingsActivity extends AppCompatActivity implements Di
     }
 
     private void rebuildColors() {
-        if (ready) recreate();
+        if (!ready) return;
+        // 保留当前分类 / 搜索词 / 滚动位置，然后原地重建页面，避免 recreate() 造成的黑屏闪烁。
+        Bundle pageState = new Bundle();
+        navigation.save(pageState);
+        buildPage(pageState);
     }
 
     private void buildColorSections() {

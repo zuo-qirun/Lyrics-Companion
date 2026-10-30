@@ -345,7 +345,7 @@ public final class MainActivity extends AppCompatActivity {
             String name = CustomFontStore.importFont(this, uri);
             AppPreferences.changed(this);
             SafeToast.show(this, "已全局应用字体：" + name, Toast.LENGTH_SHORT);
-            recreate();
+            rebuildContent();
         } catch (Exception error) {
             SafeToast.show(this, error.getMessage() == null ? "导入字体失败" : error.getMessage(),
                     Toast.LENGTH_LONG);
@@ -1047,6 +1047,20 @@ public final class MainActivity extends AppCompatActivity {
         return shell;
     }
 
+    /**
+     * 按最新偏好就地重建主界面内容，替代 recreate()：切换设置模式、样式、界面缩放或分类栏位置时
+     * 页面本来就要整体重排，但没必要让窗口退出再重进（那会黑屏闪一下）。
+     */
+    private void rebuildContent() {
+        int savedScrollY = mainScroll == null ? 0 : mainScroll.getScrollY();
+        View content = buildContent();
+        setContentView(content);
+        CustomFontStore.applyToViewTree(this, content);
+        if (mainScroll != null) {
+            mainScroll.post(() -> mainScroll.scrollTo(0, savedScrollY));
+        }
+    }
+
     private LinearLayout buildSettingsModeCard() {
         LinearLayout card = card();
         card.addView(sectionLabel("设置模式"));
@@ -1091,7 +1105,7 @@ public final class MainActivity extends AppCompatActivity {
                             return;
                         }
                         AppPreferences.setSettingsNavSide(MainActivity.this, values[position]);
-                        recreate();
+                        rebuildContent();
                     }
 
                     @Override public void onNothingSelected(
@@ -1187,7 +1201,7 @@ public final class MainActivity extends AppCompatActivity {
         if (concise == conciseSettingsMode) return;
         AppPreferences.setConciseSettingsMode(this, concise);
         selectedSection = 0;
-        recreate();
+        rebuildContent();
     }
 
     /** A deliberately small surface for users who only need to turn lyrics on and adjust them. */
@@ -1248,7 +1262,7 @@ public final class MainActivity extends AppCompatActivity {
     private void switchToCompleteDisplaySettings() {
         AppPreferences.setConciseSettingsMode(this, false);
         selectedSection = 1;
-        recreate();
+        rebuildContent();
     }
 
     private MaterialSwitch addQuickOverlayToggle(LinearLayout parent, String title, String key,
@@ -1389,7 +1403,7 @@ public final class MainActivity extends AppCompatActivity {
                 updateRefinedSettingsVisibility();
                 if (!secondary) refreshPreview();
                 AppPreferences.changed(MainActivity.this);
-                if (!secondary) recreate();
+                if (!secondary) rebuildContent();
             }
             @Override public void onNothingSelected(AdapterView<?> parentView) { }
         });
@@ -2338,6 +2352,7 @@ public final class MainActivity extends AppCompatActivity {
             onChanged.accept(value);
         });
         row.addView(toggle);
+        row.setOnClickListener(v -> toggle.toggle());
         return row;
     }
 
@@ -2560,7 +2575,7 @@ public final class MainActivity extends AppCompatActivity {
                                                   View view, int position, long id) {
                 if (values[position] == AppPreferences.settingsUiScale(MainActivity.this)) return;
                 AppPreferences.setSettingsUiScale(MainActivity.this, values[position]);
-                recreate();
+                rebuildContent();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
@@ -2954,7 +2969,7 @@ public final class MainActivity extends AppCompatActivity {
         resetButton.setOnClickListener(v -> {
             CustomFontStore.clear(this);
             AppPreferences.changed(this);
-            recreate();
+            rebuildContent();
         });
         LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
         resetParams.leftMargin = dp(10);
@@ -3288,7 +3303,7 @@ public final class MainActivity extends AppCompatActivity {
         AppPreferences.changed(this);
         SafeToast.show(this, "已恢复默认设置（重置 " + removed + " 项）",
                 Toast.LENGTH_SHORT);
-        recreate();
+        rebuildContent();
     }
 
     private void promptShareConfiguration() {
@@ -3354,7 +3369,7 @@ public final class MainActivity extends AppCompatActivity {
                                         LyricsDisplayService.startOrRefresh(this);
                                         SafeToast.show(this, "已导入 " + count + " 项设置",
                                                 Toast.LENGTH_SHORT);
-                                        recreate();
+                                        rebuildContent();
                                     } catch (Throwable error) {
                                         SafeToast.show(this, "导入失败：" + error.getMessage(),
                                                 Toast.LENGTH_LONG);

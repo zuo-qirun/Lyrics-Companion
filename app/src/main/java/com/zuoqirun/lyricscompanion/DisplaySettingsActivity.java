@@ -45,6 +45,14 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        buildPage(savedInstanceState);
+    }
+
+    /**
+     * 按最新偏好重建本页；从「颜色与描边」「样式专属设置」返回时直接原地重建，
+     * 不复用 recreate()，避免窗口退出再重进的黑屏闪烁。
+     */
+    private void buildPage(Bundle savedInstanceState) {
         secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         displaySlot = DisplaySlotContext.slotFrom(getIntent(), secondary);
         secondary = displaySlot > DisplaySlotRegistry.MAIN_SLOT;
@@ -642,7 +650,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         super.onResume();
         if (returningFromDetails) {
             returningFromDetails = false;
-            recreate();
+            rebuildPage();
             return;
         }
         if (preview != null) preview.reloadStyle();
@@ -650,6 +658,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         LyricsDisplayService.setSettingsVisible(this, true);
     }
 
+    /** 从详情页返回时就地重建本页，保留分类 / 搜索词 / 滚动位置。 */
+    private void rebuildPage() {
+        Bundle pageState = new Bundle();
+        if (navigation != null) navigation.save(pageState);
+        buildPage(pageState);
+    }
     private void openDetails(Intent intent) {
         returningFromDetails = true;
         startActivity(intent);

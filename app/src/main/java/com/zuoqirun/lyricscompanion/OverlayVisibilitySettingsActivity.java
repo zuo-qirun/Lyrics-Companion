@@ -50,6 +50,11 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        rebuildPage();
+    }
+
+    /** 就地重建本页，替代 recreate()：规则开关状态都写在偏好里，重新读一遍即可。 */
+    private void rebuildPage() {
         setContentView(R.layout.activity_overlay_visibility);
         if (Build.VERSION.SDK_INT >= 21) {
             int background = ContextCompat.getColor(this, R.color.lc_background);
@@ -274,7 +279,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
                 AppPreferences.changed(this);
                 SafeToast.show(this, "已设为「只在桌面显示」：白名单 = 系统桌面（" + desktops.size()
                         + " 个）", Toast.LENGTH_LONG);
-                recreate();
+                rebuildPage();
             });
         });
     }

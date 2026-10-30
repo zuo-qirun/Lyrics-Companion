@@ -74,9 +74,13 @@ final class SettingsUi {
             subtitleView.setText(subtitle);
             subtitleView.setVisibility(View.VISIBLE);
         }
-        MaterialSwitch toggle = row.findViewById(R.id.settings_row_switch);
+        final MaterialSwitch toggle = row.findViewById(R.id.settings_row_switch);
         toggle.setChecked(checked);
+        toggle.setContentDescription(title);
         if (listener != null) toggle.setOnCheckedChangeListener(listener);
+        // 整行可点：旧版把标题嵌在开关文字里，点标题就能切换；拆成模板后只点开关本体
+        // 太窄，车机上尤其难命中，所以这里恢复"点行即切换"的行为。
+        row.setOnClickListener(v -> toggle.toggle());
         parent.addView(row);
         return toggle;
     }
@@ -92,6 +96,7 @@ final class SettingsUi {
         ((TextView) row.findViewById(R.id.settings_row_title)).setText(title);
         final TextView value = row.findViewById(R.id.settings_row_value);
         final SeekBar seek = row.findViewById(R.id.settings_row_seek);
+        seek.setContentDescription(title);
         seek.setMax(max);
         seek.setProgress(progress);
         value.setText(progress + (suffix == null ? "" : suffix));
@@ -113,10 +118,13 @@ final class SettingsUi {
                       AdapterView.OnItemSelectedListener listener) {
         LinearLayout row = (LinearLayout) inflater.inflate(R.layout.item_setting_choice, parent, false);
         ((TextView) row.findViewById(R.id.settings_row_title)).setText(title);
-        Spinner spinner = row.findViewById(R.id.settings_row_spinner);
+        final Spinner spinner = row.findViewById(R.id.settings_row_spinner);
         spinner.setAdapter(new ThemedSpinnerAdapter<>(context, labels));
         spinner.setSelection(selected, false);
+        spinner.setContentDescription(title);
         if (listener != null) spinner.setOnItemSelectedListener(listener);
+        // 标题区域也可以点开下拉，行为与旧版整行点选一致。
+        row.setOnClickListener(v -> spinner.performClick());
         parent.addView(row);
         return spinner;
     }
