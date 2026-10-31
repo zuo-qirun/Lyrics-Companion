@@ -3,13 +3,13 @@ package com.zuoqirun.lyricscompanion;
 import android.annotation.SuppressLint;
 import android.content.SharedPreferences;
 import android.content.Intent;
+import android.graphics.Color;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
-import android.util.TypedValue;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -18,30 +18,23 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.shape.MaterialShapeDrawable;
 
 /** A focused parameter page for exactly one overlay display. */
 @SuppressLint("SetTextI18n")
 public final class DisplaySettingsActivity extends AppCompatActivity implements DisplaySlotHost {
     static final String EXTRA_SECONDARY = "secondary";
-    /** 预览展开状态随配置变化保存，旋转后不自动收起。 */
-    private static final String STATE_PREVIEW_EXPANDED = "preview_expanded";
 
     private boolean secondary;
     /** Which screen this page edits: 0 = 主屏, 1 = 副屏, 2+ = an extra screen. */
     private int displaySlot;
     private LyricsPanelView preview;
     private SettingsNavigator navigation;
-    /** Builds the Material 3 cards; cards are staged here until their section is registered. */
-    private SettingsUi ui;
-    private LinearLayout cardHost;
     private boolean returningFromDetails;
-    /** 预览展开状态：从详情页返回原地重建时保留，用户不必重新点开。 */
-    private boolean previewExpanded;
 
     @Override public SharedPreferences displaySlotPreferences() {
         return DisplaySlotContext.preferencesFor(this, displaySlot);
@@ -49,55 +42,33 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        buildPage(savedInstanceState);
-    }
-
-    /**
-     * 按最新偏好重建本页；从「颜色与描边」「样式专属设置」返回时直接原地重建，
-     * 不复用 recreate()，避免窗口退出再重进的黑屏闪烁。
-     */
-    private void buildPage(Bundle savedInstanceState) {
-        // Only a real configuration restore carries this key; rebuilds on the same instance keep the field.
-        if (savedInstanceState != null && savedInstanceState.containsKey(STATE_PREVIEW_EXPANDED)) {
-            previewExpanded = savedInstanceState.getBoolean(STATE_PREVIEW_EXPANDED);
-        }
         secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         displaySlot = DisplaySlotContext.slotFrom(getIntent(), secondary);
         secondary = displaySlot > DisplaySlotRegistry.MAIN_SLOT;
 
         String currentStyle = AppPreferences.overlayStyle(this, secondary);
-        String scopeLabel = DisplaySlotRegistry.slotLabel(this, displaySlot) + " · " + styleName()
-                + "（作用范围见各项说明）";
-        if (navigation == null) {
-            navigation = new SettingsNavigator(this, "显示设置", scopeLabel, currentStyle,
-                    new SettingsValues(this, secondary));
-            navigation.toolbar.inflateMenu(R.menu.settings_toolbar);
-            navigation.toolbar.setOnMenuItemClickListener(item -> {
-                if (item.getItemId() != R.id.action_more) return false;
-                new MaterialAlertDialogBuilder(this).setTitle("更多操作")
-                        .setItems(new String[]{"复制外观到其它屏幕 / 样式"}, (dialog, which) ->
-                                SettingsCopyDialog.show(this, displaySlot, secondary))
-                        .show();
-                return true;
-            });
-        } else {
-            // 从详情页返回原地重建：复用同一个 shell，toolbar 菜单只 inflate 一次，
-            // 滚动位置和搜索词都不会被 setContentView 重置回顶部。
-            navigation.resetForRebuild();
-            navigation.updateScope(scopeLabel, currentStyle, new SettingsValues(this, secondary));
-        }
-        ui = new SettingsUi(this);
-        cardHost = new LinearLayout(this);
+        navigation = new SettingsNavigator(this, "显示设置",
+                DisplaySlotRegistry.slotLabel(this, displaySlot) + " · " + styleName()
+                        + "（作用范围见各项说明）", currentStyle, new SettingsValues(this, secondary));
+        navigation.toolbar.getMenu().add("更多").setOnMenuItemClickListener(item -> {
+            new MaterialAlertDialogBuilder(this).setTitle("更多操作")
+                    .setItems(new String[]{"复制外观到其它屏幕 / 样式"}, (dialog, which) ->
+                            SettingsCopyDialog.show(this, displaySlot, secondary))
+                    .show();
+            return true;
+        });
         LinearLayout common = card("常用调整");
         preview = new LyricsPanelView(this, secondary);
-        preview.setVisibility(previewExpanded ? View.VISIBLE : View.GONE);
-        MaterialButton previewToggle = ui.actionButton(common,
-                previewExpanded ? "收起效果预览 ▴" : "查看当前效果 ▾", null);
+        preview.setVisibility(View.GONE);
+        MaterialButton previewToggle = new MaterialButton(this);
+        previewToggle.setText("查看当前效果 ▾");
+        previewToggle.setAllCaps(false);
         previewToggle.setOnClickListener(v -> {
-            previewExpanded = preview.getVisibility() != View.VISIBLE;
-            preview.setVisibility(previewExpanded ? View.VISIBLE : View.GONE);
-            previewToggle.setText(previewExpanded ? "收起效果预览 ▴" : "查看当前效果 ▾");
+            boolean show = preview.getVisibility() != View.VISIBLE;
+            preview.setVisibility(show ? View.VISIBLE : View.GONE);
+            previewToggle.setText(show ? "收起效果预览 ▴" : "查看当前效果 ▾");
         });
+        common.addView(previewToggle, new LinearLayout.LayoutParams(-1, dp(48)));
         common.addView(preview, new LinearLayout.LayoutParams(-1, dp(150)));
         LinearLayout position = card("位置与交互");
         LinearLayout motion = card("歌词动效");
@@ -166,7 +137,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     AppPreferences.contentAlign(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary,
                             AppPreferences.KEY_CONTENT_ALIGN, value));
-            addHelp(panel, "拖到屏幕顶端后选「顶部」，歌词才会贴到面板上沿。");
+            addHelp(panel, text("拖到屏幕顶端后选「顶部」，歌词才会贴到面板上沿。", 12, 0xFFD7E1EE, false));
             addChoice(panel, "歌词水平对齐（经典 / 紧凑 / 纯净 / 灵动岛）", AppPreferences.KEY_LYRIC_ALIGN,
                     new String[]{"跟随样式（默认）", "居中", "居左"},
                     new String[]{"", "center", "left"},
@@ -197,7 +168,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 addToggle(panel, "经典歌名保持设定字号（长歌名跑马灯）",
                         AppPreferences.KEY_CLASSIC_KEEP_TITLE_SIZE,
                         AppPreferences.classicKeepTitleSize(this, secondary));
-                addHelp(panel, "歌名按实际字号预留高度；空间不足时请增大面板高度或减少歌词行数。");
+                addHelp(panel, text("歌名按实际字号预留高度；空间不足时请增大面板高度或减少歌词行数。",
+                        12, 0xFFD7E1EE, false));
             }
             if ("island".equals(AppPreferences.overlayStyle(this, secondary))) {
                 addSeek(panel, "胶囊高度上限", AppPreferences.KEY_ISLAND_MAX_HEIGHT, 72, 240,
@@ -218,7 +190,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         AppPreferences.islandSecondRow(this, secondary),
                         value -> AppPreferences.putDisplayString(this, secondary,
                                 AppPreferences.KEY_ISLAND_SECOND_ROW, value));
-                addHelp(panel, "高度受悬浮窗高度与上限共同限制；双行按行高分配，字号在行高内缩放。关闭自动分配后主行占比可设 35–85%；矮于 56dp 或过窄时退回单行。");
+                addHelp(panel, text("高度受悬浮窗高度与上限共同限制；双行按行高分配，字号在行高内缩放。关闭自动分配后主行占比可设 35–85%；矮于 56dp 或过窄时退回单行。",
+                        12, 0xFFD7E1EE, false));
             }
             addToggle(motion, "播放器实时歌词切句动画", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
                     AppPreferences.liveLyricAnimation(this, secondary));
@@ -226,7 +199,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     AppPreferences.liveLyricAnimationDuration(this, secondary), " ms",
                     value -> AppPreferences.putDisplayInt(this, secondary,
                             AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, value));
-            addHelp(motion, "实时歌词换句时淡入并轻微上移，不估算演唱或逐字时长；默认关闭，顶部歌词条不受影响。");
+            addHelp(motion, text("实时歌词换句时淡入并轻微上移，不估算演唱或逐字时长；默认关闭，顶部歌词条不受影响。",
+                    12, 0xFFD7E1EE, false));
             // 粒子量 and 逐字歌词及时擦除 belong to the dissolve: they are only offered while it is
             // switched on, and go away with it. The holder exists because the master toggle is built
             // before the rows it controls.
@@ -265,8 +239,9 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         MaterialSwitch lockToggle = addToggle(position, "锁定位置并穿透（保留播放控制按键）",
                 AppPreferences.KEY_OVERLAY_POSITION_LOCKED,
                 AppPreferences.overlayPositionLocked(this, secondary), null);
-        addHelp(position, "锁定后点击穿透到下层应用，仅播放按键可点；点 × 两次解除。"
-                + "与「锁定并触摸穿透」二选一；Android 12 起穿透会让歌词略暗。");
+        addHelp(position, text("锁定后点击穿透到下层应用，仅播放按键可点；点 × 两次解除。"
+                + "与「锁定并触摸穿透」二选一；Android 12 起穿透会让歌词略暗。",
+                12, 0xFF8392A8, false));
         addTouchThroughToggle(position, lockToggle);
         if (!foliaStyle) {
             if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_STYLE_LYRIC_LINES, selectedStyle).isEmpty()) {
@@ -283,8 +258,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         new String[]{"", "second", "top"},
                         AppPreferences.lyricAnchor(this, secondary),
                         value -> AppPreferences.setLyricAnchor(this, secondary, value));
-                addHelp(panel, "只改变当前句落在第几行，整块歌词仍按「内容垂直对齐」定位；"
-                        + "歌词显示行数为 1 时看不到区别。");
+                addHelp(panel, text("只改变当前句落在第几行，整块歌词仍按「内容垂直对齐」定位；"
+                        + "歌词显示行数为 1 时看不到区别。", 12, 0xFF8392A8, false));
             }
             // 行间距（issue #138）：百分比只拉开相邻歌词行，字号仍按面板高度收缩。
             if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_LYRIC_LINE_SPACING,
@@ -292,8 +267,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 addSeek(panel, "歌词行间距", AppPreferences.KEY_LYRIC_LINE_SPACING, 80, 200,
                         AppPreferences.lyricLineSpacing(this, secondary), "%",
                         value -> AppPreferences.setLyricLineSpacing(this, secondary, value));
-                addHelp(panel, "100% 为当前版面；只作用在相邻歌词行之间，歌名与翻译不跟着动。"
-                        + "调大到放不下时会收住行距，不会偷偷缩小字号。");
+                addHelp(panel, text("100% 为当前版面；只作用在相邻歌词行之间，歌名与翻译不跟着动。"
+                        + "调大到放不下时会收住行距，不会偷偷缩小字号。", 12, 0xFF8392A8, false));
             }
             // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
             addChoice(motion, "文字效果（全部样式）", AppPreferences.KEY_REFINED_TEXT_EFFECT,
@@ -334,11 +309,11 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             effectParameters.setVisibility("none".equals(initialEffect) ? View.GONE : View.VISIBLE);
             effectMotion.setVisibility(LyricEffectCatalog.find(initialEffect).animated ? View.VISIBLE : View.GONE);
             effectSpeed.setVisibility("karaoke".equals(initialEffect) ? View.GONE : View.VISIBLE);
-            addHelp(motion, "按屏幕和样式独立保存。卡拉 OK 无逐字数据时按句长估算，停顿与长音可能有偏差；磨砂为半透明底衬，悬空为模拟纵深。镜像压缩在原行下沿，避免占用下一句。低帧率限制面板重绘；关闭动画保留镜像与磨砂静态项。");
+            addHelp(motion, text("按屏幕和样式独立保存。卡拉 OK 无逐字数据时按句长估算，停顿与长音可能有偏差；磨砂为半透明底衬，悬空为模拟纵深。镜像压缩在原行下沿，避免占用下一句。低帧率限制面板重绘；关闭动画保留镜像与磨砂静态项。", 12, 0xFF8392A8, false));
             // 无逐字时间轴时估算逐字进度（issue #21）。
             addToggle(motion, "无逐字时间轴时按本句时长估算逐字进度", AppPreferences.KEY_ESTIMATED_WORD_KARAOKE,
                     AppPreferences.estimatedWordKaraoke(this, secondary), null);
-            addHelp(motion, "普通 .lrc 按本句已播放比例逐字推进；长音与停顿会有偏差，默认关闭。");
+            addHelp(motion, text("普通 .lrc 按本句已播放比例逐字推进；长音与停顿会有偏差，默认关闭。", 12, 0xFFD7E1EE, false));
         }
         // 「正在匹配歌词」的呈现方式（issue #45）。
         final View[][] matchingDependents = new View[1][];
@@ -349,21 +324,22 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         AppPreferences.matchingAnimation(this, secondary), matchingDependents[0]));
         addToggle(motion, "匹配期间歌词区留白", AppPreferences.KEY_HIDE_MATCHING_PLACEHOLDER,
                 AppPreferences.hideMatchingPlaceholder(this, secondary));
-        addHelp(motion, "匹配期间隐藏歌词占位文字和匹配小点，保持原有版面；匹配成功后恢复歌词。");
+        addHelp(motion, text("匹配期间隐藏歌词占位文字和匹配小点，保持原有版面；匹配成功后恢复歌词。", 12, 0xFF8392A8, false));
         View[] matchingDelayRow = addSeekRow(motion, "匹配超过多久才显示动画", AppPreferences.KEY_MATCHING_ANIMATION_DELAY, 0, 10,
                 AppPreferences.matchingAnimationDelayMs(this, secondary) / 1_000, " 秒",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_MATCHING_ANIMATION_DELAY, value * 1_000));
         matchingDependents[0] = new View[] { matchingDelayRow[0], matchingDelayRow[1] };
         setDependentVisibility(matching.isChecked(), matchingDependents[0]);
-        addHelp(motion, "匹配期间面板底部显示发散小点；默认超过 3 秒才出现，动画约 30 fps。");
+        addHelp(motion, text("匹配期间面板底部显示发散小点；默认超过 3 秒才出现，动画约 30 fps。",
+                12, 0xFFD7E1EE, false));
         // 等待/间奏时保留上一句（issue #147）：默认关，保持现在的 ♪ · · · 占位。
         if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_HOLD_PREVIOUS_LYRIC,
                 selectedStyle).isEmpty()) {
             addToggle(motion, "间奏时保留上一句", AppPreferences.KEY_HOLD_PREVIOUS_LYRIC,
                     AppPreferences.holdPreviousLyric(this, secondary), null);
-            addHelp(motion, "开启后间奏不再显示「♪ · · ·」，而是把间奏前的最后一句歌词暗一档保留；"
-                    + "等待播放与匹配中的占位行为不变。");
+            addHelp(motion, text("开启后间奏不再显示「♪ · · ·」，而是把间奏前的最后一句歌词暗一档保留；"
+                    + "等待播放与匹配中的占位行为不变。", 12, 0xFFD7E1EE, false));
         }
         if ("pure".equals(AppPreferences.overlayStyle(this, secondary))) {
             addToggle(panel, "纯净模式显示歌名", AppPreferences.KEY_PURE_SHOW_TITLE,
@@ -413,9 +389,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         if (foliaStyle) {
             addToggle(spectrum, "启用真实音频采集", AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM,
                     AppPreferences.compactUseRealSpectrum(this, secondary));
-            ui.note(spectrum, originalFolia
+            spectrum.addView(text(originalFolia
                     ? "把真实音频频谱传入原版场景。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时不生成虚拟节拍。"
-                    : "回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时保留原轨道，不生成虚拟节拍。");
+                    : "回环与心象使用真实低频驱动。需要在权限设置中授权录音，且 ROM 提供输出频谱；无信号时保留原轨道，不生成虚拟节拍。",
+                    12, 0xFF8392A8, false));
         }
         addCard(spectrum, SettingsCatalog.Category.EFFECTS);
 
@@ -479,19 +456,22 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         }
 
         LinearLayout playbackFade = card("播放按钮自动淡化（所有屏幕）");
-        LinearLayout fadeRow = navigation.row(playbackFade, AppPreferences.KEY_PLAYBACK_FADE,
-                "闲置数秒后淡化播放按钮");
-        MaterialSwitch fadeToggle = ui.addToggle(fadeRow, "闲置数秒后淡化播放按钮", null,
-                AppPreferences.get(this).getBoolean(AppPreferences.KEY_PLAYBACK_FADE, false), null);
+        MaterialSwitch fadeToggle = new MaterialSwitch(this);
+        fadeToggle.setText("闲置数秒后淡化播放按钮");
+        fadeToggle.setTextColor(Color.WHITE);
+        fadeToggle.setChecked(AppPreferences.get(this).getBoolean(AppPreferences.KEY_PLAYBACK_FADE, false));
         fadeToggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit().putBoolean(AppPreferences.KEY_PLAYBACK_FADE, checked).apply();
             changed();
         });
+        LinearLayout fadeRow = navigation.row(playbackFade, AppPreferences.KEY_PLAYBACK_FADE,
+                "闲置数秒后淡化播放按钮");
+        fadeRow.addView(fadeToggle);
         navigation.scopeNote(fadeRow, AppPreferences.KEY_PLAYBACK_FADE);
         addSeek(playbackFade, "淡化等待时间", AppPreferences.KEY_PLAYBACK_FADE_SECONDS, 1, 30,
                 AppPreferences.get(this).getInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, 3), " 秒",
                 value -> AppPreferences.get(this).edit().putInt(AppPreferences.KEY_PLAYBACK_FADE_SECONDS, value).apply());
-        ui.note(playbackFade, "主屏、副屏、追加屏与全屏共用此选项。淡化至 20% 后仍可点击，触摸或鼠标悬浮时恢复。");
+        playbackFade.addView(text("主屏、副屏、追加屏与全屏共用此选项。淡化至 20% 后仍可点击，触摸或鼠标悬浮时恢复。", 12, 0xFF8392A8, false));
         addCard(playbackFade, SettingsCatalog.Category.INTERACTION);
 
         LinearLayout sourceCorrection = card("按播放器校正");
@@ -513,15 +493,25 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.lyricCacheLimitMb(this), " MB",
                 value -> AppPreferences.get(this).edit()
                         .putInt(AppPreferences.KEY_LYRIC_CACHE_LIMIT_MB, value).apply());
-        ui.note(cache, "缓存歌词、翻译与逐字时间轴，再次播放优先读缓存；清除后重新联网匹配（各屏共用）。");
+        cache.addView(text("缓存歌词、翻译与逐字时间轴，再次播放优先读缓存；清除后重新联网匹配（各屏共用）。", 12, 0xFFD7E1EE, false));
         // 缓存占用与清除入口（issue #20）。
-        TextView cacheUsage = valueText(cacheUsageLabel(), 13);
+        TextView cacheUsage = text(cacheUsageLabel(), 13, 0xFF6EE7F2, false);
         cacheUsage.setPadding(0, dp(10), 0, dp(6));
         cache.addView(cacheUsage);
+        MaterialButton clearCache = new MaterialButton(this);
+        clearCache.setText("清除歌词缓存");
+        clearCache.setTextSize(13f);
+        clearCache.setTextColor(0xFFF1F5FA);
+        clearCache.setAllCaps(false);
+        clearCache.setCornerRadius(dp(15));
+        clearCache.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0xFF25364D));
+        clearCache.setOnClickListener(v -> confirmClearLyricCache(cacheUsage));
         LinearLayout clearRow = navigation.row(cache, "lyric_cache_clear", "清除歌词缓存");
-        ui.actionButton(clearRow, "清除歌词缓存", v -> confirmClearLyricCache(cacheUsage));
+        clearRow.addView(clearCache, new LinearLayout.LayoutParams(-1, dp(48)));
         navigation.scopeNote(clearRow, "lyric_cache_clear");
-        ui.note(cache, "「按容量自动淘汰」与「保留 30 天」都带 30 天上限，「永久保留」不受影响。");
+        cache.addView(text("「按容量自动淘汰」与「保留 30 天」都带 30 天上限，「永久保留」不受影响。", 12,
+                0xFFD7E1EE, false));
         addCard(cache, SettingsCatalog.Category.MAINTENANCE);
 
         LinearLayout artwork = card("背景与封面");
@@ -531,10 +521,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     new String[]{"纯色（原样）", "封面主色", "日夜底色渐变"},
                     new String[]{"solid", "artwork", "gradient"}, AppPreferences.islandBackground(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_ISLAND_BACKGROUND, value));
-            addHelp(artwork, "三种静态背景均跟随不透明度，0 为透明；无封面时回退纯色。胶囊不使用模糊、遮罩、渐隐或星空参数，圆角为高度一半。");
+            addHelp(artwork, text("三种静态背景均跟随不透明度，0 为透明；无封面时回退纯色。胶囊不使用模糊、遮罩、渐隐或星空参数，圆角为高度一半。",
+                    12, 0xFFD7E1EE, false));
             addToggle(artwork, "显示封面", AppPreferences.KEY_ISLAND_SHOW_COVER,
                     AppPreferences.islandShowCover(this, secondary));
-            addHelp(artwork, "关闭后不预留圆形封面区域，文字使用胶囊完整内宽；无封面时也遵守下方隐藏设置。");
+            addHelp(artwork, text("关闭后不预留圆形封面区域，文字使用胶囊完整内宽；无封面时也遵守下方隐藏设置。",
+                    12, 0xFFD7E1EE, false));
         }
         // 播放器不给封面时的行为（issue #50）。
         addChoice(artwork, "播放器不给封面时", AppPreferences.KEY_COVER_MISSING_MODE,
@@ -569,7 +561,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             // 面板圆角（issue #37）：0 = 直角矩形，可以把面板当成一整块实心色板。
             addSeek(artwork, "面板圆角（0 = 直角）", AppPreferences.KEY_CORNER_RADIUS_PERCENT, 0, 50, displayedCornerPercent(), "%",                value -> AppPreferences.putDisplayInt(this, secondary,
                             AppPreferences.KEY_CORNER_RADIUS_PERCENT, value));
-            addHelp(artwork, "0% 为直角；配合「背景不透明度」100% 可整块盖住后面的界面。");
+            addHelp(artwork, text("0% 为直角；配合「背景不透明度」100% 可整块盖住后面的界面。", 12,
+                    0xFFD7E1EE, false));
         }
         // 面板边缘阴影（issue #56）：0 = 关掉，滑到最右最强；滑杆最左是「各样式原样」。
         addSeek(artwork, "面板阴影", AppPreferences.KEY_PANEL_SHADOW_PERCENT, 0, PanelShadowMath.MAX_PERCENT,
@@ -581,14 +574,15 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         if (!island) {
             addToggle(artwork, "圆形封面（紧凑 / AMLL）", AppPreferences.KEY_ROUND_COVER,
                     AppPreferences.roundCover(this, secondary), null);
-            addHelp(artwork, "圆形封面只对紧凑与 AMLL 生效（Refined 关掉「方形专辑封面」即圆形）。");
+            addHelp(artwork, text("圆形封面只对紧凑与 AMLL 生效（Refined 关掉「方形专辑封面」即圆形）。", 12,
+                    0xFFD7E1EE, false));
             // 封面与歌词上下排列（issue #134）：紧凑 / AMLL 的另一种竖排挡位，默认关。
             if (SettingsCatalog.unsupportedReason(AppPreferences.KEY_COVER_STACKED,
                     selectedStyle).isEmpty()) {
                 addToggle(artwork, "封面与歌词上下排列", AppPreferences.KEY_COVER_STACKED,
                         AppPreferences.coverStacked(this, secondary), null);
-                addHelp(artwork, "开启后封面在上、歌名在封面下、歌词整幅排在下面；"
-                        + "竖排时会自动限制封面大小，避免把歌词挤没。");
+                addHelp(artwork, text("开启后封面在上、歌名在封面下、歌词整幅排在下面；"
+                        + "竖排时会自动限制封面大小，避免把歌词挤没。", 12, 0xFFD7E1EE, false));
             }
         }
         final View[][] coverDependents = new View[1][];
@@ -603,7 +597,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         AppPreferences.KEY_COVER_ROTATION_PERIOD_SECONDS, value));
         coverDependents[0] = new View[] { periodRow[0], periodRow[1] };
         setDependentVisibility(coverSpin.isChecked(), coverDependents[0]);
-        addHelp(artwork, "仅对圆形封面生效：按播放进度旋转，暂停即停；旋转期间约 60 fps，费电。");
+        addHelp(artwork, text("仅对圆形封面生效：按播放进度旋转，暂停即停；旋转期间约 60 fps，费电。", 12,
+                0xFFD7E1EE, false));
         if (!island) {
             // 动态星空背景 + 发光歌词（issue #59）：背景类型里的「星空」档与它的四个参数。
             addChoice(artwork, "背景类型（Refined / 紧凑）", AppPreferences.KEY_REFINED_BACKGROUND_TYPE,
@@ -627,7 +622,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     new String[]{"日夜底色（在颜色页分别设置）", "封面主色"}, new String[]{"theme", "artwork"},
                     AppPreferences.displayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, "theme"),
                     value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_COVER_FADE_COLOR, value));
-            addHelp(artwork, "封面渐隐沿用背景不透明度、亮度与遮罩；无封面时只显示底色。胶囊深色背景也跟随不透明度，0 即透明。");
+            addHelp(artwork, text("封面渐隐沿用背景不透明度、亮度与遮罩；无封面时只显示底色。胶囊深色背景也跟随不透明度，0 即透明。",
+                    12, 0xFFD7E1EE, false));
             addSeek(artwork, "星空密度", AppPreferences.KEY_STARFIELD_DENSITY, 10, 200,
                     AppPreferences.starfieldDensityPercent(this, secondary), "%",
                     value -> AppPreferences.putDisplayInt(this, secondary,
@@ -665,32 +661,23 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
 
     @Override protected void onResume() {
         super.onResume();
-        // Details pages pause and hide the settings overlay; tell the service we are visible again
-        // before the early return, otherwise the floating lyrics get drawn on top of this page.
-        LyricsDisplayService.setSettingsVisible(this, true);
         if (returningFromDetails) {
             returningFromDetails = false;
-            rebuildPage();
+            recreate();
             return;
         }
         if (preview != null) preview.reloadStyle();
         if (navigation != null) navigation.refresh();
+        LyricsDisplayService.setSettingsVisible(this, true);
     }
 
-    /** 从详情页返回时就地重建本页，保留分类 / 搜索词 / 滚动位置。 */
-    private void rebuildPage() {
-        Bundle pageState = new Bundle();
-        if (navigation != null) navigation.save(pageState);
-        buildPage(pageState);
-    }
     private void openDetails(Intent intent) {
         returningFromDetails = true;
         startActivity(intent);
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
-        if (navigation != null) navigation.save(state);
-        state.putBoolean(STATE_PREVIEW_EXPANDED, previewExpanded);
+        navigation.save(state);
         super.onSaveInstanceState(state);
     }
 
@@ -703,8 +690,13 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         String key = secondary ? AppPreferences.KEY_SECONDARY_OVERLAY_TOUCH_THROUGH
                 : AppPreferences.KEY_MAIN_OVERLAY_TOUCH_THROUGH;
         parent = navigation.row(parent, key, "锁定并触摸穿透");
-        MaterialSwitch toggle = ui.addToggle(parent, "锁定并触摸穿透", null,
-                AppPreferences.overlayTouchThrough(this, secondary), null);
+        MaterialSwitch toggle = new MaterialSwitch(this);
+        toggle.setText("锁定并触摸穿透");
+        toggle.setTextColor(0xFFF1F5FA);
+        toggle.setTextSize(14f);
+        toggle.setGravity(Gravity.CENTER_VERTICAL);
+        toggle.setPadding(0, dp(10), 0, dp(2));
+        toggle.setChecked(AppPreferences.overlayTouchThrough(this, secondary));
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putOverlayTouchThrough(this, secondary, checked);
             if (checked) {
@@ -720,8 +712,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             // Leaving the settings page is enough; no hidden long-press gesture is required.
             changed();
         });
-        ui.note(parent, "穿透期间歌词拖不动，也无法点击其他区域；与上面的「锁定位置并穿透」二选一。"
-                + "Android 12 起穿透会让歌词略暗。");
+        parent.addView(toggle);
+        TextView note = text("穿透期间歌词拖不动，也无法点击其他区域；与上面的「锁定位置并穿透」二选一。"
+                + "Android 12 起穿透会让歌词略暗。", 12,
+                0xFF8392A8, false);
+        note.setPadding(0, 0, 0, dp(4));
+        parent.addView(note);
         navigation.scopeNote(parent, key);
     }
 
@@ -822,23 +818,26 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     }
 
     private LinearLayout card(String title) {
-        return ui.card(cardHost, title);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(15), dp(14), dp(15), dp(15));
+        MaterialShapeDrawable surface = new MaterialShapeDrawable();
+        surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        surface.setCornerSize(dp(20));
+        card.setBackground(surface);
+        card.addView(text(title, 13, 0xFF6EE7F2, true));
+        return card;
     }
 
     private void addCard(LinearLayout card, SettingsCatalog.Category category) {
         String title = ((TextView) card.getChildAt(0)).getText().toString();
-        View container = SettingsUi.containerOf(card);
-        if (container.getParent() instanceof ViewGroup) {
-            ((ViewGroup) container.getParent()).removeView(container);
-        }
         navigation.addSection(card, category, title);
     }
 
-    private void addHelp(LinearLayout parent, CharSequence help) {
-        View last = parent.getChildCount() == 0 ? null
-                : parent.getChildAt(parent.getChildCount() - 1);
-        if (last instanceof LinearLayout) ui.note((LinearLayout) last, help);
-        else ui.note(parent, help);
+    private void addHelp(LinearLayout parent, TextView note) {
+        View last = parent.getChildAt(parent.getChildCount() - 1);
+        if (last instanceof LinearLayout) ((LinearLayout) last).addView(note);
+        else parent.addView(note);
     }
 
     private void addSeek(LinearLayout parent, String title, String key, int min, int max,
@@ -855,12 +854,22 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     private View[] addSeekRow(LinearLayout parent, String title, String key, int min, int max,
                               int initial, String suffix, IntConsumer consumer) {
         parent = navigation.row(parent, key, title);
-        final int initialValue = clamp(initial, min, max);
-        SeekBar seek = ui.addSeek(parent, title, max - min, initialValue - min, null, null);
-        LinearLayout row = (LinearLayout) seek.getParent();
-        final TextView value = row.findViewById(R.id.settings_row_value);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, 0);
+        row.addView(text(title, 14, 0xFFD7E1EE, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView value = text(formatValue(initial, suffix), 13, 0xFF6EE7F2, true);
+        row.addView(value);
         navigation.value(value);
-        value.setText(formatValue(initialValue, suffix));
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(max - min);
+        seek.setProgress(clamp(initial, min, max) - min);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 int selected = min + progress;
@@ -872,6 +881,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             @Override public void onStartTrackingTouch(SeekBar bar) { }
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(48)));
         navigation.scopeNote(parent, key);
         return new View[] { row, seek };
     }
@@ -883,7 +893,13 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     private MaterialSwitch addToggle(LinearLayout parent, String title, String key,
                                      boolean initial, Runnable onToggled) {
         parent = navigation.row(parent, key, title);
-        MaterialSwitch toggle = ui.addToggle(parent, title, null, initial, null);
+        MaterialSwitch toggle = new MaterialSwitch(this);
+        toggle.setText(title);
+        toggle.setTextColor(0xFFF1F5FA);
+        toggle.setTextSize(14f);
+        toggle.setGravity(Gravity.CENTER_VERTICAL);
+        toggle.setPadding(0, dp(10), 0, 0);
+        toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putDisplayBoolean(this, secondary, key, checked);
             if (checked && AppPreferences.KEY_COMPACT_USE_REAL_SPECTRUM.equals(key)
@@ -897,6 +913,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             if (onToggled != null) onToggled.run();
             changed();
         });
+        toggle.setMinHeight(dp(48));
+        parent.addView(toggle);
         navigation.scopeNote(parent, key);
         return toggle;
     }
@@ -912,12 +930,16 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     private void addChoice(LinearLayout parent, String title, String key, String[] labels, String[] values,
                            String initial, StringConsumer consumer) {
         parent = navigation.row(parent, key, title);
-        int selectedIndex = 0;
+        TextView label = text(title, 14, 0xFFD7E1EE, true);
+        label.setPadding(0, 0, 0, dp(4));
+        parent.addView(label);
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         for (int i = 0; i < values.length; i++) {
-            if (values[i].equals(initial)) { selectedIndex = i; break; }
+            if (values[i].equals(initial)) { spinner.setSelection(i, false); break; }
         }
-        ui.addChoice(parent, title, labels, selectedIndex, new AdapterView.OnItemSelectedListener() {
-            private String selected = initial;
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            String selected = initial;
             @Override public void onItemSelected(AdapterView<?> parentView, View view,
                                                   int position, long id) {
                 if (values[position].equals(selected)) return;
@@ -927,13 +949,17 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             }
             @Override public void onNothingSelected(AdapterView<?> parentView) { }
         });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
         navigation.scopeNote(parent, key);
     }
 
     private void addSourceCorrection(LinearLayout parent) {
         parent = navigation.row(parent, AppPreferences.KEY_LYRIC_SOURCE_OFFSET, "按播放器校正");
         navigation.scopeNote(parent, AppPreferences.KEY_LYRIC_SOURCE_OFFSET);
-        ui.note(parent, "在本屏时间校正的基础上，为不同播放器单独微调。");
+        TextView description = text("在本屏时间校正的基础上，为不同播放器单独微调。", 12,
+                0xFF8392A8, false);
+        description.setPadding(0, dp(10), 0, dp(4));
+        parent.addView(description);
         String[] labels = {"网易云音乐", "QQ 音乐", "酷狗音乐", "酷我音乐", "汽水音乐", "咪咕音乐",
                 "喜马拉雅", "东风皓瀚播放器", "其他播放器"};
         String[] sourceIds = {"netease", "qqmusic", "kugou", "kuwo", "soda", "migu",
@@ -947,14 +973,20 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         picker.setSelection(initialIndex);
         parent.addView(picker, new LinearLayout.LayoutParams(-1, dp(44)));
 
-        final int initialOffset = AppPreferences.lyricSourceOffsetMs(this, secondary,
-                selectedSource[0]);
-        SeekBar seek = ui.addSeek(parent, "所选播放器额外校正", 10_000,
-                clamp(initialOffset, -5_000, 5_000) + 5_000, null, null);
-        LinearLayout row = (LinearLayout) seek.getParent();
-        final TextView value = row.findViewById(R.id.settings_row_value);
-        navigation.value(value);
-        value.setText(formatValue(initialOffset, " ms"));
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, 0);
+        row.addView(text("所选播放器额外校正", 14, 0xFFD7E1EE, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView value = text("0 ms", 13, 0xFF6EE7F2, true);
+        row.addView(value);
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(10_000);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 int offsetMs = progress - 5_000;
@@ -967,33 +999,36 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
             @Override public void onStartTrackingTouch(SeekBar bar) { }
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
         picker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> parentView, View view,
+            @Override public void onItemSelected(AdapterView<?> parentView, android.view.View view,
                                                  int position, long id) {
                 selectedSource[0] = sourceIds[position];
                 int offsetMs = AppPreferences.lyricSourceOffsetMs(DisplaySettingsActivity.this,
                         secondary, selectedSource[0]);
-                seek.setProgress(clamp(offsetMs, -5_000, 5_000) + 5_000);
+                seek.setProgress(offsetMs + 5_000);
             }
             @Override public void onNothingSelected(AdapterView<?> parentView) { }
         });
-        seek.setProgress(clamp(initialOffset, -5_000, 5_000) + 5_000);
+        seek.setProgress(AppPreferences.lyricSourceOffsetMs(this, secondary, selectedSource[0])
+                + 5_000);
     }
 
     private void addTrackCorrection(LinearLayout parent) {
         parent = navigation.row(parent, SettingsCatalog.TRACK_OFFSET, "当前歌曲校正");
         navigation.scopeNote(parent, SettingsCatalog.TRACK_OFFSET);
         boolean hasTrack = !MusicStateStore.activeLyricOffsetKey().isEmpty();
-        ui.note(parent, hasTrack
+        TextView description = text(hasTrack
                 ? "仅为当前歌曲额外校正；切换歌曲后自动读取对应记录。"
-                : "播放歌曲后可为这首歌单独校正。");
-        final TextView value = valueText(
-                formatValue(AppPreferences.lyricTrackOffsetMs(this), " ms"), 13);
+                : "播放歌曲后可为这首歌单独校正。", 12, 0xFF8392A8, false);
+        parent.addView(description);
+        TextView value = text(formatValue(AppPreferences.lyricTrackOffsetMs(this), " ms"),
+                13, 0xFF6EE7F2, true);
         parent.addView(value);
         SeekBar seek = new SeekBar(this);
         seek.setMax(10_000);
         seek.setEnabled(hasTrack);
-        seek.setProgress(clamp(AppPreferences.lyricTrackOffsetMs(this), -5_000, 5_000) + 5_000);
+        seek.setProgress(AppPreferences.lyricTrackOffsetMs(this) + 5_000);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
                 int offsetMs = progress - 5_000;
@@ -1024,31 +1059,13 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         if (secondary) LyricsDisplayService.refreshSecondary(this);
     }
 
-    private TextView valueText(String value, int sp) {
+    private TextView text(String value, int sp, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(sp);
-        view.setTextColor(themeColor(com.google.android.material.R.attr.colorPrimary));
-        view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         return view;
-    }
-
-    private int themeColor(int attribute) {
-        TypedValue value = new TypedValue();
-        if (getTheme().resolveAttribute(attribute, value, true)) {
-            if (value.resourceId != 0) {
-                try {
-                    return ContextCompat.getColor(this, value.resourceId);
-                } catch (android.content.res.Resources.NotFoundException ignored) {
-                    // Vendor themes may expose an invalid resource; fall through.
-                }
-            }
-            if (value.type >= TypedValue.TYPE_FIRST_COLOR_INT
-                    && value.type <= TypedValue.TYPE_LAST_COLOR_INT) {
-                return value.data;
-            }
-        }
-        return ContextCompat.getColor(this, R.color.lc_on_surface);
     }
 
     private int dp(float value) {

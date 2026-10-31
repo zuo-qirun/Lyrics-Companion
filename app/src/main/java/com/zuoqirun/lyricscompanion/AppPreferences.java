@@ -243,7 +243,6 @@ final class AppPreferences {
     /** 设置页分类栏位置（issue #70）：left（默认）/ right，以及额外的起始留白（dp）。 */
     static final String KEY_SETTINGS_NAV_SIDE = "settings_nav_side";
     static final String KEY_SETTINGS_NAV_INSET_DP = "settings_nav_inset_dp";
-    static final String KEY_SETTINGS_PAGE_INSET_DP = "settings_page_inset_dp";
     /** 上一次读到的前台应用与时间（issue #61）：ROM 不返回前台事件时黑名单只能靠它。 */
     static final String KEY_LAST_FOREGROUND_PACKAGE = "last_foreground_package";
     static final String KEY_LAST_FOREGROUND_AT_MS = "last_foreground_at_ms";    static final String KEY_SHOW_PLAY_PAUSE_BUTTON = "show_play_pause_button";
@@ -423,17 +422,6 @@ final class AppPreferences {
     static void setSettingsNavInsetDp(Context context, int value) {
         get(context).edit()
                 .putInt(KEY_SETTINGS_NAV_INSET_DP, SettingsNavLayout.clampInsetDp(value)).apply();
-    }
-
-    /** 设置页整页左边距（dp，issue #164）：让分类栏和正文一起让开系统悬浮栏。 */
-    static int settingsPageInsetDp(Context context) {
-        return SettingsNavLayout.clampPageInsetDp(
-                get(context).getInt(KEY_SETTINGS_PAGE_INSET_DP, 0));
-    }
-
-    static void setSettingsPageInsetDp(Context context, int value) {
-        get(context).edit()
-                .putInt(KEY_SETTINGS_PAGE_INSET_DP, SettingsNavLayout.clampPageInsetDp(value)).apply();
     }
 
     /** 上一次确实读到过的前台应用（issue #61）：车机 ROM 不返回前台事件时，黑名单只能靠它。 */

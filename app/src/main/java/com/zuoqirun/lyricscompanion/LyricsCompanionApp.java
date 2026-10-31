@@ -10,8 +10,6 @@ public final class LyricsCompanionApp extends MultiDexApplication {
         // 网络直连（issue #153）要在任何请求之前落地：崩溃上报、更新检查和词库都会走 HttpCompat。
         NetworkDirectPolicy.apply(AppPreferences.networkDirect(this));
         CrashReporter.install(this);
-        // API 19 上菜单/导航栏里的矢量图标要靠 AppCompat 的兼容路径解析（minSdk 19）。
-        AppCompatDelegate.setCompatVectorFromResourcesEnabled(true);
         // 按时间段的配色在启动时就要落地（issue #34），否则设置页会停在系统主题上。
         applyMaterialTheme(AppPreferences.resolvedThemeMode(this));
         DiagnosticLog.record(this, "Application", "process started");

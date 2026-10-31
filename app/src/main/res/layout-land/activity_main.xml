@@ -1,25 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/main_shell"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/lc_background"
+    android:background="#07111F"
     android:orientation="horizontal">
 
-    <com.google.android.material.navigationrail.NavigationRailView
+    <LinearLayout
         android:id="@+id/main_navigation"
-        style="@style/Widget.LC.NavigationRail"
         android:layout_width="104dp"
         android:layout_height="match_parent"
-        app:headerLayout="@layout/nav_rail_header"
-        app:menu="@menu/main_navigation" />
+        android:background="#0B1829"
+        android:elevation="10dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="10dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:gravity="center"
+            android:text="♪"
+            android:textColor="#6EE7F2"
+            android:textSize="25sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nav_home"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="8dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="总览"
+            android:textAllCaps="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nav_display"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="5dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="显示"
+            android:textAllCaps="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nav_lyrics"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="5dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="歌词"
+            android:textAllCaps="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/nav_system"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="5dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="高级"
+            android:textAllCaps="false" />
+    </LinearLayout>
 
     <ScrollView
         android:id="@+id/main_scroll"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:clipToPadding="false"
         android:fillViewport="true">
 
         <LinearLayout
@@ -34,32 +84,35 @@
 
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/main_toolbar"
-                style="@style/Widget.LC.Toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:subtitle="@string/main_subtitle"
-                app:title="@string/main_brand" />
+                android:layout_height="64dp"
+                android:background="@android:color/transparent" />
 
             <TextView
                 android:id="@+id/main_eyebrow"
-                style="@style/TextAppearance.LC.Eyebrow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/main_eyebrow" />
+                android:text="LYRICS · COMPANION"
+                android:textColor="#6EE7F2"
+                android:textSize="11sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/main_section_heading"
-                style="@style/TextAppearance.LC.ScreenTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="5dp"
-                android:paddingBottom="3dp" />
+                android:paddingBottom="3dp"
+                android:textColor="#FFFFFF"
+                android:textSize="27sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/main_section_description"
-                style="@style/TextAppearance.LC.ScreenDescription"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:textColor="#A9B6C8"
+                android:textSize="13sp" />
 
             <LinearLayout
                 android:id="@+id/main_page_host"

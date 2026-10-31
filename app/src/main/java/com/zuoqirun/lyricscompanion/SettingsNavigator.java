@@ -1,27 +1,25 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 
-import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
+import androidx.activity.OnBackPressedCallback;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
-import com.google.android.material.textfield.TextInputEditText;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -35,51 +33,45 @@ final class SettingsNavigator {
     private static final String STATE_QUERY = "settings_query";
     private static final String STATE_SCROLL = "settings_scroll";
     private static final String VALUE_TAG = "settings_value";
-    private final AppCompatActivity activity;
-    private final SettingsUi ui;
-    private final String title;
     final LinearLayout content;
     final LinearLayout layout;
     final MaterialToolbar toolbar;
+    private final AppCompatActivity activity;
+    private final String title;
+    private final String style;
+    private final SettingsCatalog.Values values;
     private final ScrollView scroll;
-    private final TextInputEditText search;
+    private final EditText search;
     private final LinearLayout links;
     private final LinearLayout results;
     private final List<Section> sections = new ArrayList<>();
-    /** 已挂到 content 上的卡片容器；原地重建时按这个列表摘掉旧内容。 */
-    private final List<View> sectionViews = new ArrayList<>();
     private final List<Row> rows = new ArrayList<>();
     private final List<SearchLink> searchLinks = new ArrayList<>();
     private final EnumMap<SettingsCatalog.Category, MaterialButton> categoryButtons =
             new EnumMap<>(SettingsCatalog.Category.class);
     private SettingsCatalog.Category selected = SettingsCatalog.Category.COMMON;
     private View highlighted;
-    /** 本页自己的 style / values 会随「编辑区域」「当前样式」变化，原地重建时要能更新。 */
-    private String style;
-    private SettingsCatalog.Values values;
-    /** 已经 setContentView 过一次：之后的重建只换 content，不再动窗口。 */
-    private boolean attached;
 
     SettingsNavigator(AppCompatActivity activity, String title, String scope, String style,
                       SettingsCatalog.Values values) {
         this.activity = activity;
-        this.ui = new SettingsUi(activity);
         this.title = title;
         this.style = style;
         this.values = values;
-        layout = (LinearLayout) activity.getLayoutInflater()
-                .inflate(R.layout.settings_shell, null, false);
-        if (Build.VERSION.SDK_INT >= 21) {
-            int background = ContextCompat.getColor(activity, R.color.lc_background);
-            activity.getWindow().setStatusBarColor(background);
-            activity.getWindow().setNavigationBarColor(background);
+        layout = vertical();
+        layout.setBackgroundColor(0xFF07111F);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            activity.getWindow().setStatusBarColor(0xFF07111F);
+            activity.getWindow().setNavigationBarColor(0xFF07111F);
         }
-        toolbar = layout.findViewById(R.id.settings_toolbar);
+        toolbar = new MaterialToolbar(activity);
         toolbar.setTitle(title);
         toolbar.setSubtitle(scope);
-        toolbar.setNavigationOnClickListener(v -> {
-            if (!back()) activity.finish();
-        });
+        toolbar.setTitleTextColor(0xFFF1F5FA);
+        toolbar.setSubtitleTextColor(0xFFA9B6C8);
+        toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert);
+        toolbar.setNavigationContentDescription("返回");
+        toolbar.setNavigationOnClickListener(v -> { if (!back()) activity.finish(); });
         activity.getOnBackPressedDispatcher().addCallback(activity, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 if (back()) return;
@@ -87,11 +79,28 @@ final class SettingsNavigator {
                 activity.getOnBackPressedDispatcher().onBackPressed();
             }
         });
-        search = layout.findViewById(R.id.settings_search);
-        scroll = layout.findViewById(R.id.settings_scroll);
-        content = layout.findViewById(R.id.settings_content);
-        results = layout.findViewById(R.id.settings_results);
-        links = layout.findViewById(R.id.settings_links);
+        layout.addView(toolbar, new LinearLayout.LayoutParams(-1, -2));
+        search = new EditText(activity);
+        search.setSingleLine(true);
+        search.setTextSize(15);
+        search.setTextColor(0xFFF1F5FA);
+        search.setHintTextColor(0xFF91A1B7);
+        search.setHint("搜索设置，如透明度、封面、换行");
+        search.setContentDescription("搜索设置");
+        search.setPadding(dp(16), 0, dp(16), 0);
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(48));
+        searchParams.setMargins(dp(16), 0, dp(16), dp(4));
+        layout.addView(search, searchParams);
+        scroll = new ScrollView(activity);
+        scroll.setFillViewport(true);
+        content = vertical();
+        content.setPadding(dp(16), 0, dp(16), dp(24));
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        layout.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        results = vertical();
+        results.setVisibility(View.GONE);
+        content.addView(results);
+        links = vertical();
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { refresh(); }
@@ -103,86 +112,54 @@ final class SettingsNavigator {
     }
 
     void addSection(LinearLayout card, SettingsCatalog.Category category, String label) {
-        View container = SettingsUi.containerOf(card);
-        sections.add(new Section(card, container, category, label));
-        sectionViews.add(container);
+        sections.add(new Section(card, category, label));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = ui.dp(12);
-        // Cards must stay above the category shortcuts: insert right before the links block
-        // instead of appending, otherwise the shortcuts float above the whole page.
-        int linkIndex = content.indexOfChild(links);
-        content.addView(container, linkIndex < 0 ? content.getChildCount() : linkIndex, params);
+        params.topMargin = dp(12);
+        content.addView(card, params);
     }
 
     LinearLayout row(LinearLayout parent, String key, String label) {
-        LinearLayout row = (LinearLayout) activity.getLayoutInflater()
-                .inflate(R.layout.item_setting_row, parent, false);
+        LinearLayout row = vertical();
+        row.setPadding(0, dp(10), 0, dp(8));
         row.setContentDescription(label + "，" + SettingsCatalog.scope(key));
-        parent.addView(row);
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
         rows.add(new Row(key, label, row));
         return row;
     }
 
     void scopeNote(LinearLayout row, String key) {
-        ui.note(row, SettingsCatalog.scope(key));
+        row.addView(label(SettingsCatalog.scope(key), 11, 0xFF91A1B7));
     }
 
     void value(TextView value) { value.setTag(VALUE_TAG); }
 
     void addLink(String label, String summary, Runnable action) {
         searchLinks.add(new SearchLink(label, summary, action));
-        ui.linkButton(links, label, summary, v -> action.run());
-    }
-
-    /** 页面作用域 / 当前样式变了（切换编辑区域、返回本页后发现样式被改）：同步副标题与判定条件。 */
-    void updateScope(String scope, String style, SettingsCatalog.Values values) {
-        toolbar.setSubtitle(scope);
-        this.style = style;
-        this.values = values;
-    }
-
-    /**
-     * 同一页原地重建：只摘掉旧卡片，保留 toolbar、搜索框、ScrollView 和滚动位置。
-     *
-     * <p>以前每次点击都 new 一个 SettingsNavigator 再 setContentView，整棵树重建后的第一帧按
-     * 滚动位置 0 绘制，随后才由 {@code scroll.post} 跳回原位，所以界面上会“闪一下顶部画面”。
-     */
-    void resetForRebuild() {
-        for (View container : sectionViews) content.removeView(container);
-        sectionViews.clear();
-        sections.clear();
-        rows.clear();
-        searchLinks.clear();
-        categoryButtons.clear();
-        highlighted = null;
-        results.removeAllViews();
-        links.removeAllViews();
+        MaterialButton button = button(label + "  ›\n" + summary);
+        button.setOnClickListener(v -> action.run());
+        links.addView(button, linkParams());
     }
 
     void finish(Bundle state) {
         arrangeCommonControls();
         for (SettingsCatalog.Category category : SettingsCatalog.Category.values()) {
             if (category == SettingsCatalog.Category.COMMON || !hasCategory(category)) continue;
-            MaterialButton button = ui.linkButton(links, category.title, summary(category),
-                    v -> show(category));
+            MaterialButton button = button(category.title);
+            button.setOnClickListener(v -> show(category));
             categoryButtons.put(category, button);
+            links.addView(button, linkParams());
         }
-        if (!attached) {
-            if (state != null) {
-                try { selected = SettingsCatalog.Category.valueOf(state.getString(STATE_CATEGORY, "COMMON")); }
-                catch (IllegalArgumentException ignored) { selected = SettingsCatalog.Category.COMMON; }
-                search.setText(state.getString(STATE_QUERY, ""));
-                ScrollRestore.beforeFirstDraw(scroll, state.getInt(STATE_SCROLL, 0));
-            } else if (activity.getIntent().hasExtra(EXTRA_QUERY)) {
-                search.setText(activity.getIntent().getStringExtra(EXTRA_QUERY));
-            }
+        content.addView(links);
+        if (state != null) {
+            try { selected = SettingsCatalog.Category.valueOf(state.getString(STATE_CATEGORY, "COMMON")); }
+            catch (IllegalArgumentException ignored) { selected = SettingsCatalog.Category.COMMON; }
+            search.setText(state.getString(STATE_QUERY, ""));
+            int y = state.getInt(STATE_SCROLL, 0);
+            scroll.post(() -> scroll.scrollTo(0, y));
+        } else if (activity.getIntent().hasExtra(EXTRA_QUERY)) {
+            search.setText(activity.getIntent().getStringExtra(EXTRA_QUERY));
         }
         refresh();
-        if (attached) {
-            CustomFontStore.applyToViewTree(activity, content);
-            return;
-        }
-        attached = true;
         activity.setContentView(layout);
         CustomFontStore.applyToViewTree(activity, layout);
     }
@@ -199,13 +176,11 @@ final class SettingsNavigator {
             int index = section.view.indexOfChild(directRows.get(0).view);
             LinearLayout columns = new LinearLayout(activity);
             columns.setBaselineAligned(false);
-            LinearLayout left = new LinearLayout(activity);
-            left.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout right = new LinearLayout(activity);
-            right.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout left = vertical();
+            LinearLayout right = vertical();
             columns.addView(left, new LinearLayout.LayoutParams(0, -2, 1f));
             LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1f);
-            rightParams.leftMargin = ui.dp(20);
+            rightParams.leftMargin = dp(20);
             columns.addView(right, rightParams);
             for (int i = 0; i < directRows.size(); i++) {
                 View row = directRows.get(i).view;
@@ -235,15 +210,12 @@ final class SettingsNavigator {
         toolbar.setTitle(searching ? "搜索设置" : selected == SettingsCatalog.Category.COMMON
                 ? title : selected.title);
         for (Section section : sections) {
-            section.container.setVisibility(!searching && section.category == selected
-                    ? View.VISIBLE : View.GONE);
+            section.view.setVisibility(!searching && section.category == selected ? View.VISIBLE : View.GONE);
         }
-        links.setVisibility(!searching && selected == SettingsCatalog.Category.COMMON
-                ? View.VISIBLE : View.GONE);
+        links.setVisibility(!searching && selected == SettingsCatalog.Category.COMMON ? View.VISIBLE : View.GONE);
         results.setVisibility(searching ? View.VISIBLE : View.GONE);
         for (SettingsCatalog.Category category : categoryButtons.keySet()) {
-            categoryButtons.get(category).setText(
-                    SettingsUi.linkText(category.title, summary(category)));
+            categoryButtons.get(category).setText(category.title + "  ›\n" + summary(category));
         }
         if (searching) showResults(query);
     }
@@ -253,13 +225,12 @@ final class SettingsNavigator {
         int count = 0;
         for (Row row : rows) {
             Section section = section(row.view);
-            if (section == null || !SettingsCatalog.matches(row.title + " " + choiceLabels(row.view),
-                    section.category.title, query)) continue;
+            if (section == null || !SettingsCatalog.matches(row.title + " " + choiceLabels(row.view), section.category.title, query)) continue;
             count++;
             String reason = reason(row);
-            String resultSummary = section.category.title + " · "
-                    + SettingsCatalog.scope(row.key) + (reason.isEmpty() ? "" : "\n" + reason);
-            MaterialButton result = ui.linkButton(results, row.title, resultSummary, v -> {
+            MaterialButton result = button(row.title + "\n" + section.category.title + " · "
+                    + SettingsCatalog.scope(row.key) + (reason.isEmpty() ? "" : "\n" + reason));
+            result.setOnClickListener(v -> {
                 search.setText("");
                 hideKeyboard();
                 show(section.category);
@@ -269,29 +240,25 @@ final class SettingsNavigator {
                 }
                 if (highlighted != null) highlighted.setBackgroundColor(android.graphics.Color.TRANSPARENT);
                 highlighted = row.view;
-                highlighted.setBackgroundColor(themeColor(
-                        com.google.android.material.R.attr.colorSurfaceContainerHighest, 0xFF1B3149));
+                highlighted.setBackgroundColor(0xFF253F55);
                 scroll.post(() -> {
                     Rect bounds = new Rect();
                     row.view.getDrawingRect(bounds);
                     content.offsetDescendantRectToMyCoords(row.view, bounds);
-                    scroll.scrollTo(0, Math.max(0, bounds.top - ui.dp(12)));
-                    row.view.sendAccessibilityEvent(
-                            android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED);
+                    scroll.scrollTo(0, Math.max(0, bounds.top - dp(12)));
+                    row.view.sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_VIEW_FOCUSED);
                 });
             });
-            result.setContentDescription(row.title + "，" + section.category.title);
+            results.addView(result, linkParams());
         }
         for (SearchLink link : searchLinks) {
             if (!SettingsCatalog.matches(link.title, link.summary, query)) continue;
             count++;
-            MaterialButton result = ui.linkButton(results, link.title, link.summary, v -> {
-                hideKeyboard();
-                link.action.run();
-            });
-            result.setContentDescription(link.title);
+            MaterialButton result = button(link.title + "  ›\n" + link.summary);
+            result.setOnClickListener(v -> { hideKeyboard(); link.action.run(); });
+            results.addView(result, linkParams());
         }
-        if (count == 0) ui.note(results, "没有找到相关设置，试试“字号”“封面”或“换行”。");
+        if (count == 0) results.addView(label("没有找到相关设置，试试“字号”“封面”或“换行”。", 14, 0xFFA9B6C8));
         CustomFontStore.applyToViewTree(activity, results);
     }
 
@@ -319,9 +286,7 @@ final class SettingsNavigator {
             Object item = ((Spinner) view).getSelectedItem();
             return item == null ? "" : item.toString();
         }
-        if (view instanceof TextView && VALUE_TAG.equals(view.getTag())) {
-            return ((TextView) view).getText().toString();
-        }
+        if (view instanceof TextView && VALUE_TAG.equals(view.getTag())) return ((TextView) view).getText().toString();
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
@@ -336,14 +301,10 @@ final class SettingsNavigator {
         StringBuilder labels = new StringBuilder();
         if (view instanceof Spinner) {
             android.widget.SpinnerAdapter adapter = ((Spinner) view).getAdapter();
-            if (adapter != null) {
-                for (int i = 0; i < adapter.getCount(); i++) labels.append(' ').append(adapter.getItem(i));
-            }
+            if (adapter != null) for (int i = 0; i < adapter.getCount(); i++) labels.append(' ').append(adapter.getItem(i));
         } else if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                labels.append(' ').append(choiceLabels(group.getChildAt(i)));
-            }
+            for (int i = 0; i < group.getChildCount(); i++) labels.append(' ').append(choiceLabels(group.getChildAt(i)));
         }
         return labels.toString();
     }
@@ -363,37 +324,61 @@ final class SettingsNavigator {
 
     private void show(SettingsCatalog.Category category) {
         selected = category;
-        if (highlighted != null) {
-            highlighted.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            highlighted = null;
-        }
+        if (highlighted != null) { highlighted.setBackgroundColor(android.graphics.Color.TRANSPARENT); highlighted = null; }
         refresh();
         scroll.scrollTo(0, 0);
     }
 
     private void hideKeyboard() {
         search.clearFocus();
-        InputMethodManager keyboard = (InputMethodManager) activity.getSystemService(
-                android.content.Context.INPUT_METHOD_SERVICE);
+        InputMethodManager keyboard = (InputMethodManager) activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(search.getWindowToken(), 0);
     }
 
-    private int themeColor(int attr, int fallback) {
-        TypedValue value = new TypedValue();
-        if (activity.getTheme().resolveAttribute(attr, value, true)) return value.data;
-        return fallback;
+    private MaterialButton button(String text) {
+        MaterialButton button = new MaterialButton(activity);
+        button.setText(text);
+        button.setTextSize(14);
+        button.setTextColor(0xFFF1F5FA);
+        button.setAllCaps(false);
+        button.setMaxLines(3);
+        button.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        button.setMinHeight(dp(64));
+        button.setPadding(dp(16), dp(10), dp(16), dp(10));
+        button.setCornerRadius(dp(16));
+        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        return button;
     }
+
+    private LinearLayout.LayoutParams linkParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(8);
+        return params;
+    }
+
+    private TextView label(String text, int size, int color) {
+        TextView label = new TextView(activity);
+        label.setText(text);
+        label.setTextSize(size);
+        label.setTextColor(color);
+        return label;
+    }
+
+    private LinearLayout vertical() {
+        LinearLayout view = new LinearLayout(activity);
+        view.setOrientation(LinearLayout.VERTICAL);
+        return view;
+    }
+
+    private int dp(float value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
 
     private static final class Section {
         final LinearLayout view;
-        final View container;
         final SettingsCatalog.Category category;
         final String title;
-        Section(LinearLayout view, View container, SettingsCatalog.Category category, String title) {
-            this.view = view;
-            this.container = container;
-            this.category = category;
-            this.title = title;
+        Section(LinearLayout view, SettingsCatalog.Category category, String title) {
+            this.view = view; this.category = category; this.title = title;
         }
     }
 
@@ -401,11 +386,7 @@ final class SettingsNavigator {
         final String key;
         final String title;
         final LinearLayout view;
-        Row(String key, String title, LinearLayout view) {
-            this.key = key;
-            this.title = title;
-            this.view = view;
-        }
+        Row(String key, String title, LinearLayout view) { this.key = key; this.title = title; this.view = view; }
     }
 
     private static final class SearchLink {
@@ -413,9 +394,7 @@ final class SettingsNavigator {
         final String summary;
         final Runnable action;
         SearchLink(String title, String summary, Runnable action) {
-            this.title = title;
-            this.summary = summary;
-            this.action = action;
+            this.title = title; this.summary = summary; this.action = action;
         }
     }
 }

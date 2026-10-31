@@ -2,21 +2,24 @@ package com.zuoqirun.lyricscompanion;
 
 import android.annotation.SuppressLint;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.shape.MaterialShapeDrawable;
 
 /** Native controls mirroring the visual settings exposed by Refined Now Playing. */
 @SuppressLint("SetTextI18n")
 public final class RefinedSettingsActivity extends AppCompatActivity implements DisplaySlotHost {
     static final String EXTRA_SECONDARY = "secondary";
-    /** LayoutInflater.from 需要已附着的 Activity，只能在 onCreate 里构造。 */
-    private SettingsUi ui;
     private LyricsPanelView preview;
     private SettingsNavigator navigation;
     private boolean secondary;
@@ -28,7 +31,6 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        ui = new SettingsUi(this);
         secondary = getIntent().getBooleanExtra(EXTRA_SECONDARY, false);
         displaySlot = DisplaySlotContext.slotFrom(getIntent(), secondary);
         secondary = displaySlot > DisplaySlotRegistry.MAIN_SLOT;
@@ -36,11 +38,14 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         navigation = new SettingsNavigator(this, "Refined 专属设置",
                 DisplaySlotRegistry.slotLabel(this, displaySlot) + " · " + DisplaySettingsActivity.styleName(style),
                 style, new SettingsValues(this, secondary));
+        LinearLayout root = navigation.content;
         preview = new LyricsPanelView(this, secondary);
         LinearLayout previewCard = card("效果预览");
-        ui.actionButton(previewCard, "查看 / 收起效果预览", v -> preview.setVisibility(
-                preview.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        com.google.android.material.button.MaterialButton toggle = new com.google.android.material.button.MaterialButton(this);
+        toggle.setText("查看 / 收起效果预览");
+        toggle.setOnClickListener(v -> preview.setVisibility(preview.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
         preview.setVisibility(View.GONE);
+        previewCard.addView(toggle);
         previewCard.addView(preview, new LinearLayout.LayoutParams(-1, dp(150)));
         navigation.addSection(previewCard, SettingsCatalog.Category.COMMON, "效果预览");
 
@@ -116,11 +121,15 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
                 Integer.toString(AppPreferences.refinedCurrentAlign(this, secondary)));
         addToggle(lyric, "当前歌词辉光", AppPreferences.KEY_REFINED_LYRIC_GLOW,
                 AppPreferences.refinedLyricGlow(this, secondary));
-        ui.note(lyric, "逐字动画按完整 Unicode 字符跳变；无逐字时间线的 LRC 仍整句切换。");
 
+        TextView note = text("逐字动画按完整 Unicode 字符跳变；无逐字时间轴的 LRC 仍整句切换。",
+                12, 0xFF74869D, false);
+        note.setLineSpacing(0f, 1.2f);
+        note.setPadding(dp(4), dp(14), dp(4), 0);
         navigation.addSection(appearance, SettingsCatalog.Category.COMMON, "外观");
         navigation.addSection(cover, SettingsCatalog.Category.BACKGROUND, "封面");
         navigation.addSection(background, SettingsCatalog.Category.BACKGROUND, "背景");
+        lyric.addView(note);
         navigation.addSection(lyric, SettingsCatalog.Category.TEXT, "歌词");
         navigation.finish(savedInstanceState);
     }
@@ -140,65 +149,78 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         super.onPause();
     }
 
-    /** 行容器直接由 SettingsUi 的行模板渲染，外层只为分类 / 搜索登记与作用域提示保留。 */
-    private LinearLayout row(LinearLayout parent, String title, String key) {
-        LinearLayout row = navigation.row(parent, key, title);
-        row.setPadding(0, 0, 0, 0);
-        return row;
-    }
-
-    /** 与 SettingsUi.card 同一张卡片模板，但先不挂到页面上，方便登记分类后再统一加入。 */
     private LinearLayout card(String title) {
-        com.google.android.material.card.MaterialCardView card =
-                (com.google.android.material.card.MaterialCardView) getLayoutInflater()
-                        .inflate(R.layout.view_settings_card, null, false);
-        LinearLayout content = card.findViewById(R.id.settings_card_content);
-        ui.sectionLabel(content, title);
-        return content;
-    }
-
-    private void addToggle(LinearLayout parent, String title, String key, boolean initial) {
-        LinearLayout row = row(parent, title, key);
-        ui.addToggle(row, title, null, initial, (button, checked) -> {
-            AppPreferences.putDisplayBoolean(this, secondary, key, checked);
-            changed();
-        });
-        navigation.scopeNote(row, key);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(15), dp(14), dp(15), dp(15));
+        MaterialShapeDrawable surface = new MaterialShapeDrawable();
+        surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        surface.setCornerSize(dp(20));
+        card.setBackground(surface);
+        card.addView(text(title, 13, 0xFF6EE7F2, true));
+        return card;
     }
 
     private void addChoice(LinearLayout parent, String title, String key,
                            String[] labels, String[] values, String current) {
-        LinearLayout row = row(parent, title, key);
+        parent = navigation.row(parent, key, title);
+        TextView label = text(title, 13, 0xFFD7E1EE, true);
+        label.setPadding(0, 0, 0, dp(4));
+        parent.addView(label);
+        Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
         int selected = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(current)) selected = i;
-        final String fallback = current;
-        ui.addChoice(row, title, labels, selected, new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> parentView, View view,
+        spinner.setSelection(selected, false);
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView, View view,
                                                  int position, long id) {
                 String existing = AppPreferences.displayString(RefinedSettingsActivity.this,
-                        secondary, key, fallback);
+                        secondary, key, current);
                 if (values[position].equals(existing)) return;
                 AppPreferences.putDisplayString(RefinedSettingsActivity.this, secondary,
                         key, values[position]);
                 changed();
             }
-            @Override public void onNothingSelected(AdapterView<?> parentView) { }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
-        navigation.scopeNote(row, key);
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+        navigation.scopeNote(parent, key);
     }
 
-    /**
-     * 取值范围不从 0 开始的滑块：SettingsUi 的显示值是相对进度，这里换回绝对值和单位，
-     * 与旧版「字体大小 16 sp」的读数保持一致。
-     */
+    private void addToggle(LinearLayout parent, String title, String key, boolean initial) {
+        parent = navigation.row(parent, key, title);
+        MaterialSwitch toggle = new MaterialSwitch(this);
+        toggle.setText(title);
+        toggle.setTextColor(0xFFF1F5FA);
+        toggle.setTextSize(14f);
+        toggle.setGravity(Gravity.CENTER_VERTICAL);
+        toggle.setPadding(0, dp(8), 0, 0);
+        toggle.setChecked(initial);
+        toggle.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.putDisplayBoolean(this, secondary, key, checked);
+            changed();
+        });
+        toggle.setMinHeight(dp(48));
+        parent.addView(toggle);
+        navigation.scopeNote(parent, key);
+    }
+
     private void addSeek(LinearLayout parent, String title, String key,
                          int min, int max, int initial, String suffix) {
-        LinearLayout row = row(parent, title, key);
-        int clamped = Math.max(min, Math.min(max, initial));
-        SeekBar seek = ui.addSeek(row, title, max - min, clamped - min, null, null);
-        final TextView value = ((View) seek.getParent()).findViewById(R.id.settings_row_value);
-        value.setText(clamped + suffix);
+        parent = navigation.row(parent, key, title);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, 0);
+        row.addView(text(title, 13, 0xFFD7E1EE, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView value = text(initial + suffix, 12, 0xFF6EE7F2, true);
+        row.addView(value);
         navigation.value(value);
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(max - min);
+        seek.setProgress(Math.max(min, Math.min(max, initial)) - min);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 int selected = min + progress;
@@ -211,7 +233,8 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
             @Override public void onStartTrackingTouch(SeekBar seekBar) { }
             @Override public void onStopTrackingTouch(SeekBar seekBar) { }
         });
-        navigation.scopeNote(row, key);
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(48)));
+        navigation.scopeNote(parent, key);
     }
 
     private void changed() {
@@ -220,6 +243,16 @@ public final class RefinedSettingsActivity extends AppCompatActivity implements 
         AppPreferences.changed(this);
         LyricsDisplayService.setSettingsVisible(this, true);
         if (secondary) LyricsDisplayService.refreshSecondary(this);
+    }
+
+    private TextView text(String value, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT,
+                android.graphics.Typeface.BOLD);
+        return view;
     }
 
     private int dp(float value) {

@@ -1,60 +1,13 @@
 <resources>
-    <!--
-        Dark Material 3 theme for the companion control surface. The lyric overlay keeps its own
-        light/dark environment preference, independent from this window theme.
-    -->
-
-    <style name="AppTheme.Base" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="fontFamily">sans-serif</item>
-
-        <item name="colorPrimary">@color/lc_primary</item>
-        <item name="colorOnPrimary">@color/lc_on_primary</item>
-        <item name="colorPrimaryContainer">@color/lc_primary_container</item>
-        <item name="colorOnPrimaryContainer">@color/lc_on_primary_container</item>
-        <item name="colorPrimaryInverse">@color/lc_inverse_primary</item>
-        <item name="colorSecondary">@color/lc_secondary</item>
-        <item name="colorOnSecondary">@color/lc_on_secondary</item>
-        <item name="colorSecondaryContainer">@color/lc_secondary_container</item>
-        <item name="colorOnSecondaryContainer">@color/lc_on_secondary_container</item>
-        <item name="colorTertiary">@color/lc_tertiary</item>
-        <item name="colorOnTertiary">@color/lc_on_tertiary</item>
-        <item name="colorTertiaryContainer">@color/lc_tertiary_container</item>
-        <item name="colorOnTertiaryContainer">@color/lc_on_tertiary_container</item>
-        <item name="colorError">@color/lc_error</item>
-        <item name="colorOnError">@color/lc_on_error</item>
-        <item name="colorErrorContainer">@color/lc_error_container</item>
-        <item name="colorOnErrorContainer">@color/lc_on_error_container</item>
-
-        <item name="colorSurface">@color/lc_surface</item>
-        <item name="colorOnSurface">@color/lc_on_surface</item>
-        <item name="colorSurfaceVariant">@color/lc_surface_variant</item>
-        <item name="colorOnSurfaceVariant">@color/lc_on_surface_variant</item>
-        <item name="colorSurfaceInverse">@color/lc_inverse_surface</item>
-        <item name="colorOnSurfaceInverse">@color/lc_inverse_on_surface</item>
-        <item name="colorOutline">@color/lc_outline</item>
-        <item name="colorOutlineVariant">@color/lc_outline_variant</item>
-        <item name="colorSurfaceBright">@color/lc_surface_bright</item>
-        <item name="colorSurfaceDim">@color/lc_surface_container_lowest</item>
-        <item name="colorSurfaceContainerLowest">@color/lc_surface_container_lowest</item>
-        <item name="colorSurfaceContainerLow">@color/lc_surface_container_low</item>
-        <item name="colorSurfaceContainer">@color/lc_surface_container</item>
-        <item name="colorSurfaceContainerHigh">@color/lc_surface_container_high</item>
-        <item name="colorSurfaceContainerHighest">@color/lc_surface_container_highest</item>
-        <item name="colorOnBackground">@color/lc_on_background</item>
-        <item name="colorControlHighlight">@color/lc_ripple</item>
-
-        <item name="android:colorBackground">@color/lc_background</item>
-        <item name="android:windowBackground">@color/lc_background</item>
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="fontFamily">sans</item>
+        <item name="colorPrimary">@color/md_theme_primary</item>
+        <item name="colorOnPrimary">@color/md_theme_onPrimary</item>
+        <item name="colorSurface">@color/md_theme_surface</item>
+        <item name="colorSurfaceContainer">@color/md_theme_surfaceContainer</item>
+        <item name="colorOnSurface">@color/md_theme_onSurface</item>
+        <item name="colorOutline">@color/md_theme_outline</item>
+        <item name="colorSecondary">@color/app_primary</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowNoTitle">true</item>
-
-        <item name="materialButtonStyle">@style/Widget.LC.Button</item>
-        <item name="toolbarStyle">@style/Widget.LC.Toolbar</item>
-        <item name="bottomNavigationStyle">@style/Widget.LC.BottomNavigationView</item>
-        <item name="navigationRailStyle">@style/Widget.LC.NavigationRail</item>
-        <item name="materialAlertDialogTheme">@style/ThemeOverlay.LC.MaterialAlertDialog</item>
-        <item name="popupMenuStyle">@style/Widget.LC.PopupMenu</item>
     </style>
-
-    <style name="AppTheme" parent="AppTheme.Base" />
 </resources>

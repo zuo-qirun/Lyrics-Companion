@@ -20,10 +20,6 @@ android {
         multiDexEnabled true
         versionCode Integer.parseInt(System.getenv("APP_VERSION_CODE") ?: "1")
         versionName System.getenv("APP_VERSION_NAME") ?: "0.1.0"
-        // XML layouts reference vector icons; AppCompat resolves them down to API 19.
-        vectorDrawables {
-            useSupportLibrary true
-        }
     }
 
     signingConfigs {

@@ -1,45 +1,55 @@
 package com.zuoqirun.lyricscompanion;
 
 import android.annotation.SuppressLint;
+import android.graphics.Color;
 import android.os.Bundle;
-import android.view.View;
-import android.widget.AdapterView;
+import android.view.Gravity;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.view.View;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.shape.MaterialShapeDrawable;
 
 /** Settings for the transparent lyric strip embedded around the system status area. */
 @SuppressLint("SetTextI18n")
 public final class StatusLyricSettingsActivity extends AppCompatActivity {
     private LyricsPanelView previewPanel;
-    private SettingsUi ui;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setContentView(R.layout.activity_status_lyric);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(0xFF07111F);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(12), dp(18), dp(32));
+        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
-        MaterialToolbar toolbar = findViewById(R.id.status_lyric_toolbar);
+        MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle("顶部歌词条详细设置");
         toolbar.setSubtitle("透明叠加在状态栏区域，系统图标仍由系统显示");
+        toolbar.setTitleTextColor(Color.WHITE);
+        toolbar.setSubtitleTextColor(0xFFA9B6C8);
+        toolbar.setNavigationIcon(android.R.drawable.ic_menu_close_clear_cancel);
         toolbar.setNavigationOnClickListener(v -> finish());
+        root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(70)));
 
-        LinearLayout content = findViewById(R.id.status_lyric_content);
-        ui = new SettingsUi(this);
-
-        LinearLayout preview = ui.card(content, "预览");
+        LinearLayout preview = card("预览");
         previewPanel = new LyricsPanelView(this, false, false, true);
-        preview.addView(previewPanel, new LinearLayout.LayoutParams(-1, ui.dp(86)));
+        preview.addView(previewPanel, new LinearLayout.LayoutParams(-1, dp(86)));
+        addCard(root, preview);
 
-        LinearLayout layout = ui.card(content, "布局与字号");
+        LinearLayout layout = card("布局与字号");
         addSeek(layout, "歌词字号", 60, 200, AppPreferences.topLyricFontScale(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_FONT_SCALE);
-        addSeek(layout, "显示区域宽度", TopLyricLayout.MIN_REGION_PERCENT, 100,
-                AppPreferences.topLyricRegionPercent(this), "%",
+        addSeek(layout, "显示区域宽度", TopLyricLayout.MIN_REGION_PERCENT, 100, AppPreferences.topLyricRegionPercent(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_REGION_PERCENT);
         addChoice(layout, "垂直位置", new String[]{"沿用原位置", "屏幕贴顶", "系统状态栏同高（单行）"},
                 new String[]{"legacy", "top", "status"}, AppPreferences.KEY_TOP_LYRIC_PLACEMENT, "legacy");
@@ -61,25 +71,30 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
                 AppPreferences.KEY_TOP_LYRIC_OFFSET_Y_DP);
         addSeek(layout, "下一句字号", 45, 160, AppPreferences.topLyricNextFontScale(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_NEXT_FONT_SCALE);
-        addTopLyricToggle(layout, "显示歌词翻译（替代下一句）",
+        addToggle(layout, "显示歌词翻译（替代下一句）",
                 AppPreferences.KEY_TOP_LYRIC_SHOW_TRANSLATION,
-                AppPreferences.topLyricShowTranslation(this), null);
-        addTopLyricToggle(layout, "显示律动条", AppPreferences.KEY_TOP_LYRIC_SPECTRUM,
-                AppPreferences.topLyricSpectrum(this), null);
-        ui.note(layout, "宽度可调到 10%，不再限制为 160dp；留白可避开车况与时钟。"
-                + "状态栏对齐使用系统报告的高度并显示单行；ROM 未报告高度时使用 20dp。"
-                + "顶部条为外挂悬浮窗，无法嵌入原车桌面或自动识别其图标。");
+                AppPreferences.topLyricShowTranslation(this));
+        addToggle(layout, "显示律动条", AppPreferences.KEY_TOP_LYRIC_SPECTRUM,
+                AppPreferences.topLyricSpectrum(this));
+        TextView layoutNote = text("宽度可调到 10%，不再限制为 160dp；留白可避开车况与时钟。状态栏对齐使用系统报告的高度并显示单行；ROM 未报告高度时使用 20dp。顶部条为外挂悬浮窗，无法嵌入原车桌面或自动识别其图标。", 12,
+                0xFF8392A8, false);
+        layoutNote.setLineSpacing(0f, 1.2f);
+        layoutNote.setPadding(0, dp(8), 0, 0);
+        layout.addView(layoutNote);
+        addCard(root, layout);
 
-        LinearLayout textEffects = ui.card(content, "文字特效");
-        LinearLayout effectParameters = column();
-        LinearLayout effectMotion = column();
-        LinearLayout effectSpeed = column();
+        LinearLayout textEffects = card("文字特效");
+        LinearLayout effectParameters = new LinearLayout(this);
+        effectParameters.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout effectMotion = new LinearLayout(this);
+        effectMotion.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout effectSpeed = new LinearLayout(this);
+        effectSpeed.setOrientation(LinearLayout.VERTICAL);
         String initialEffect = LyricEffectRules.normalize(AppPreferences.get(this)
                 .getString(AppPreferences.KEY_TOP_LYRIC_EFFECT, "none"));
         addChoiceValue(textEffects, "顶部条文字特效", LyricEffectCatalog.labels(),
                 LyricEffectCatalog.values(), initialEffect, value -> {
-                    AppPreferences.get(this).edit()
-                            .putString(AppPreferences.KEY_TOP_LYRIC_EFFECT, value).apply();
+                    AppPreferences.get(this).edit().putString(AppPreferences.KEY_TOP_LYRIC_EFFECT, value).apply();
                     updateEffectParameters(value, effectParameters, effectMotion, effectSpeed);
                 });
         addSeek(effectParameters, "特效强度", 0, 100,
@@ -97,41 +112,50 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         effectParameters.addView(effectMotion);
         textEffects.addView(effectParameters);
         updateEffectParameters(initialEffect, effectParameters, effectMotion, effectSpeed);
-        ui.note(textEffects, "15 项特效及参数只作用于顶部歌词条。卡拉 OK 无逐字数据时按句长估算，"
-                + "速度跟随播放；关闭动画停用动态项，保留镜像与磨砂。"
-                + "低帧率也会限制本条的逐字、粒子与律动重绘。");
-
-        LinearLayout effects = ui.card(content, "歌词粒子与消散");
+        textEffects.addView(text("15 项特效及参数只作用于顶部歌词条。卡拉 OK 无逐字数据时按句长估算，速度跟随播放；关闭动画停用动态项，保留镜像与磨砂。低帧率也会限制本条的逐字、粒子与律动重绘。", 12,
+                0xFF8392A8, false));
+        addCard(root, textEffects);
+        LinearLayout effects = card("歌词粒子与消散");
         // The strip is its own display object: the dissolve family below is stored separately
         // from the main screen, so tuning the main overlay no longer changes the strip.
         final View[][] dependents = new View[1][];
-        MaterialSwitch particles = addTopLyricToggle(effects, "本句结束粒子消散",
+        MaterialSwitch particles = addToggle(effects, "本句结束粒子消散",
                 AppPreferences.KEY_TOP_LYRIC_PARTICLES, AppPreferences.topLyricParticles(this),
-                () -> setDependentVisibility(AppPreferences.topLyricParticles(this), dependents[0]));
+                () -> setDependentVisibility(
+                        AppPreferences.topLyricParticles(this), dependents[0]));
         View[] amountRow = addSeekRow(effects, "粒子量", 20, 300,
                 AppPreferences.topLyricParticleAmount(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_PARTICLE_AMOUNT);
-        MaterialSwitch wordErase = addTopLyricToggle(effects, "逐字歌词及时擦除",
+        MaterialSwitch wordErase = addToggle(effects, "逐字歌词及时擦除",
                 AppPreferences.KEY_TOP_LYRIC_WORD_DISSOLVE,
                 AppPreferences.topLyricWordDissolve(this), null);
-        dependents[0] = new View[] { amountRow[0], amountRow[1], (View) wordErase.getParent() };
+        dependents[0] = new View[] { amountRow[0], amountRow[1], wordErase };
         setDependentVisibility(particles.isChecked(), dependents[0]);
         addSeek(effects, "上一句不透明度", 0, 100,
                 AppPreferences.topLyricPreviousOpacity(this), "%",
                 AppPreferences.KEY_TOP_LYRIC_PREVIOUS_OPACITY);
-        ui.note(effects, "这些选项只作用于顶部歌词条，不影响主屏；首次调整前沿用主屏设置。");
+        TextView effectsNote = text("这些选项只作用于顶部歌词条，不影响主屏；首次调整前沿用主屏设置。",
+                12, 0xFF8392A8, false);
+        effectsNote.setLineSpacing(0f, 1.2f);
+        effectsNote.setPadding(0, dp(8), 0, 0);
+        effects.addView(effectsNote);
+        addCard(root, effects);
 
-        LinearLayout background = ui.card(content, "背景样式");
-        addChoice(background, "顶部条配色环境", new String[]{"跟随应用 / 系统昼夜", "浅色背景（固定深色歌词）",
-                        "深色背景（固定浅色歌词）"},
+        LinearLayout background = card("背景样式");
+        addChoice(background, "顶部条配色环境", new String[]{"跟随应用 / 系统昼夜", "浅色背景（固定深色歌词）", "深色背景（固定浅色歌词）"},
                 new String[]{"auto", "light", "dark"}, AppPreferences.KEY_TOP_LYRIC_COLOR_ENVIRONMENT, "auto");
-        ui.note(background, "系统昼夜模式与桌面状态栏图标颜色可能不同。"
-                + "动态壁纸或地图下看不清时，可在这里单独指定顶部条配色环境；"
-                + "应用无法读取其他窗口的实际图标颜色。");
+        TextView colorEnvironmentNote = text("系统昼夜模式与桌面状态栏图标颜色可能不同。动态壁纸或地图下看不清时，可在这里单独指定顶部条配色环境；应用无法读取其他窗口的实际图标颜色。", 12, 0xFF8392A8, false);
+        colorEnvironmentNote.setPadding(0, dp(8), 0, dp(8));
+        background.addView(colorEnvironmentNote);
         addBackgroundChoice(background);
-        ui.note(background, "毛玻璃需要系统支持跨窗口模糊，不支持时降级为浅色半透明。");
+        TextView backgroundNote = text("毛玻璃需要系统支持跨窗口模糊，不支持时降级为浅色半透明。", 12,
+                0xFF8392A8, false);
+        backgroundNote.setPadding(0, dp(8), 0, 0);
+        background.addView(backgroundNote);
+        addCard(root, background);
 
-        CustomFontStore.applyToViewTree(this, findViewById(R.id.status_lyric_root));
+        setContentView(scroll);
+        CustomFontStore.applyToViewTree(this, scroll);
     }
 
     @Override protected void onResume() {
@@ -144,12 +168,6 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         super.onPause();
     }
 
-    private LinearLayout column() {
-        LinearLayout column = new LinearLayout(this);
-        column.setOrientation(LinearLayout.VERTICAL);
-        return column;
-    }
-
     private void addSeek(LinearLayout parent, String title, int min, int max, int initial,
                          String suffix, String key) {
         addSeekRow(parent, title, min, max, initial, suffix, key);
@@ -158,12 +176,14 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
     /** Same row, but the caller gets the views it needs to show or hide a dependent setting. */
     private View[] addSeekRow(LinearLayout parent, String title, int min, int max, int initial,
                               String suffix, String key) {
-        LinearLayout row = (LinearLayout) getLayoutInflater()
-                .inflate(R.layout.item_setting_seek, parent, false);
-        ((TextView) row.findViewById(R.id.settings_row_title)).setText(title);
-        TextView value = row.findViewById(R.id.settings_row_value);
-        value.setText(format(initial, suffix));
-        SeekBar seek = row.findViewById(R.id.settings_row_seek);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(12), 0, 0);
+        row.addView(text(title, 14, 0xFFD7E1EE, true), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView value = text(format(initial, suffix), 13, 0xFF6EE7F2, true);
+        row.addView(value);
+        parent.addView(row);
+        SeekBar seek = new SeekBar(this);
         seek.setMax(max - min);
         seek.setProgress(Math.max(min, Math.min(max, initial)) - min);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -178,7 +198,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
             @Override public void onStartTrackingTouch(SeekBar bar) { }
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
-        parent.addView(row);
+        parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
         return new View[] { row, seek };
     }
 
@@ -190,20 +210,33 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         }
     }
 
-    private MaterialSwitch addTopLyricToggle(LinearLayout parent, String title, String key,
-                                             boolean initial, Runnable afterChange) {
-        return ui.addToggle(parent, title, null, initial, (button, checked) -> {
+    private MaterialSwitch addToggle(LinearLayout parent, String title, String key,
+                                     boolean initial) {
+        return addToggle(parent, title, key, initial, null);
+    }
+
+    private MaterialSwitch addToggle(LinearLayout parent, String title, String key,
+                                     boolean initial, Runnable afterChange) {
+        MaterialSwitch toggle = new MaterialSwitch(this);
+        toggle.setText(title);
+        toggle.setTextColor(0xFFF1F5FA);
+        toggle.setPadding(0, dp(10), 0, 0);
+        toggle.setChecked(initial);
+        toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit().putBoolean(key, checked).apply();
             updatePreview();
             AudioSpectrumSource.sync(this);
             AppPreferences.changed(this);
             if (afterChange != null) afterChange.run();
         });
+        parent.addView(toggle);
+        return toggle;
     }
 
     private void addBackgroundChoice(LinearLayout parent) {
-        addChoice(parent, "背景样式", new String[]{"完全透明", "毛玻璃", "紧凑单行背景"},
-                new String[]{"transparent", "blur", "compact"}, AppPreferences.KEY_TOP_LYRIC_BACKGROUND,
+        String[] labels = {"完全透明", "毛玻璃", "紧凑单行背景"};
+        String[] values = {"transparent", "blur", "compact"};
+        addChoice(parent, "背景样式", labels, values, AppPreferences.KEY_TOP_LYRIC_BACKGROUND,
                 AppPreferences.topLyricBackground(this));
     }
 
@@ -218,28 +251,25 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
     /** Shared spinner handling keeps integer choices stored as integers, including FPS. */
     private void addChoiceValue(LinearLayout parent, String title, String[] labels, String[] values,
                                 String initial, ChoiceChange onChange) {
-        ui.addChoice(parent, title, labels, indexOf(values, initial),
-                new AdapterView.OnItemSelectedListener() {
-                    String selected = initial;
-
-                    @Override public void onItemSelected(AdapterView<?> parentView,
-                                                         View view, int position, long id) {
-                        if (values[position].equals(selected)) return;
-                        selected = values[position];
-                        onChange.accept(selected);
-                        updatePreview();
-                        AppPreferences.changed(StatusLyricSettingsActivity.this);
-                    }
-
-                    @Override public void onNothingSelected(AdapterView<?> parentView) { }
-                });
-    }
-
-    private static int indexOf(String[] values, String initial) {
-        for (int i = 0; i < values.length; i++) {
-            if (values[i].equals(initial)) return i;
+        parent.addView(text(title, 14, 0xFFD7E1EE, true));
+        Spinner spinner = new Spinner(this);
+        spinner.setAdapter(new ThemedSpinnerAdapter<>(this, labels));
+        for (int i = 0; i < values.length; i++) if (values[i].equals(initial)) {
+            spinner.setSelection(i, false); break;
         }
-        return 0;
+        spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            String selected = initial;
+            @Override public void onItemSelected(android.widget.AdapterView<?> parentView,
+                                                  android.view.View view, int position, long id) {
+                if (values[position].equals(selected)) return;
+                selected = values[position];
+                onChange.accept(selected);
+                updatePreview();
+                AppPreferences.changed(StatusLyricSettingsActivity.this);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
+        });
+        parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
     }
 
     private static void updateEffectParameters(String value, View parameters, View motion, View speed) {
@@ -250,6 +280,37 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
 
     private void updatePreview() {
         if (previewPanel != null) previewPanel.reloadStyle();
+    }
+
+    private LinearLayout card(String title) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(15), dp(14), dp(15), dp(15));
+        MaterialShapeDrawable surface = new MaterialShapeDrawable();
+        surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        surface.setCornerSize(dp(20));
+        card.setBackground(surface);
+        card.addView(text(title, 13, 0xFF6EE7F2, true));
+        return card;
+    }
+
+    private void addCard(LinearLayout root, LinearLayout card) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(14);
+        root.addView(card, params);
+    }
+
+    private TextView text(String value, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
+        return view;
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private static String format(int value, String suffix) {
