@@ -142,6 +142,12 @@ public final class MainActivity extends AppCompatActivity {
     private TextView sectionHeading;
     private TextView sectionDescription;
     private ScrollView mainScroll;
+    /** 最近一次系统插边，布局完成前先记下来，post 后再算一遍（issue #163 / #164）。 */
+    private int settingsNavInsetLeftPx;
+    private int settingsNavInsetRightPx;
+    /** 分类栏列宽（dp）与正文最小可读宽度（dp）：留白加大时据此收窄。 */
+    private static final int SETTINGS_NAV_WIDTH_DP = 104;
+    private static final int SETTINGS_MIN_CONTENT_WIDTH_DP = 160;
     private final List<View> sectionPages = new ArrayList<>();
     private final List<MaterialButton> sectionButtons = new ArrayList<>();
     private int selectedSection;
@@ -389,9 +395,9 @@ public final class MainActivity extends AppCompatActivity {
      */
     private void applySettingsNavPlacement(View shell) {
         if (!(shell instanceof LinearLayout)) return;
-        LinearLayout shellLayout = (LinearLayout) shell;
-        View navigation = shellLayout.findViewById(R.id.main_navigation);
-        View scroll = shellLayout.findViewById(R.id.main_scroll);
+        final LinearLayout shellLayout = (LinearLayout) shell;
+        final View navigation = shellLayout.findViewById(R.id.main_navigation);
+        final View scroll = shellLayout.findViewById(R.id.main_scroll);
         if (navigation == null || scroll == null) return;
         boolean landscape = getResources().getConfiguration().orientation
                 == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
@@ -404,23 +410,71 @@ public final class MainActivity extends AppCompatActivity {
         }
         final int manualInsetPx = Math.round(AppPreferences.settingsNavInsetDp(this)
                 * getResources().getDisplayMetrics().density);
-        applySettingsNavPadding(navigation, side, manualInsetPx, 0, 0);
+        settingsNavInsetLeftPx = 0;
+        settingsNavInsetRightPx = 0;
+        applySettingsNavMetrics(shellLayout, navigation, side, manualInsetPx);
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(shellLayout,
                 (view, insets) -> {
-                    applySettingsNavPadding(navigation, side, manualInsetPx,
-                            insets.getSystemWindowInsetLeft(),
-                            insets.getSystemWindowInsetRight());
+                    settingsNavInsetLeftPx = insets.getSystemWindowInsetLeft();
+                    settingsNavInsetRightPx = insets.getSystemWindowInsetRight();
+                    applySettingsNavMetrics(shellLayout, navigation, side, manualInsetPx);
                     return insets;
                 });
+        // 布局完成前拿不到真实宽度，post 之后再按可用空间算一次留白上限。
+        shellLayout.post(() -> applySettingsNavMetrics(shellLayout, navigation, side,
+                manualInsetPx));
     }
 
-    private void applySettingsNavPadding(View navigation, String side, int manualInsetPx,
-                                         int insetLeftPx, int insetRightPx) {
+    /**
+     * 应用分类栏留白与页面左边距（issue #163 / #164）。
+     *
+     * <p>留白加在分类栏外侧的 margin 上：以前加进内部 padding，104dp 的固定列宽被吃光后
+     * 文字和按钮会整条消失（#163）。分类栏在左时整页一起右移，分类栏在右或竖屏时只移动
+     * 正文（#164）；手动值与系统左插边取较大者。
+     */
+    private void applySettingsNavMetrics(LinearLayout shellLayout, View navigation, String side,
+                                         int manualInsetPx) {
         if (navigation == null) return;
-        int base = dp(10);
-        int start = SettingsNavLayout.startPaddingPx(SettingsNavLayout.navOnRight(side),
-                insetLeftPx, insetRightPx, manualInsetPx);
-        navigation.setPadding(base + start, base, base, base);
+        boolean landscape = getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        boolean onRight = SettingsNavLayout.navOnRight(side);
+        float density = getResources().getDisplayMetrics().density;
+        int manualPageInsetPx = Math.round(AppPreferences.settingsPageInsetDp(this) * density);
+        int pageInsetPx = SettingsNavLayout.pageInsetPx(manualPageInsetPx, settingsNavInsetLeftPx);
+
+        // 分类栏留白只在横屏的竖排分类栏上生效；竖屏是底部一行，不该被推窄。
+        int margin = 0;
+        if (landscape) {
+            int desired = SettingsNavLayout.startPaddingPx(onRight, settingsNavInsetLeftPx,
+                    settingsNavInsetRightPx, manualInsetPx);
+            int navWidthPx = navigation.getWidth() > 0 ? navigation.getWidth()
+                    : dp(SETTINGS_NAV_WIDTH_DP);
+            int shellWidthPx = shellLayout.getWidth();
+            int availablePx = shellWidthPx > 0 && !onRight
+                    ? shellWidthPx - pageInsetPx : shellWidthPx;
+            margin = SettingsNavLayout.clampNavMarginPx(desired, availablePx, navWidthPx,
+                    dp(SETTINGS_MIN_CONTENT_WIDTH_DP));
+        }
+        ViewGroup.LayoutParams rawParams = navigation.getLayoutParams();
+        if (rawParams instanceof LinearLayout.LayoutParams) {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) rawParams;
+            params.leftMargin = onRight ? 0 : margin;
+            params.rightMargin = onRight ? margin : 0;
+            navigation.setLayoutParams(params);
+        }
+
+        View content = shellLayout.findViewById(R.id.main_content);
+        if (content == null) return;
+        if (landscape && !onRight) {
+            // 分类栏在左：整页（分类栏 + 正文）一起右移。
+            shellLayout.setPadding(pageInsetPx, 0, 0, 0);
+            content.setPadding(dp(20), content.getPaddingTop(),
+                    content.getPaddingRight(), content.getPaddingBottom());
+        } else {
+            shellLayout.setPadding(0, 0, 0, 0);
+            content.setPadding(dp(20) + pageInsetPx, content.getPaddingTop(),
+                    content.getPaddingRight(), content.getPaddingBottom());
+        }
     }
 
     private View buildContent() {
@@ -1053,7 +1107,8 @@ public final class MainActivity extends AppCompatActivity {
                     return;
                 }
                 AppPreferences.setSettingsNavSide(MainActivity.this, values[position]);
-                recreate();
+                // 就地重排，不必 recreate（那会整页黑屏闪一下）。
+                applySettingsNavPlacementNow();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
         });
@@ -1089,6 +1144,40 @@ public final class MainActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
         });
         parent.addView(seek, new LinearLayout.LayoutParams(-1, dp(38)));
+
+        // issue #164：整页左边距（横竖屏都生效）。分类栏在左时整页一起右移，
+        // 分类栏在右 / 竖屏时只移动正文；只影响设置页，不影响悬浮歌词面板。
+        TextView pageLabel = sectionLabel("页面左边距");
+        pageLabel.setPadding(0, dp(14), 0, dp(2));
+        parent.addView(pageLabel);
+        int currentPageInset = AppPreferences.settingsPageInsetDp(this);
+        TextView pageValue = text(currentPageInset + " dp", 13, 0xFF6EE7F2, true);
+        LinearLayout pageRow = new LinearLayout(this);
+        pageRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        pageRow.addView(text("整个设置页一起右移，遮挡时用它让开", 13, 0xFF93A4B9, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        pageRow.addView(pageValue);
+        parent.addView(pageRow);
+        android.widget.SeekBar pageSeek = new android.widget.SeekBar(this);
+        pageSeek.setMax(SettingsNavLayout.MAX_PAGE_INSET_DP);
+        pageSeek.setProgress(currentPageInset);
+        if (Build.VERSION.SDK_INT >= 21) {
+            pageSeek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
+            pageSeek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+        }
+        pageSeek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
+                                                    boolean fromUser) {
+                pageValue.setText(progress + " dp");
+                if (!fromUser) return;
+                AppPreferences.setSettingsPageInsetDp(MainActivity.this, progress);
+                applySettingsNavPlacementNow();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        parent.addView(pageSeek, new LinearLayout.LayoutParams(-1, dp(38)));
+        parent.addView(text("只影响设置页，不影响悬浮歌词面板。", 12, 0xFF91A1B7, true));
     }
 
     /** 拖动留白时立刻生效，不必等 recreate（分类栏可能正被系统栏挡着）。 */

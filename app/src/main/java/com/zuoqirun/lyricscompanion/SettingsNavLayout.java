@@ -12,6 +12,8 @@ final class SettingsNavLayout {
     static final String SIDE_RIGHT = "right";
     /** 手动留白上限（dp）：再大就把内容挤没了。 */
     static final int MAX_MANUAL_INSET_DP = 240;
+    /** 页面左边距上限（dp，issue #164）：横竖屏都生效的整页让位。 */
+    static final int MAX_PAGE_INSET_DP = 200;
 
     private SettingsNavLayout() { }
 
@@ -37,5 +39,28 @@ final class SettingsNavLayout {
 
     static int clampInsetDp(int value) {
         return Math.max(0, Math.min(MAX_MANUAL_INSET_DP, value));
+    }
+
+    /**
+     * 页面左边距（issue #164）：手动值与系统左侧插边取较大者，让整页内容一起让开。
+     */
+    static int pageInsetPx(int manualInsetPx, int systemInsetPx) {
+        return Math.max(Math.max(0, manualInsetPx), Math.max(0, systemInsetPx));
+    }
+
+    static int clampPageInsetDp(int value) {
+        return Math.max(0, Math.min(MAX_PAGE_INSET_DP, value));
+    }
+
+    /**
+     * 分类栏外侧 margin 的上限（issue #163）：分类栏自身保持列宽，margin 只把整列推出去；
+     * 但可用空间不足时（窄屏 / 超大手动留白）要收窄，给正文留下最小可读宽度。
+     * 布局尚未完成（shellWidth 或 navWidth 为 0）时按原值返回，等布局完成后再算一次。
+     */
+    static int clampNavMarginPx(int desiredPx, int shellWidthPx, int navWidthPx, int minContentPx) {
+        int desired = Math.max(0, desiredPx);
+        if (shellWidthPx <= 0 || navWidthPx <= 0) return desired;
+        int max = Math.max(0, shellWidthPx - navWidthPx - Math.max(0, minContentPx));
+        return Math.min(desired, max);
     }
 }

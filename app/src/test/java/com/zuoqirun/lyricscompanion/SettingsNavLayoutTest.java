@@ -45,4 +45,32 @@ public class SettingsNavLayoutTest {
         assertEquals(SettingsNavLayout.MAX_MANUAL_INSET_DP,
                 SettingsNavLayout.clampInsetDp(9_999));
     }
+
+    @Test public void pageInsetTakesTheLargerOfManualAndSystemInset() {
+        // issue #164：整页左边距与系统左插边取较大者
+        assertEquals(0, SettingsNavLayout.pageInsetPx(0, 0));
+        assertEquals(24, SettingsNavLayout.pageInsetPx(24, 0));
+        assertEquals(40, SettingsNavLayout.pageInsetPx(24, 40));
+        assertEquals(60, SettingsNavLayout.pageInsetPx(60, 40));
+        assertEquals(0, SettingsNavLayout.pageInsetPx(-8, -4));
+    }
+
+    @Test public void pageInsetIsBounded() {
+        assertEquals(0, SettingsNavLayout.clampPageInsetDp(-20));
+        assertEquals(120, SettingsNavLayout.clampPageInsetDp(120));
+        assertEquals(SettingsNavLayout.MAX_PAGE_INSET_DP,
+                SettingsNavLayout.clampPageInsetDp(9_999));
+    }
+
+    @Test public void navMarginNeverSqueezesTheContentOutOfView() {
+        // issue #163：留白再大也要给正文留最小可读宽度（shell - nav - 正文）
+        assertEquals(300, SettingsNavLayout.clampNavMarginPx(544, 1198, 354, 544));
+        assertEquals(240, SettingsNavLayout.clampNavMarginPx(240, 3200, 354, 544));
+        assertEquals(0, SettingsNavLayout.clampNavMarginPx(544, 400, 354, 544));
+    }
+
+    @Test public void navMarginWaitsForTheRealLayoutBeforeClamping() {
+        // 布局尚未完成（宽度为 0）时先按原值应用，post 后再按真实宽度收窄
+        assertEquals(240, SettingsNavLayout.clampNavMarginPx(240, 0, 0, 544));
+    }
 }
