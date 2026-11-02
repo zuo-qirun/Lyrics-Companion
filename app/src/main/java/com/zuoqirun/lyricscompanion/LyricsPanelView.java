@@ -40,6 +40,7 @@ final class LyricsPanelView extends View {
             if (panel.foliaOriginalRenderer != null) panel.foliaOriginalRenderer.clear();
             panel.blurredLineCache.evictAll();
             panel.clearTextCaches();
+            if (panel.artistPortrait != null) panel.artistPortrait.clear();
             panel.invalidate();
         }
     }
@@ -255,6 +256,12 @@ final class LyricsPanelView extends View {
     private int lyricLineCount;
     private boolean pureShowTranslation;
     private String overlayStyle;
+    private ArtistPortraitArtwork artistPortrait;
+    private boolean overlayRotated;
+    private final AudioVisualRenderer audioVisualRenderer = new AudioVisualRenderer();
+    private String audioVisualMode = "off";
+    private int audioVisualStrength, audioVisualDensity, audioVisualThickness, audioVisualFps;
+    private String audioVisualColors;
     private String themeMode;
     private boolean lyricsFollowTheme;
     private String refinedDisplayMode;
@@ -360,7 +367,9 @@ final class LyricsPanelView extends View {
     }
 
     void reloadStyle() {
-        lowResourceMode = AppPreferences.lowResourceMode(getContext());
+        boolean nextLowResourceMode = AppPreferences.lowResourceMode(getContext());
+        if (lowResourceMode != nextLowResourceMode && artistPortrait != null) artistPortrait.clear();
+        lowResourceMode = nextLowResourceMode;
         AlbumArtLoader.setLowResourceMode(lowResourceMode);
         textScale = compactTextOnly ? AppPreferences.topLyricFontScale(getContext()) / 100f
                 : AppPreferences.textScale(getContext(), secondary);
@@ -472,6 +481,15 @@ final class LyricsPanelView extends View {
         lyricLineCount = AppPreferences.styleLyricLines(getContext(), secondary);
         pureShowTranslation = AppPreferences.pureShowTranslation(getContext(), secondary);
         overlayStyle = compactTextOnly ? "compact" : AppPreferences.overlayStyle(getContext(), secondary);
+        audioVisualMode = compactTextOnly || lowResourceMode || !AudioVisualRenderer.supportsStyle(overlayStyle) ? "off"
+                : AppPreferences.displayString(getContext(), secondary, AudioVisualRenderer.MODE, "off");
+        audioVisualStrength = Math.max(0, Math.min(100, AppPreferences.displayInt(getContext(), secondary, AudioVisualRenderer.STRENGTH, 50)));
+        audioVisualDensity = AppPreferences.displayInt(getContext(), secondary, AudioVisualRenderer.DENSITY, 50);
+        audioVisualThickness = AppPreferences.displayInt(getContext(), secondary, AudioVisualRenderer.THICKNESS, 2);
+        audioVisualFps = Math.max(5, Math.min(30, AppPreferences.displayInt(getContext(), secondary, AudioVisualRenderer.FPS, 24)));
+        audioVisualColors = AppPreferences.displayString(getContext(), secondary, AudioVisualRenderer.COLORS, "multi");
+        overlayRotated = secondary && !fullscreen && !compactTextOnly && "180".equals(
+                AppPreferences.displayString(getContext(), secondary, AppPreferences.KEY_OVERLAY_ROTATION, "0"));
         // 时间段配色（issue #34）在读取时就换算成具体深浅色，样式与主题的判定逻辑无需知道时间表。
         themeMode = AppPreferences.resolvedThemeMode(getContext());
         lyricsFollowTheme = compactTextOnly ? AppPreferences.statusLyricFollowTheme(getContext())
@@ -605,6 +623,16 @@ final class LyricsPanelView extends View {
                 AppPreferences.displayInt(getContext(), secondary, AppPreferences.KEY_FOLIA_NEXT_SCALE, 100) / 100f);
     }
 
+    @Override public void draw(Canvas canvas) {
+        int save = canvas.save();
+        try {
+            if (overlayRotated) canvas.rotate(180f, getWidth() * .5f, getHeight() * .5f);
+            super.draw(canvas);
+        } finally {
+            canvas.restoreToCount(save);
+        }
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         compactSpectrumAnimating = false;
@@ -628,6 +656,10 @@ final class LyricsPanelView extends View {
         MusicSnapshot snapshot = browsingLyrics || browseUntilElapsedMs > now
                 ? MusicStateStore.snapshotForLyricBrowse(lyricOffsetMs, browsePositionMs)
                 : MusicStateStore.snapshot(lyricOffsetMs);
+        if (!compactTextOnly && !"pure".equals(overlayStyle)) {
+            if (artistPortrait == null) artistPortrait = new ArtistPortraitArtwork(getContext(), secondary);
+            snapshot = artistPortrait.resolve(getContext(), snapshot, now);
+        }
         boolean live = snapshot.active && snapshot.lyricAvailable
                 && snapshot.lyrics.lineStartMs < 0L && !snapshot.lyrics.lyric.isEmpty();
         boolean enableLive = liveLyricAnimation && !compactTextOnly && !browsingLyrics
@@ -760,6 +792,9 @@ final class LyricsPanelView extends View {
         long delay = FoliaModeCatalog.isStyle(overlayStyle) ? nextFrameDelay(snapshot, now)
                 : LyricEffectRules.frameDelay(lyricEffect, lyricEffectStrength, lyricEffectFps,
                         framePlaying, lyricEffectEntryAge(), lyricEffectSpeed, nextFrameDelay(snapshot, now));
+        if (!"off".equals(audioVisualMode) && audioVisualStrength > 0 && snapshot.playing) {
+            delay = Math.min(delay, 1000L / audioVisualFps);
+        }
         if (AppPreferences.showPlaybackControls(getContext(), secondary) && playbackInteractionMs >= 0) {
             delay = Math.min(delay, PlaybackControlVisibility.nextFrameDelay(
                     AppPreferences.get(getContext()).getBoolean(AppPreferences.KEY_PLAYBACK_FADE, false),
@@ -880,6 +915,7 @@ final class LyricsPanelView extends View {
     boolean isLyricGestureRegion(float x, float y) {
         if (getWidth() <= 0 || getHeight() <= 0) return false;
         if (playbackControlAt(x, y) != null) return false;
+        if (overlayRotated) { x = getWidth() - x; y = getHeight() - y; }
         MusicSnapshot snapshot = MusicStateStore.snapshot(effectiveLyricOffsetMs());
         if (!snapshot.lyricAvailable) return false;
         if ("amll".equals(overlayStyle)) {
@@ -926,10 +962,13 @@ final class LyricsPanelView extends View {
         android.graphics.Rect bounds = new android.graphics.Rect(
                 (int) Math.floor(left - slack), (int) Math.floor(top - slack),
                 (int) Math.ceil(right + slack), (int) Math.ceil(bottom + slack));
+        if (overlayRotated) bounds.set(getWidth() - bounds.right, getHeight() - bounds.bottom,
+                getWidth() - bounds.left, getHeight() - bounds.top);
         return bounds.intersect(0, 0, getWidth(), getHeight()) ? bounds : null;
     }
 
     MediaControlAction playbackControlAt(float x, float y) {
+        if (overlayRotated) { x = getWidth() - x; y = getHeight() - y; }
         if (!AppPreferences.showPlaybackControls(getContext(), secondary)
                 || getWidth() <= 0 || getHeight() <= 0) return null;
         float density = getResources().getDisplayMetrics().density;
@@ -982,7 +1021,7 @@ final class LyricsPanelView extends View {
                 browsingLyrics = true;
                 browseMoved = false;
                 browseTravelPx = 0f;
-                browseLastY = event.getY();
+                browseLastY = overlayRotated ? getHeight() - event.getY() : event.getY();
                 browseLastEventTimeMs = event.getEventTime();
                 browseVelocityPxPerSecond = 0f;
                 browseUntilElapsedMs = 0L;
@@ -991,13 +1030,14 @@ final class LyricsPanelView extends View {
                 return true;
             case MotionEvent.ACTION_MOVE:
                 if (!browsingLyrics) return false;
-                float delta = event.getY() - browseLastY;
+                float currentY = overlayRotated ? getHeight() - event.getY() : event.getY();
+                float delta = currentY - browseLastY;
                 long eventTime = event.getEventTime();
                 long elapsed = Math.max(1L, eventTime - browseLastEventTimeMs);
                 float instantVelocity = delta * 1_000f / elapsed;
                 browseVelocityPxPerSecond = browseVelocityPxPerSecond * 0.28f
                         + instantVelocity * 0.72f;
-                browseLastY = event.getY();
+                browseLastY = currentY;
                 browseLastEventTimeMs = eventTime;
                 browseTravelPx += Math.abs(delta);
                 browseMoved = browseTravelPx >= 6f
@@ -2996,6 +3036,15 @@ final class LyricsPanelView extends View {
         }
         // 长句显示方式（issue #47）：默认仍是跑马灯；另两档在下面就地处理，版面预算不变。
         String mode = LongLineLayout.resolveMode(longLineMode, compactTextOnly);
+        if (LongLineLayout.MODE_ELLIPSIZE.equals(mode)) {
+            compactMarqueeActive = false;
+            compactMarqueeText = "";
+            compactMarqueeElapsedMs = 0L;
+            Paint.Align align = lyricTextAlign(Paint.Align.CENTER);
+            drawKaraoke(canvas, snapshot, text, lyricAnchorX(x, maxWidth, align), y,
+                    requestedSize, maxWidth, align, baseColor, activeColor);
+            return 0f;
+        }
         if (LongLineLayout.MODE_SHRINK.equals(mode)) {
             compactMarqueeActive = false;
             compactMarqueeText = "";
@@ -4052,7 +4101,10 @@ final class LyricsPanelView extends View {
             }
             return;
         }
-        if (LongLineLayout.MODE_SHRINK.equals(mode)) {
+        if (LongLineLayout.MODE_ELLIPSIZE.equals(mode)) {
+            text = ellipsize(text, width);
+            measured = paint.measureText(text);
+        } else if (LongLineLayout.MODE_SHRINK.equals(mode)) {
             size = LongLineLayout.shrinkSize(size, measured, width);
             setTextPaintForValue(size, Typeface.BOLD, text);
             text = ellipsize(text, width);
@@ -4183,7 +4235,7 @@ final class LyricsPanelView extends View {
                                        int accent, boolean playing) {
         int configured = configuredBackgroundColor();
         String type = refinedBackgroundType == null ? "blur" : refinedBackgroundType;
-        if ("none".equals(type) && configured == 0) return;
+        if ("none".equals(type) && configured == 0 && "off".equals(audioVisualMode)) return;
         int layer = saveLayerAlphaCompat(canvas, panelRect,
                 fullscreen ? 255 : Math.round(clamp(opacity / 100f) * 255f));
         int save = canvas.save();
@@ -4200,6 +4252,8 @@ final class LyricsPanelView extends View {
         } else if (configured != 0) {
             paint.setColor(configured);
             canvas.drawRect(panelRect, paint);
+        } else if ("none".equals(type)) {
+            // An enabled audio layer can also sit on a transparent background.
         } else if ("starfield".equals(type)) {
             // 夜幕与星云预渲染在位图里：每帧只贴一次，比「一次线性渐变 + 两次径向渐变」便宜得多，
             // 弱车机上才跟得上帧率（issue #59）。
@@ -4253,13 +4307,22 @@ final class LyricsPanelView extends View {
         paint.setShader(null);
         // 遮罩 0 就是「不压暗」（issue #58）；这一路原本就尊重 0，这里只是统一三处口径。
         int dim = ArtworkBackgroundMath.refinedMaskAlpha(backgroundDim, styleMaskMode);
-        if (dim > 0) {
+        if (dim > 0 && !"none".equals(type)) {
             paint.setColor(light ? Color.argb(dim, 255, 255, 255)
                     : Color.argb(dim, 0, 0, 0));
             canvas.drawRect(panelRect, paint);
         }
         // 星点画在暗化之后：背景暗化不该把星空一起糊掉（issue #59）。
         if ("starfield".equals(type)) drawStarfield(canvas, art);
+        if (!"off".equals(audioVisualMode) && !lowResourceMode && audioVisualStrength > 0) {
+            AudioSpectrumSource.Frame frame = AudioSpectrumSource.latestFrame();
+            boolean live = frame.live && AppPreferences.compactUseRealSpectrum(getContext(), secondary);
+            audioVisualRenderer.draw(canvas, panelRect, audioVisualMode, frame.levels, live,
+                    playing, playing ? SystemClock.elapsedRealtime() : 0L, audioVisualStrength / 100f,
+                    audioVisualDensity, audioVisualThickness * getResources().getDisplayMetrics().density,
+                    audioVisualColors, currentLyricColor(0xFF61DBE8), accent,
+                    AppPreferences.compactSpectrumColor(getContext(), secondary));
+        }
         canvas.restoreToCount(save);
         canvas.restoreToCount(layer);
         paint.setShader(null);
@@ -5105,6 +5168,7 @@ final class LyricsPanelView extends View {
     }
 
     @Override protected void onDetachedFromWindow() {
+        if (artistPortrait != null) artistPortrait.clear();
         ATTACHED_PANELS.remove(this);
         foliaRenderer.clear();
         if (foliaOriginalRenderer != null) foliaOriginalRenderer.clear();
@@ -5937,7 +6001,7 @@ final class LyricsPanelView extends View {
             return;
         }
         lyricTextEffects.draw(canvas, text, x, y, sourcePaint, framePositionMs,
-                lyricEffectEntryAge(), getWidth());
+                lyricEffectEntryAge());
     }
 
     private void drawLyricOutline(Canvas canvas, String text, float x, float y, float size,
@@ -5955,7 +6019,11 @@ final class LyricsPanelView extends View {
         setTextPaintForValue(requested, style, value);
         float measured = paint.measureText(value == null ? "" : value);
         if (measured <= maxWidth || measured <= 0f) return requested;
-        return Math.max(requested * 0.62f, requested * maxWidth / measured);
+        boolean keepSize = !compactTextOnly && !drawingMetadata
+                && ("pure".equals(overlayStyle) || "compact".equals(overlayStyle))
+                && LongLineLayout.MODE_ELLIPSIZE.equals(longLineMode);
+        return LongLineLayout.fittedSize(keepSize ? LongLineLayout.MODE_ELLIPSIZE
+                : LongLineLayout.MODE_SHRINK, requested, measured, maxWidth);
     }
 
     /**

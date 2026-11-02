@@ -43,4 +43,18 @@ final class OverlayDragMath {
     static int normalizePercent(int value) {
         return Math.max(0, Math.min(PERCENT_LIMIT, value));
     }
+
+    static int safePanelSize(int requested, int screen, int startInset, int endInset) {
+        int start = Math.min(Math.max(0, screen - 1), Math.max(0, startInset));
+        int end = Math.min(Math.max(0, screen - start - 1), Math.max(0, endInset));
+        return Math.max(1, Math.min(requested, screen - start - end));
+    }
+
+    static int clampSafeAxis(int desired, int screen, int panel, int limit, int startInset, int endInset) {
+        int start = Math.min(Math.max(0, screen - 1), Math.max(0, startInset));
+        int end = Math.min(Math.max(0, screen - start - 1), Math.max(0, endInset));
+        int lower = start > 0 ? start : -Math.max(0, limit);
+        int upper = screen - end - panel + (end > 0 ? 0 : Math.max(0, limit));
+        return Math.max(lower, Math.min(Math.max(lower, upper), desired));
+    }
 }

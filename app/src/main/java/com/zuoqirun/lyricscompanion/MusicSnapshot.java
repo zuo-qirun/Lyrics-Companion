@@ -20,6 +20,11 @@ final class MusicSnapshot {
     final LrcTimeline.At lyrics;
     final java.util.List<LrcTimeline.Line> timelineLines;
 
+    MusicSnapshot withArtwork(Bitmap bitmap) {
+        return new MusicSnapshot(active, playing, sourceName, title, artist, bitmap, durationMs, positionMs,
+                lyricLoaded, lyricAvailable, lyricSourceName, lyrics, timelineLines);
+    }
+
     MusicSnapshot(boolean active, boolean playing, String sourceName, String title, String artist,
                   Bitmap albumArt, long durationMs, long positionMs,
                   boolean lyricLoaded, boolean lyricAvailable,

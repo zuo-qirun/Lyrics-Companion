@@ -32,7 +32,7 @@ final class LyricTextEffectRenderer {
     }
 
     void draw(Canvas canvas, String text, float x, float y, Paint source,
-              long positionMs, long entryAgeMs, float regionWidth) {
+              long positionMs, long entryAgeMs) {
         if (text == null || text.isEmpty()) return;
         paint.set(source);
         float size = source.getTextSize();
@@ -82,7 +82,7 @@ final class LyricTextEffectRenderer {
                         drawFireWisps(canvas, text, x, y, source, positionMs);
                         paint.set(source);
                     }
-                    applyGradient(source, y, positionMs, regionWidth);
+                    applyGradient(source, text, x, y, positionMs);
                 }
                 break;
             default:
@@ -222,18 +222,21 @@ final class LyricTextEffectRenderer {
         }
     }
 
-    private void applyGradient(Paint source, float y, long time, float regionWidth) {
+    private void applyGradient(Paint source, String text, float x, float y, long time) {
         LinearGradient gradient = gradient(source.getColor());
         if (effect == LyricEffectCatalog.Effect.FLAME) {
             matrix.setScale(1f, source.getTextSize());
             matrix.postTranslate(0f, y - source.getTextSize() * (0.90f
                     + 0.035f * LyricEffectRules.wave(time, speed, 0f)));
         } else {
-            float width = Math.max(1f, regionWidth);
+            // Anchor the shader to this text run, including centred/right-aligned and
+            // scrolling runs. A panel-wide period leaves short lines inside one colour stop.
+            float width = Math.max(1f, source.measureText(text));
+            float left = origin(x, width, source.getTextAlign());
             matrix.setScale(width, 1f);
             float phase = LyricEffectRules.phase(time, speed);
-            matrix.postTranslate(width * (effect == LyricEffectCatalog.Effect.SWEEP
-                    ? phase * 2f - 1f : phase), 0f);
+            matrix.postTranslate(LyricEffectRules.gradientTranslation(left, width, phase,
+                    effect == LyricEffectCatalog.Effect.SWEEP), 0f);
         }
         gradient.setLocalMatrix(matrix);
         paint.setShader(gradient);

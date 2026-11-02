@@ -7,6 +7,14 @@ import static org.junit.Assert.assertTrue;
 
 /** 长句显示方式（issue #47）：跑马灯默认，另加缩小字号与换行。 */
 public class LongLineLayoutTest {
+    @Test public void ellipsisKeepsTheRequestedFontAndTopStripStillScrolls() {
+        assertEquals("ellipsize", LongLineLayout.normalizeMode("ellipsize"));
+        assertEquals(30f, LongLineLayout.fittedSize("ellipsize", 30f, 1000f, 100f), 0f);
+        assertEquals(30f * LongLineLayout.SHRINK_FLOOR_RATIO,
+                LongLineLayout.fittedSize("shrink", 30f, 1000f, 100f), 0.001f);
+        assertEquals("marquee", LongLineLayout.resolveMode("ellipsize", true));
+    }
+
     @Test public void defaultAndUnknownModesFallBackToTheMarquee() {
         assertEquals(LongLineLayout.MODE_MARQUEE,
                 LongLineLayout.normalizeMode(LongLineLayout.MODE_MARQUEE));

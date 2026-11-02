@@ -52,8 +52,10 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         + "（作用范围见各项说明）", currentStyle, new SettingsValues(this, secondary));
         navigation.toolbar.getMenu().add("更多").setOnMenuItemClickListener(item -> {
             new MaterialAlertDialogBuilder(this).setTitle("更多操作")
-                    .setItems(new String[]{"复制外观到其它屏幕 / 样式"}, (dialog, which) ->
-                            SettingsCopyDialog.show(this, displaySlot, secondary))
+                    .setItems(new String[]{"复制外观到其它屏幕 / 样式", "一键外观预设"}, (dialog, which) -> {
+                        if (which == 0) SettingsCopyDialog.show(this, displaySlot, secondary);
+                        else AppearancePresets.show(this, secondary, targetScreenSizeDp(), this::finish);
+                    })
                     .show();
             return true;
         });
@@ -77,6 +79,8 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         String selectedStyle = AppPreferences.overlayStyle(this, secondary);
         boolean foliaStyle = FoliaModeCatalog.isStyle(selectedStyle);
         boolean originalFolia = FoliaModeCatalog.isOriginalStyle(selectedStyle);
+        if (foliaStyle) addHelp(motion, text("Folia 使用效果自带的辉光与动画，不应用通用歌词特效。"
+                + "低配车机模式会关闭辉光和模糊；需要发光时可关闭低配模式并选择带辉光的 Folia 效果。", 12, 0xFF8392A8, false));
         LinearLayout panel = card("文字与排版");
         Point screenDp = targetScreenSizeDp();
         int maximumWidth = Math.max(AppPreferences.minimumPanelWidthDp(this, secondary), screenDp.x);
@@ -96,6 +100,38 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.overlayOffscreenPercent(this, secondary), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_OVERLAY_OFFSCREEN_PERCENT, value));
+        for (String[] edge : new String[][]{{"左侧", AppPreferences.KEY_OVERLAY_SAFE_LEFT},
+                {"右侧", AppPreferences.KEY_OVERLAY_SAFE_RIGHT}, {"顶部", AppPreferences.KEY_OVERLAY_SAFE_TOP},
+                {"底部", AppPreferences.KEY_OVERLAY_SAFE_BOTTOM}}) {
+            addSeek(position, edge[0] + "安全边距", edge[1], 0, 200,
+                    AppPreferences.displayInt(this, secondary, edge[1], 0), " dp",
+                    value -> AppPreferences.putDisplayInt(this, secondary, edge[1], value));
+        }
+        addHelp(position, text("按屏幕保存，仅影响悬浮窗。设置了安全边距的一侧优先避让系统栏；"
+                + "空间不足时会缩小窗口可用区域。全屏页面不受影响。", 12, 0xFF8392A8, false));
+        if (secondary) addChoice(position, "悬浮窗旋转", AppPreferences.KEY_OVERLAY_ROTATION,
+                new String[]{"不旋转（默认）", "180°（HUD 倒置校正）"}, new String[]{"0", "180"},
+                AppPreferences.displayString(this, secondary, AppPreferences.KEY_OVERLAY_ROTATION, "0"),
+                value -> AppPreferences.putDisplayString(this, secondary, AppPreferences.KEY_OVERLAY_ROTATION, value));
+        for (int memory = 1; memory <= 2; memory++) {
+            final int target = memory;
+            MaterialButton savePosition = new MaterialButton(this);
+            savePosition.setText("保存当前位置到记忆 " + memory);
+            savePosition.setOnClickListener(v -> {
+                Point size = targetScreenSizeDp();
+                int x = secondary ? Math.max(0, dp(size.x - AppPreferences.panelWidthDp(this, true)) / 2) : dp(18);
+                int y = secondary ? Math.round(dp(size.y) * .10f) : dp(100);
+                AppPreferences.savePositionMemory(this, secondary, target, x, y);
+                SafeToast.show(this, "已保存记忆 " + target, Toast.LENGTH_SHORT);
+            });
+            position.addView(savePosition, new LinearLayout.LayoutParams(-1, -2));
+            MaterialButton recallPosition = new MaterialButton(this);
+            recallPosition.setText("切换到记忆 " + memory);
+            recallPosition.setOnClickListener(v -> SafeToast.show(this,
+                    AppPreferences.restorePositionMemory(this, secondary, target)
+                            ? "已切换到记忆 " + target : "此记忆尚未保存，请先摆好位置并保存", Toast.LENGTH_SHORT));
+            position.addView(recallPosition, new LinearLayout.LayoutParams(-1, -2));
+        }
         addSeek(common, "字号", AppPreferences.KEY_TEXT_SCALE, 75, 220,
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_TEXT_SCALE, 100), "%",
                 value -> AppPreferences.putDisplayInt(this, secondary,
@@ -152,9 +188,9 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                             value <= 0 ? 0 : value));
             // 长句显示方式（issue #47）：默认跑马灯；换行会吃掉相邻行位（顶部歌词条永远跑马灯）。
             addChoice(panel, "长句显示方式（紧凑 / 纯净）", AppPreferences.KEY_LONG_LINE_MODE,
-                    new String[]{"横向跑马灯（默认）", "缩小字号", "换行"},
+                    new String[]{"横向跑马灯（默认）", "缩小字号", "换行", "截断并加省略号（保持字号）"},
                     new String[]{LongLineLayout.MODE_MARQUEE, LongLineLayout.MODE_SHRINK,
-                            LongLineLayout.MODE_WRAP},
+                            LongLineLayout.MODE_WRAP, LongLineLayout.MODE_ELLIPSIZE},
                     AppPreferences.longLineMode(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary,
                             AppPreferences.KEY_LONG_LINE_MODE, value));
@@ -271,7 +307,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                         + "调大到放不下时会收住行距，不会偷偷缩小字号。", 12, 0xFF8392A8, false));
             }
             // 「文字效果」现在是通用外观项（issue #59）：Refined 之外也能选。
-            addChoice(motion, "文字效果（全部样式）", AppPreferences.KEY_REFINED_TEXT_EFFECT,
+            addChoice(motion, "文字效果（当前样式）", AppPreferences.KEY_REFINED_TEXT_EFFECT,
                     new String[]{"无（各样式原样）", "文字阴影", "文字辉光"},
                     new String[]{"none", "shadow", "glow"},
                     AppPreferences.refinedTextEffect(this, secondary),
@@ -515,6 +551,38 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addCard(cache, SettingsCatalog.Category.MAINTENANCE);
 
         LinearLayout artwork = card("背景与封面");
+        if (!"pure".equals(selectedStyle)) {
+            addChoice(artwork, "封面来源", ArtistPortraitRepository.SOURCE,
+                    new String[]{"播放器专辑封面（默认）", "歌手写真，取不到回落专辑封面"},
+                    new String[]{"album", "portrait"},
+                    AppPreferences.displayString(this, secondary, ArtistPortraitRepository.SOURCE, "album"),
+                    value -> AppPreferences.putDisplayString(this, secondary, ArtistPortraitRepository.SOURCE, value));
+            addSeek(artwork, "写真轮播间隔", ArtistPortraitRepository.INTERVAL, 5, 60,
+                    AppPreferences.displayInt(this, secondary, ArtistPortraitRepository.INTERVAL, 10), " 秒",
+                    value -> AppPreferences.putDisplayInt(this, secondary, ArtistPortraitRepository.INTERVAL, value));
+            addChoice(artwork, "写真裁切", ArtistPortraitRepository.FIT,
+                    new String[]{"完整照片，居中留白", "铺满，允许裁切"}, new String[]{"contain", "fill"},
+                    AppPreferences.displayString(this, secondary, ArtistPortraitRepository.FIT, "contain"),
+                    value -> AppPreferences.putDisplayString(this, secondary, ArtistPortraitRepository.FIT, value));
+            addHelp(artwork, text("开启后向 Wikidata / Wikimedia Commons 查询歌手名，最多轮播 6 张公开图片；"
+                    + "本地缓存 7 天、总量最多 32 MiB，弱网或身份不明确时沿用专辑封面。"
+                    + "低配车机只显示首张。图片各自的作者和许可见下方来源，不适用本项目代码许可。", 12, 0xFF8392A8, false));
+            MaterialButton credits = new MaterialButton(this);
+            credits.setText("写真来源与许可");
+            credits.setOnClickListener(v -> {
+                java.util.List<ArtistPortraitRepository.Photo> photos = ArtistPortraitRepository.cachedPhotos(
+                        MusicStateStore.snapshot(0).artist);
+                if (photos.isEmpty()) { SafeToast.show(this, "暂无写真来源，请开启写真并播放有歌手信息的歌曲后重试", Toast.LENGTH_LONG); return; }
+                String[] labels = new String[photos.size()];
+                for (int i = 0; i < labels.length; i++) labels[i] = (i + 1) + ". " + photos.get(i).credit;
+                new MaterialAlertDialogBuilder(this).setTitle("作者与图片许可 · 点击查看原图页")
+                        .setItems(labels, (dialog, which) -> {
+                            try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(photos.get(which).page))); }
+                            catch (RuntimeException error) { SafeToast.show(this, photos.get(which).page, Toast.LENGTH_LONG); }
+                        }).setNegativeButton("关闭", null).show();
+            });
+            artwork.addView(credits, new LinearLayout.LayoutParams(-1, -2));
+        }
         boolean island = "island".equals(AppPreferences.overlayStyle(this, secondary));
         if (island) {
             addChoice(artwork, "胶囊背景类型", AppPreferences.KEY_ISLAND_BACKGROUND,
@@ -607,6 +675,28 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     AppPreferences.refinedBackgroundType(this, secondary),
                     value -> AppPreferences.putDisplayString(this, secondary,
                             AppPreferences.KEY_REFINED_BACKGROUND_TYPE, value));
+            if (foliaStyle || "refined".equals(selectedStyle) || "compact".equals(selectedStyle)) {
+                addChoice(artwork, "音频可视化背景层", AudioVisualRenderer.MODE,
+                        new String[]{"关闭（默认）", "多色频谱飘带", "粒子频谱"}, new String[]{"off", "ribbons", "particles"},
+                        AppPreferences.displayString(this, secondary, AudioVisualRenderer.MODE, "off"),
+                        value -> AppPreferences.putDisplayString(this, secondary, AudioVisualRenderer.MODE, value));
+                addChoice(artwork, "可视化配色", AudioVisualRenderer.COLORS,
+                        new String[]{"多彩", "跟随歌词", "跟随封面强调色", "自定义频谱颜色"},
+                        new String[]{"multi", "lyric", "artwork", "custom"},
+                        AppPreferences.displayString(this, secondary, AudioVisualRenderer.COLORS, "multi"),
+                        value -> AppPreferences.putDisplayString(this, secondary, AudioVisualRenderer.COLORS, value));
+                String[] keys = {AudioVisualRenderer.STRENGTH, AudioVisualRenderer.FPS,
+                        AudioVisualRenderer.DENSITY, AudioVisualRenderer.THICKNESS};
+                String[] names = {"可视化强度", "可视化帧率", "粒子密度", "可视化线宽 / 粒子尺寸"};
+                int[] mins = {0, 5, 20, 1}, maxs = {100, 30, 100, 6}, defaults = {50, 24, 50, 2};
+                for (int i = 0; i < keys.length; i++) {
+                    final String key = keys[i];
+                    addSeek(artwork, names[i], key, mins[i], maxs[i], AppPreferences.displayInt(this, secondary, key, defaults[i]),
+                            i == 1 ? " fps" : i == 3 ? " dp" : "%", value -> AppPreferences.putDisplayInt(this, secondary, key, value));
+                }
+                addHelp(artwork, text("使用「启用真实音频采集」的 FFT 频段驱动；未授权或采集失败时回落虚拟律动，"
+                        + "暂停时静止。低配车机模式下停用此层，保留设置。背景不透明度为 0 时此层也不可见。", 12, 0xFF8392A8, false));
+            }
             addSeek(artwork, "渐隐封面占比", AppPreferences.KEY_COVER_FADE_PERCENT, 40, 70,
                     AppPreferences.displayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, 55), "%",
                     value -> AppPreferences.putDisplayInt(this, secondary, AppPreferences.KEY_COVER_FADE_PERCENT, value));

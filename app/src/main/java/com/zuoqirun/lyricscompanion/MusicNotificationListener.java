@@ -52,6 +52,7 @@ public final class MusicNotificationListener extends NotificationListenerService
     private static volatile String lastSessionError = "";
     private static volatile String backendName = "";
     private static volatile boolean notificationSessionActive;
+    private static volatile boolean notificationHasProgress;
     private static volatile long lastReconnectRequestElapsedMs;
     private static volatile long reconnectStartedElapsedMs;
     private static volatile long lastComponentRecoveryElapsedMs;
@@ -362,6 +363,7 @@ public final class MusicNotificationListener extends NotificationListenerService
             lastSuccessfulSessionReadElapsedMs = now;
             lastSessionCount = 1;
             lastSessionError = "";
+            notificationHasProgress = entry.playback != null;
             acceptSession(entry.packageName, entry.label, entry.data());
             notificationSessionActive = true;
             return true;
@@ -577,7 +579,7 @@ public final class MusicNotificationListener extends NotificationListenerService
 
     static String getBackendName() {
         return notificationSessionActive && !activePlayerPackageName.isEmpty()
-                ? "通知识别（无播放进度）" : backendName;
+                ? (notificationHasProgress ? "通知识别（媒体时间轴 / 粗进度）" : "通知识别（无播放进度）") : backendName;
     }
 
     static String getActivePlayerPackageName() {

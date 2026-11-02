@@ -29,7 +29,11 @@ final class AudioSpectrumSource {
             stop("低配车机模式：已释放频谱采集");
             return;
         }
-        boolean requested = fullscreen && AppPreferences.spectrumEnabled(context, false)
+        boolean requested = (fullscreen || AppPreferences.mainEnabled(context))
+                && AudioVisualRenderer.requested(context, false) && AppPreferences.compactUseRealSpectrum(context, false)
+                || AppPreferences.secondaryEnabled(context) && AudioVisualRenderer.requested(context, true)
+                && AppPreferences.compactUseRealSpectrum(context, true)
+                || fullscreen && AppPreferences.spectrumEnabled(context, false)
                 && AppPreferences.compactUseRealSpectrum(context, false)
                 || AppPreferences.mainEnabled(context)
                 && AppPreferences.spectrumEnabled(context, false)
@@ -49,8 +53,9 @@ final class AudioSpectrumSource {
         for (int index = 0; !requested && index < extras.size(); index++) {
             if (!extras.get(index).enabled) continue;
             Context display = new DisplaySlotContext(application, DisplaySlotRegistry.slotFor(index));
-            requested = FoliaModeCatalog.isStyle(AppPreferences.overlayStyle(display, true))
-                    && AppPreferences.spectrumEnabled(display, true)
+            requested = (AudioVisualRenderer.requested(display, true)
+                    || FoliaModeCatalog.isStyle(AppPreferences.overlayStyle(display, true))
+                    && AppPreferences.spectrumEnabled(display, true))
                     && AppPreferences.compactUseRealSpectrum(display, true);
         }
         if (!requested) {

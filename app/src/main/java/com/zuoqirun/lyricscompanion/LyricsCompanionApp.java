@@ -7,6 +7,7 @@ import androidx.multidex.MultiDexApplication;
 public final class LyricsCompanionApp extends MultiDexApplication {
     @Override public void onCreate() {
         super.onCreate();
+        OnboardingState.initialize(this);
         // 网络直连（issue #153）要在任何请求之前落地：崩溃上报、更新检查和词库都会走 HttpCompat。
         NetworkDirectPolicy.apply(AppPreferences.networkDirect(this));
         CrashReporter.install(this);

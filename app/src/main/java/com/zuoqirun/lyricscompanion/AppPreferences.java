@@ -12,6 +12,11 @@ import java.util.Set;
 final class AppPreferences {
     static final String FILE = "lyrics_companion";
     static final String KEY_LOW_RESOURCE_MODE = "low_resource_mode";
+    static final String KEY_OVERLAY_SAFE_LEFT = "overlay_safe_left";
+    static final String KEY_OVERLAY_SAFE_RIGHT = "overlay_safe_right";
+    static final String KEY_OVERLAY_SAFE_TOP = "overlay_safe_top";
+    static final String KEY_OVERLAY_SAFE_BOTTOM = "overlay_safe_bottom";
+    static final String KEY_OVERLAY_ROTATION = "overlay_rotation";
     static final String KEY_HIDE_MATCHING_PLACEHOLDER = "hide_matching_placeholder";
     static final String KEY_MAIN_OVERLAY = "main_overlay";
     static final String KEY_SECONDARY_OVERLAY = "secondary_overlay";
@@ -534,6 +539,9 @@ final class AppPreferences {
                     KEY_NEXT_LYRIC_OPACITY, KEY_PREVIOUS_LYRIC_OPACITY,
                     KEY_OPACITY, KEY_STYLE_COVER_SIZE, KEY_STYLE_BLUR, KEY_STYLE_DIM,
                     KEY_CORNER_RADIUS_PERCENT, KEY_LYRIC_ALIGN, KEY_CONTENT_ALIGN,
+                    AudioVisualRenderer.MODE, AudioVisualRenderer.STRENGTH, AudioVisualRenderer.FPS,
+                    AudioVisualRenderer.DENSITY, AudioVisualRenderer.THICKNESS, AudioVisualRenderer.COLORS,
+                    ArtistPortraitRepository.SOURCE, ArtistPortraitRepository.INTERVAL, ArtistPortraitRepository.FIT,
                     KEY_STYLE_LYRIC_LINES,
                     KEY_LYRIC_ANCHOR, KEY_LYRIC_LINE_SPACING, KEY_HOLD_PREVIOUS_LYRIC,
                     KEY_COVER_STACKED, KEY_COLOR_PRESET, KEY_CURRENT_LYRIC_OPACITY,
@@ -1011,7 +1019,9 @@ final class AppPreferences {
     static String resolvedThemeMode(Context context) {
         String mode = themeMode(context);
         if ("light".equals(mode) || "dark".equals(mode)) return mode;
-        if (!themeScheduleEnabled(context)) return "auto";
+        String environment = ThemeEnvironment.resolve(context);
+        if (!environment.isEmpty()) return environment;
+        if (!themeScheduleEnabled(context) && !get(context).getBoolean(ThemeEnvironment.SOLAR, false)) return "auto";
         int minute = DayNightSchedule.minuteOfDay(System.currentTimeMillis());
         return DayNightSchedule.isDarkMinute(minute, themeScheduleStartMinute(context),
                 themeScheduleEndMinute(context)) ? "dark" : "light";
@@ -2178,6 +2188,31 @@ final class AppPreferences {
     /** Stores a dragged overlay position in the same store the window reads it back from. */
     static void putOverlayPosition(Context context, boolean secondary, String key, int value) {
         displaySlotStore(context, secondary).edit().putInt(key, value).apply();
+    }
+
+    static String positionMemoryKey(boolean secondary, String style, boolean horizontal, int memory) {
+        return overlayPositionKey(secondary, style, horizontal) + "_memory_" + (memory == 2 ? 2 : 1);
+    }
+
+    static void savePositionMemory(Context context, boolean secondary, int memory, int defaultX, int defaultY) {
+        String style = overlayStyle(context, secondary);
+        displaySlotStore(context, secondary).edit()
+                .putInt(positionMemoryKey(secondary, style, true, memory),
+                        overlayPosition(context, secondary, style, true, defaultX))
+                .putInt(positionMemoryKey(secondary, style, false, memory),
+                        overlayPosition(context, secondary, style, false, defaultY)).apply();
+    }
+
+    static boolean restorePositionMemory(Context context, boolean secondary, int memory) {
+        String style = overlayStyle(context, secondary);
+        SharedPreferences store = displaySlotStore(context, secondary);
+        String x = positionMemoryKey(secondary, style, true, memory);
+        String y = positionMemoryKey(secondary, style, false, memory);
+        if (!store.contains(x) || !store.contains(y)) return false;
+        store.edit().putInt(overlayPositionKey(secondary, style, true), store.getInt(x, 0))
+                .putInt(overlayPositionKey(secondary, style, false), store.getInt(y, 0)).apply();
+        changed(context);
+        return true;
     }
 
     static boolean hideOverlaysWhenNotPlaying(Context context) {

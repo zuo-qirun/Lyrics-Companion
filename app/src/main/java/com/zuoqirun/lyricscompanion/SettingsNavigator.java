@@ -112,6 +112,7 @@ final class SettingsNavigator {
     }
 
     void addSection(LinearLayout card, SettingsCatalog.Category category, String label) {
+        SettingsSurface.apply(card);
         sections.add(new Section(card, category, label));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = dp(12);

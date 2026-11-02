@@ -79,6 +79,8 @@ final class ConfigurationCodec {
     static boolean shareableKey(String key) {
         if (key == null || key.isEmpty()) return false;
         return !key.startsWith("community_")
+                && !key.startsWith("onboarding_")
+                && !key.equals(ThemeEnvironment.PACKAGE)
                 && !key.startsWith("feedback_")
                 && !key.startsWith("faq_")
                 && !key.startsWith("diagnostic_")

@@ -456,8 +456,8 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         mainWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (mainWindowManager == null) return;
         Point screen = displaySize(mainWindowManager.getDefaultDisplay());
-        int width = Math.min(dp(this, AppPreferences.panelWidthDp(this)), screen.x);
-        int height = Math.min(dp(this, AppPreferences.panelHeightDp(this)), screen.y);
+        int width = OverlayWindowGeometry.size(this, false, dp(this, AppPreferences.panelWidthDp(this)), screen.x, true);
+        int height = OverlayWindowGeometry.size(this, false, dp(this, AppPreferences.panelHeightDp(this)), screen.y, false);
         mainPanel = new LyricsPanelView(this, false);
         watchPlaybackPadLayout(mainPanel, false);
         mainParams = overlayParams(width, height);
@@ -467,14 +467,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         int mainOffscreenPercent = AppPreferences.overlayOffscreenPercent(this, false);
         boolean mainAllowOffscreen = AppPreferences.overlayAllowOffscreen(this, false);
         float mainDensity = getResources().getDisplayMetrics().density;
-        mainParams.x = OverlayDragMath.clampAxis(
+        mainParams.x = OverlayWindowGeometry.clamp(this, false,
                 AppPreferences.overlayPosition(this, false, style, true, dp(this, 18)),
-                screen.x, width, OverlayDragMath.offsetLimitPx(mainAllowOffscreen,
-                        mainOffscreenPercent, width, mainDensity));
-        mainParams.y = OverlayDragMath.clampAxis(
+                screen.x, width, true);
+        mainParams.y = OverlayWindowGeometry.clamp(this, false,
                 AppPreferences.overlayPosition(this, false, style, false, dp(this, 100)),
-                screen.y, height, OverlayDragMath.offsetLimitPx(mainAllowOffscreen,
-                        mainOffscreenPercent, height, mainDensity));
+                screen.y, height, false);
         attachDrag(mainPanel, mainWindowManager, mainParams, screen, xKey, yKey, true, false);
         try {
             mainWindowManager.addView(mainPanel, mainParams);
@@ -515,10 +513,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 return;
             }
             Point screen = displaySize(display);
-            int width = Math.min(dp(secondaryContext, AppPreferences.panelWidthDp(this, true)),
-                    screen.x);
-            int height = Math.min(dp(secondaryContext, AppPreferences.panelHeightDp(this, true)),
-                    screen.y);
+            int width = OverlayWindowGeometry.size(secondaryContext, true,
+                    dp(secondaryContext, AppPreferences.panelWidthDp(this, true)), screen.x, true);
+            int height = OverlayWindowGeometry.size(secondaryContext, true,
+                    dp(secondaryContext, AppPreferences.panelHeightDp(this, true)), screen.y, false);
             secondaryPanel = new LyricsPanelView(secondaryContext, true);
             watchPlaybackPadLayout(secondaryPanel, true);
             secondaryParams = overlayParams(width, height);
@@ -530,14 +528,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             boolean secondaryAllowOffscreen = AppPreferences.overlayAllowOffscreen(this, true);
             int secondaryOffscreenPercent = AppPreferences.overlayOffscreenPercent(this, true);
             float secondaryDensity = getResources().getDisplayMetrics().density;
-            secondaryParams.x = OverlayDragMath.clampAxis(
+            secondaryParams.x = OverlayWindowGeometry.clamp(this, true,
                     AppPreferences.overlayPosition(this, true, style, true, defaultX),
-                    screen.x, width, OverlayDragMath.offsetLimitPx(secondaryAllowOffscreen,
-                            secondaryOffscreenPercent, width, secondaryDensity));
-            secondaryParams.y = OverlayDragMath.clampAxis(
+                    screen.x, width, true);
+            secondaryParams.y = OverlayWindowGeometry.clamp(this, true,
                     AppPreferences.overlayPosition(this, true, style, false, defaultY),
-                    screen.y, height, OverlayDragMath.offsetLimitPx(secondaryAllowOffscreen,
-                            secondaryOffscreenPercent, height, secondaryDensity));
+                    screen.y, height, false);
             attachDrag(secondaryPanel, secondaryWindowManager, secondaryParams, screen,
                     xKey, yKey, false, true);
             secondaryWindowManager.addView(secondaryPanel, secondaryParams);
@@ -578,10 +574,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         if (secondaryWindowManager == null || secondaryPanel == null || secondaryParams == null
                 || secondaryDisplay == null) return;
         Point screen = displaySize(secondaryDisplay);
-        secondaryParams.x = clamp(secondaryParams.x + dx, 0,
-                Math.max(0, screen.x - secondaryParams.width));
-        secondaryParams.y = clamp(secondaryParams.y + dy, 0,
-                Math.max(0, screen.y - secondaryParams.height));
+        secondaryParams.x = OverlayWindowGeometry.clamp(this, true,
+                secondaryParams.x + dx, screen.x, secondaryParams.width, true);
+        secondaryParams.y = OverlayWindowGeometry.clamp(this, true,
+                secondaryParams.y + dy, screen.y, secondaryParams.height, false);
         String style = AppPreferences.overlayStyle(this, true);
         AppPreferences.putOverlayPosition(this, true,
                 AppPreferences.overlayPositionKey(true, style, true), secondaryParams.x);
@@ -603,12 +599,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             boolean allowOffscreen = AppPreferences.overlayAllowOffscreen(overlay.context, true);
             int percent = AppPreferences.overlayOffscreenPercent(overlay.context, true);
             float density = overlay.panel.getResources().getDisplayMetrics().density;
-            overlay.params.x = OverlayDragMath.clampAxis(overlay.params.x + dx, screen.x,
-                    overlay.params.width, OverlayDragMath.offsetLimitPx(allowOffscreen, percent,
-                            overlay.params.width, density));
-            overlay.params.y = OverlayDragMath.clampAxis(overlay.params.y + dy, screen.y,
-                    overlay.params.height, OverlayDragMath.offsetLimitPx(allowOffscreen, percent,
-                            overlay.params.height, density));
+            overlay.params.x = OverlayWindowGeometry.clamp(overlay.context, true, overlay.params.x + dx,
+                    screen.x, overlay.params.width, true);
+            overlay.params.y = OverlayWindowGeometry.clamp(overlay.context, true, overlay.params.y + dy,
+                    screen.y, overlay.params.height, false);
             AppPreferences.putOverlayPosition(overlay.context, true, overlay.xKey,
                     overlay.params.x);
             AppPreferences.putOverlayPosition(overlay.context, true, overlay.yKey,
@@ -736,12 +730,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                         int percent = AppPreferences.overlayOffscreenPercent(
                                 LyricsDisplayService.this, secondary);
                         float density = v.getResources().getDisplayMetrics().density;
-                        params.x = OverlayDragMath.clampAxis(downX + Math.round(dx), screen.x,
-                                params.width, OverlayDragMath.offsetLimitPx(allowOffscreen,
-                                        percent, params.width, density));
-                        params.y = OverlayDragMath.clampAxis(downY + Math.round(dy), screen.y,
-                                params.height, OverlayDragMath.offsetLimitPx(allowOffscreen,
-                                        percent, params.height, density));
+                        params.x = OverlayWindowGeometry.clamp(LyricsDisplayService.this, secondary,
+                                downX + Math.round(dx), screen.x, params.width, true);
+                        params.y = OverlayWindowGeometry.clamp(LyricsDisplayService.this, secondary,
+                                downY + Math.round(dy), screen.y, params.height, false);
                         try { manager.updateViewLayout(v, params); }
                         catch (Throwable ignored) { }
                         return true;
@@ -1461,9 +1453,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                 return;
             }
             Point screen = displaySize(display);
-            int width = Math.min(dp(context, AppPreferences.panelWidthDp(context, true)), screen.x);
-            int height = Math.min(dp(context, AppPreferences.panelHeightDp(context, true)),
-                    screen.y);
+            int width = OverlayWindowGeometry.size(context, true,
+                    dp(context, AppPreferences.panelWidthDp(context, true)), screen.x, true);
+            int height = OverlayWindowGeometry.size(context, true,
+                    dp(context, AppPreferences.panelHeightDp(context, true)), screen.y, false);
             LyricsPanelView panel = new LyricsPanelView(context, true);
             WindowManager.LayoutParams params = overlayParams(width, height);
             String style = AppPreferences.overlayStyle(context, true);
@@ -1472,14 +1465,12 @@ public final class LyricsDisplayService extends Service implements DisplayManage
             boolean extraAllowOffscreen = AppPreferences.overlayAllowOffscreen(context, true);
             int extraOffscreenPercent = AppPreferences.overlayOffscreenPercent(context, true);
             float extraDensity = context.getResources().getDisplayMetrics().density;
-            params.x = OverlayDragMath.clampAxis(AppPreferences.overlayPosition(context, true,
+            params.x = OverlayWindowGeometry.clamp(context, true, AppPreferences.overlayPosition(context, true,
                     style, true, Math.max(0, (screen.x - width) / 2)), screen.x, width,
-                    OverlayDragMath.offsetLimitPx(extraAllowOffscreen, extraOffscreenPercent,
-                            width, extraDensity));
-            params.y = OverlayDragMath.clampAxis(AppPreferences.overlayPosition(context, true,
+                    true);
+            params.y = OverlayWindowGeometry.clamp(context, true, AppPreferences.overlayPosition(context, true,
                     style, false, Math.max(0, Math.round(screen.y * 0.10f))), screen.y, height,
-                    OverlayDragMath.offsetLimitPx(extraAllowOffscreen, extraOffscreenPercent,
-                            height, extraDensity));
+                    false);
             ExtraOverlay overlay = new ExtraOverlay(slot, display, context, manager, params, panel,
                     xKey, yKey);
             attachExtraDrag(overlay, screen);
@@ -1581,14 +1572,10 @@ public final class LyricsDisplayService extends Service implements DisplayManage
                         int offscreenPercent = AppPreferences.overlayOffscreenPercent(
                                 overlay.context, true);
                         float dragDensity = view.getResources().getDisplayMetrics().density;
-                        overlay.params.x = OverlayDragMath.clampAxis(downX + Math.round(dx),
-                                screen.x, overlay.params.width,
-                                OverlayDragMath.offsetLimitPx(allowOffscreen, offscreenPercent,
-                                        overlay.params.width, dragDensity));
-                        overlay.params.y = OverlayDragMath.clampAxis(downY + Math.round(dy),
-                                screen.y, overlay.params.height,
-                                OverlayDragMath.offsetLimitPx(allowOffscreen, offscreenPercent,
-                                        overlay.params.height, dragDensity));
+                        overlay.params.x = OverlayWindowGeometry.clamp(overlay.context, true,
+                                downX + Math.round(dx), screen.x, overlay.params.width, true);
+                        overlay.params.y = OverlayWindowGeometry.clamp(overlay.context, true,
+                                downY + Math.round(dy), screen.y, overlay.params.height, false);
                         try { overlay.windowManager.updateViewLayout(view, overlay.params); }
                         catch (Throwable ignored) { }
                         return true;
@@ -1968,6 +1955,7 @@ public final class LyricsDisplayService extends Service implements DisplayManage
         }
         ForegroundAppDetector.Probe probe = ForegroundAppDetector.probe(this);
         String foreground = probe.packageName;
+        ThemeEnvironment.foreground(foreground);
         if (!foreground.isEmpty()) {
             AppPreferences.setLastForeground(this, foreground, System.currentTimeMillis());
         }

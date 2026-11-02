@@ -69,6 +69,7 @@
          which is what lets a car head unit read .lrc next to the music by raw path; Android 11+
          ignores it and needs "所有文件访问" or a SAF directory instead. preserveLegacyExternalStorage
          keeps that Android 10 behaviour across the in-app update path. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <application
         android:name=".LyricsCompanionApp"
         android:hardwareAccelerated="true"

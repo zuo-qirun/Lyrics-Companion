@@ -82,7 +82,9 @@ final class NotificationMusicReader {
                 track = NotificationTrackParser.parse(n.tickerText.toString(), "", "", label);
             }
         }
-        return new Entry(pkg, label, sbn.getPostTime(), track);
+        MusicPlaybackData playback = track != null && android.os.Build.VERSION.SDK_INT >= 21
+                ? NotificationPlaybackReader.read(context, pkg, n, track) : null;
+        return new Entry(pkg, label, sbn.getPostTime(), track, playback);
     }
 
     private static String string(Bundle extras, String key) {
@@ -117,10 +119,16 @@ final class NotificationMusicReader {
         final String packageName, label;
         final long postTime;
         final NotificationTrackParser.Track track;
+        final MusicPlaybackData playback;
         Entry(String pkg, String label, long time, NotificationTrackParser.Track track) {
+            this(pkg, label, time, track, null);
+        }
+        Entry(String pkg, String label, long time, NotificationTrackParser.Track track, MusicPlaybackData playback) {
             packageName = pkg; this.label = label; postTime = time; this.track = track;
+            this.playback = playback;
         }
         MusicPlaybackData data() {
+            if (playback != null) return playback;
             return new MusicPlaybackData("", track.title, track.artist, null, "", track.mediaUri,
                     -1L, false, MusicPlaybackData.STATE_NONE, -1L, 0L, 0f);
         }

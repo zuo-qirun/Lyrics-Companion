@@ -85,6 +85,9 @@ final class SettingsCatalog {
         }
         if (AppPreferences.KEY_LONG_LINE_MODE.equals(key)
                 && !oneOf(style, "compact", "pure")) return "仅紧凑、纯净样式使用此长句设置";
+        if (key.startsWith("audio_visual_") && !AudioVisualRenderer.supportsStyle(style)) {
+            return "仅 Refined、紧凑、Folia 背景支持音频可视化";
+        }
         if (AppPreferences.KEY_ROUND_COVER.equals(key)
                 && !oneOf(style, "compact", "amll")) return "仅紧凑、AMLL 样式支持此圆形封面开关";
         if (AppPreferences.KEY_REFINED_BACKGROUND_TYPE.equals(key)
@@ -147,6 +150,8 @@ final class SettingsCatalog {
     }
 
     static Category copyCategory(String key) {
+        if (key.startsWith("audio_visual_")) return Category.EFFECTS;
+        if (key.startsWith("artist_portrait_")) return Category.BACKGROUND;
         if (key.contains("color") || key.contains("outline")) return Category.COLORS;
         if (key.startsWith("lyric_effect") || key.startsWith("previous_lyric_particle")
                 || key.startsWith("live_lyric_animation") || key.startsWith("matching_animation")

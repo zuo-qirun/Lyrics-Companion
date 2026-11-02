@@ -4,6 +4,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class LyricEffectRulesTest {
+    @Test public void gradientPeriodFollowsTextAcrossAlignmentAndScrolling() {
+        for (float left : new float[]{0f, 900f, -150f}) {
+            assertEquals(left, LyricEffectRules.gradientTranslation(left, 100f, 0f, false), 0.001f);
+            assertEquals(left + 50f,
+                    LyricEffectRules.gradientTranslation(left, 100f, 0.5f, false), 0.001f);
+            assertEquals(left - 100f,
+                    LyricEffectRules.gradientTranslation(left, 100f, 0f, true), 0.001f);
+            assertEquals(left,
+                    LyricEffectRules.gradientTranslation(left, 100f, 0.5f, true), 0.001f);
+        }
+    }
+
     @Test public void catalogueHasFifteenEffectsAndConsistentUniqueSettingsValues() {
         String[] values = LyricEffectCatalog.values();
         String[] labels = LyricEffectCatalog.labels();

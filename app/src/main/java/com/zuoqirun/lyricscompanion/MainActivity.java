@@ -61,7 +61,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @SuppressLint("SetTextI18n")
-public final class MainActivity extends AppCompatActivity {
+public final class MainActivity extends AppCompatActivity implements OnboardingTour.Host {
     private static final int REQUEST_CUSTOM_FONT = 2417;
     private static final int REQUEST_FONT_STORAGE = 2422;
     private static final ExecutorService FONT_EXECUTOR = Executors.newSingleThreadExecutor();
@@ -165,10 +165,14 @@ public final class MainActivity extends AppCompatActivity {
     private long listenerReconnectDeadlineElapsedMs;
     private boolean launcherDispatch;
     private boolean conciseSettingsMode;
+    private OnboardingTour onboarding;
+    private final java.util.Map<String, View> onboardingTargets = new java.util.HashMap<>();
+    private android.view.ViewTreeObserver.OnGlobalLayoutListener onboardingLayout;
 
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() {
             refreshStatus();
+            if (onboarding != null) onboarding.refreshStatus();
             handler.postDelayed(this, 700L);
         }
     };
@@ -202,6 +206,10 @@ public final class MainActivity extends AppCompatActivity {
         // Overlay lyrics can still use the separately selected light/dark environment.
         getDelegate().setLocalNightMode(AppCompatDelegate.MODE_NIGHT_YES);
         super.onCreate(savedInstanceState);
+        boolean startOnboarding = isLauncherIntent() && OnboardingState.pending(this)
+                || (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                && getIntent() != null && getIntent().getBooleanExtra("show_onboarding", false);
+        if (getIntent() != null) getIntent().removeExtra("show_onboarding");
         if (savedInstanceState != null) {
             selectedSection = savedInstanceState.getInt(STATE_SELECTED_SECTION, 0);
             pendingFontDirectory = savedInstanceState.getString("pending_font_directory", "");
@@ -214,7 +222,7 @@ public final class MainActivity extends AppCompatActivity {
             AppPreferences.get(this).edit().remove("launch_overlay_target").apply();
             AppPreferences.setServiceStoppedByUser(this, false);
         }
-        if (launcherIntent && dispatchLauncherOverlay()) {
+        if (launcherIntent && !startOnboarding && !OnboardingTour.restoring(savedInstanceState) && dispatchLauncherOverlay()) {
             launcherDispatch = true;
             DiagnosticLog.record(this, "MainActivity", "finish reason=launcher_overlay_dispatch");
             SafeToast.show(this, "已恢复悬浮歌词；30 秒内再点图标进入设置", Toast.LENGTH_LONG);
@@ -226,6 +234,8 @@ public final class MainActivity extends AppCompatActivity {
             getWindow().setNavigationBarColor(0xFF07111F);
         }
         setContentView(buildContent());
+        onboarding = new OnboardingTour(this, this);
+        onboarding.restore(savedInstanceState, startOnboarding);
         CustomFontStore.applyToViewTree(this, findViewById(android.R.id.content));
         MusicStateStore.initialize(this);
         handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
@@ -239,6 +249,7 @@ public final class MainActivity extends AppCompatActivity {
     @Override protected void onSaveInstanceState(Bundle outState) {
         outState.putInt(STATE_SELECTED_SECTION, selectedSection);
         outState.putString("pending_font_directory", pendingFontDirectory);
+        if (onboarding != null) onboarding.save(outState);
         super.onSaveInstanceState(outState);
     }
 
@@ -254,6 +265,7 @@ public final class MainActivity extends AppCompatActivity {
         refreshFeedbackReplies();
         LyricsDisplayService.startOrRefresh(this);
         LyricsDisplayService.setSettingsVisible(this, true);
+        if (onboarding != null) onboarding.resume();
         handler.removeCallbacks(statusRefresh);
         handler.post(statusRefresh);
         handler.removeCallbacks(communityRefresh);
@@ -270,6 +282,8 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         activityResumed = false;
+        clearOnboardingLayout();
+        if (onboarding != null) onboarding.pause();
         listenerReconnectScheduled = false;
         handler.removeCallbacks(listenerReconnect);
         handler.removeCallbacks(statusRefresh);
@@ -280,6 +294,8 @@ public final class MainActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         activityResumed = false;
+        clearOnboardingLayout();
+        if (onboarding != null) onboarding.destroy();
         handler.removeCallbacksAndMessages(null);
         DiagnosticLog.record(this, "MainActivity", "destroy finishing=" + isFinishing()
                 + " changingConfiguration=" + isChangingConfigurations());
@@ -290,6 +306,97 @@ public final class MainActivity extends AppCompatActivity {
         Intent intent = getIntent();
         return intent != null && Intent.ACTION_MAIN.equals(intent.getAction())
                 && intent.hasCategory(Intent.CATEGORY_LAUNCHER);
+    }
+
+    @Override public View target(int step) {
+        switch (step) {
+            case 0: return findViewById(R.id.main_navigation);
+            case 1: return onboardingTargets.get("mode");
+            case 2: return onboardingTargets.get("music_permission");
+            case 3: return onboardingTargets.get("overlay_permission");
+            case 4: return conciseSettingsMode ? onboardingTargets.get("quick_main") : mainOverlaySwitch;
+            case 5: return onboardingTargets.get("display_settings");
+            case 6: return onboardingTargets.get("preview");
+            default: return onboardingTargets.get("diagnosis");
+        }
+    }
+
+    @Override public void prepare(int step, Runnable ready) {
+        int section = step == 2 || step == 3 ? (conciseSettingsMode ? 3 : 0)
+                : step == 5 ? 1 : step == 7 ? 2 : 0;
+        selectSection(section, false);
+        afterOnboardingLayout(() -> {
+            if (onboarding == null || !onboarding.isActive()) return;
+            View target = target(step);
+            android.view.ViewParent parent = target == null ? null : target.getParent();
+            while (parent != null && parent != mainScroll) parent = parent.getParent();
+            if (parent == mainScroll && target != null) {
+                int[] location = new int[2], viewport = new int[2];
+                target.getLocationOnScreen(location); mainScroll.getLocationOnScreen(viewport);
+                mainScroll.scrollTo(0, Math.max(0, location[1] - viewport[1] + mainScroll.getScrollY() - dp(24)));
+            }
+            ready.run();
+        });
+    }
+
+    private void afterOnboardingLayout(Runnable action) {
+        clearOnboardingLayout();
+        if (mainScroll == null) return;
+        onboardingLayout = () -> { clearOnboardingLayout(); action.run(); };
+        mainScroll.getViewTreeObserver().addOnGlobalLayoutListener(onboardingLayout);
+        mainScroll.requestLayout();
+    }
+
+    private void clearOnboardingLayout() {
+        if (onboardingLayout != null && mainScroll != null && mainScroll.getViewTreeObserver().isAlive()) {
+            mainScroll.getViewTreeObserver().removeOnGlobalLayoutListener(onboardingLayout);
+        }
+        onboardingLayout = null;
+    }
+
+    @Override public String description(int step) {
+        switch (step) {
+            case 0: return "从高亮的导航栏切换常用控制、显示、歌词与维护页面。接下来会带你找到真实设置的位置；引导不会自动修改你的设置。";
+            case 1: return "精简模式保留主屏常用入口，完整模式提供副屏、顶部条和高级参数。切换模式会保留已有设置；随时都能在这里切回来。";
+            case 2: return "这里开启系统的通知使用权，用来读取播放器提供的歌名与进度。\n当前："
+                    + (hasNotificationAccess() ? "已授权。" : "未授权。")
+                    + "从系统设置返回后，引导会留在这一步。";
+            case 3: return "这里允许歌词显示在其它应用上方。\n当前：" + (canDrawOverlays() ? "已授权。" : "未授权。")
+                    + "若提示未知来源或受限设置，请按系统说明到应用信息中允许获取权限，再回来授权。";
+            case 4: return "权限准备好后，在这里打开主屏悬浮歌词。点击高亮开关或下方操作按钮会立即按正常设置生效；只点下一步不会替你打开。";
+            case 5: return "从这个入口调整主屏的尺寸、字号、透明度、样式和配色。可以进入设置试一试，返回后继续引导；副屏参数在完整模式中单独管理。";
+            case 6: return "这个区域下方显示当前样式的实时预览。先看清效果，再微调布局；一键外观预设可作为起点，之后仍能分别调整。";
+            default: return "没有歌词时先查看上方的音乐状态与诊断，区分权限、歌名、进度和歌词匹配问题。这个按钮可以修正歌曲信息后重新匹配。完成后会回到开始引导的位置。";
+        }
+    }
+
+    @Override public String actionLabel(int step) {
+        switch (step) {
+            case 1: return conciseSettingsMode ? "切换到完整模式" : "切换到精简模式";
+            case 2: return "打开音乐读取权限";
+            case 3: return "打开悬浮窗权限";
+            case 4: return "操作主屏开关";
+            case 5: return "打开主屏参数";
+            case 7: return "修正歌曲信息";
+            default: return null;
+        }
+    }
+
+    @Override public void performAction(int step) {
+        if (step == 1) switchSettingsMode(!conciseSettingsMode);
+        else {
+            View target = target(step);
+            if (target != null) target.performClick();
+        }
+    }
+
+    @Override public int section() { return selectedSection; }
+    @Override public int scrollY() { return mainScroll == null ? 0 : mainScroll.getScrollY(); }
+    @Override public void closed(int section, int scrollY) {
+        selectSection(section, false);
+        afterOnboardingLayout(() -> mainScroll.scrollTo(0, scrollY));
+        handler.postDelayed(this::showCommunityAnnouncementIfNeeded, 300L);
+        handler.postDelayed(() -> checkForUpdates(false), 2000L);
     }
 
     private boolean dispatchLauncherOverlay() {
@@ -347,6 +454,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showCommunityAnnouncementIfNeeded() {
+        if (onboarding != null && onboarding.isActive()) return;
         if (isFinishing() || isDestroyed()) return;
         if (AppPreferences.get(this).getBoolean(
                 AppPreferences.KEY_COMMUNITY_ANNOUNCEMENT_DISMISSED, false)) {
@@ -478,6 +586,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View buildContent() {
+        onboardingTargets.clear();
         sectionPages.clear();
         sectionButtons.clear();
         conciseSettingsMode = AppPreferences.conciseSettingsMode(this);
@@ -497,7 +606,15 @@ public final class MainActivity extends AppCompatActivity {
 
         LinearLayout previewCard = card();
         TextView previewLabel = sectionLabel("实时预览");
+        onboardingTargets.put("preview", previewLabel);
         previewCard.addView(previewLabel);
+        MaterialButton presets = button("一键外观预设", false);
+        presets.setOnClickListener(v -> AppearancePresets.show(this, false,
+                new android.graphics.Point(getResources().getDisplayMetrics().widthPixels
+                        * 160 / getResources().getDisplayMetrics().densityDpi,
+                        getResources().getDisplayMetrics().heightPixels * 160 / getResources().getDisplayMetrics().densityDpi),
+                () -> { bindPreferences(); refreshPreview(); }));
+        previewCard.addView(presets, new LinearLayout.LayoutParams(-1, -2));
         previewPanel = new LyricsPanelView(this, false);
         LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1,
                 previewHeightPx());
@@ -969,6 +1086,7 @@ public final class MainActivity extends AppCompatActivity {
         musicStatus.setPadding(0, dp(9), 0, 0);
         stateCard.addView(musicStatus);
         MaterialButton rematchLyrics = button("修正歌曲信息并重新匹配", false);
+        onboardingTargets.put("diagnosis", rematchLyrics);
         rematchLyrics.setOnClickListener(v -> showLyricRematchDialog());
         LinearLayout.LayoutParams rematchParams = new LinearLayout.LayoutParams(-1, dp(48));
         rematchParams.topMargin = dp(12);
@@ -1079,7 +1197,11 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams completeParams = weightedButton();
         completeParams.leftMargin = dp(10);
         row.addView(complete, completeParams);
+        onboardingTargets.put("mode", row);
         card.addView(row);
+        MaterialButton onboarding = button("首次使用向导", false);
+        onboarding.setOnClickListener(v -> { if (this.onboarding != null) this.onboarding.start(); });
+        card.addView(onboarding, new LinearLayout.LayoutParams(-1, -2));
         addSettingsUiScaleSelector(card);
         addSettingsNavPlacementSelector(card);
         return card;
@@ -1215,6 +1337,7 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout screenRow = new LinearLayout(this);
         screenRow.setOrientation(LinearLayout.HORIZONTAL);
         MaterialButton main = button("主屏参数", true);
+        onboardingTargets.put("display_settings", main);
         main.setOnClickListener(v -> startActivity(new Intent(this, DisplaySettingsActivity.class)
                 .putExtra(DisplaySettingsActivity.EXTRA_SECONDARY, false)));
         screenRow.addView(main, weightedButton());
@@ -1263,12 +1386,12 @@ public final class MainActivity extends AppCompatActivity {
     private LinearLayout buildQuickControlCard() {
         LinearLayout card = card();
         card.addView(sectionLabel("每天会用的控制"));
-        card.addView(quickOverlayToggle("主屏悬浮歌词", AppPreferences.KEY_MAIN_OVERLAY,
-                AppPreferences.mainEnabled(this), "在主屏显示歌词悬浮窗"));
-        card.addView(quickOverlayToggle("副屏 / 仪表盘歌词", AppPreferences.KEY_SECONDARY_OVERLAY,
-                AppPreferences.secondaryEnabled(this), "在选中的副屏独立显示歌词"));
-        card.addView(quickOverlayToggle("顶部歌词条", AppPreferences.KEY_TOP_LYRIC_STRIP,
-                AppPreferences.topLyricStrip(this), "在状态栏附近显示当前歌词"));
+        MaterialSwitch mainToggle = quickOverlayToggle("主屏悬浮歌词", AppPreferences.KEY_MAIN_OVERLAY,
+                AppPreferences.mainEnabled(this), "在主屏显示歌词悬浮窗");
+        onboardingTargets.put("quick_main", mainToggle);
+        card.addView(mainToggle);
+        card.addView(text("精简模式只保留主屏常用入口。已启用的副屏、顶部条设置会保留；"
+                + "切到完整模式可继续管理。", 12, 0xFF8392A8, false));
         MaterialButton displaySettings = button("调整主屏大小、字号和透明度", true);
         displaySettings.setOnClickListener(v -> startActivity(
                 new Intent(this, QuickDisplaySettingsActivity.class)));
@@ -1291,14 +1414,9 @@ public final class MainActivity extends AppCompatActivity {
         summary.setPadding(0, dp(8), 0, dp(10));
         card.addView(summary);
         MaterialButton main = button("调整主屏显示", true);
+        onboardingTargets.put("display_settings", main);
         main.setOnClickListener(v -> startActivity(new Intent(this, QuickDisplaySettingsActivity.class)));
         card.addView(main, new LinearLayout.LayoutParams(-1, dp(48)));
-        MaterialButton secondary = button("调整副屏 / 仪表盘显示", false);
-        secondary.setOnClickListener(v -> startActivity(new Intent(this, QuickDisplaySettingsActivity.class)
-                .putExtra(QuickDisplaySettingsActivity.EXTRA_SECONDARY, true)));
-        LinearLayout.LayoutParams secondaryParams = new LinearLayout.LayoutParams(-1, dp(48));
-        secondaryParams.topMargin = dp(8);
-        card.addView(secondary, secondaryParams);
         MaterialButton complete = button("需要更多显示设置", false);
         complete.setOnClickListener(v -> switchToCompleteDisplaySettings());
         LinearLayout.LayoutParams completeParams = new LinearLayout.LayoutParams(-1, dp(48));
@@ -1306,11 +1424,6 @@ public final class MainActivity extends AppCompatActivity {
         card.addView(complete, completeParams);
         // A HUD next to the driving display is a display-object question, so it lives with the
         // per-display parameters rather than in the everyday card.
-        MaterialButton moreScreens = button("在更多屏幕上同时显示（HUD、后座屏等）", false);
-        moreScreens.setOnClickListener(v -> switchToCompleteDisplaySettings());
-        LinearLayout.LayoutParams moreScreensParams = new LinearLayout.LayoutParams(-1, dp(48));
-        moreScreensParams.topMargin = dp(8);
-        card.addView(moreScreens, moreScreensParams);
         return card;
     }
 
@@ -1359,6 +1472,10 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void selectSection(int section) {
+        selectSection(section, true);
+    }
+
+    private void selectSection(int section, boolean resetScroll) {
         if (section < 0 || section >= sectionPages.size()) return;
         boolean sectionChanged = selectedSection != section;
         selectedSection = section;
@@ -1377,7 +1494,7 @@ public final class MainActivity extends AppCompatActivity {
         if (sectionDescription != null) {
             sectionDescription.setText(sectionDescription(section));
         }
-        if (sectionChanged && mainScroll != null) {
+        if (sectionChanged && resetScroll && mainScroll != null) {
             mainScroll.post(() -> mainScroll.scrollTo(0, 0));
         }
     }
@@ -2206,6 +2323,54 @@ public final class MainActivity extends AppCompatActivity {
         return "已选播放器：" + installed.label;
     }
 
+    private void showForegroundThemeRule() {
+        UPDATE_EXECUTOR.execute(() -> {
+            List<InstalledAppListCache.AppChoice> apps;
+            try {
+                apps = InstalledAppListCache.load(this,
+                        java.util.Collections.singleton(AppPreferences.get(this).getString(ThemeEnvironment.PACKAGE, "")));
+            } catch (RuntimeException error) {
+                handler.post(() -> {
+                    if (!isFinishing() && !isDestroyed()) SafeToast.show(this, "读取应用列表失败，请稍后重试", Toast.LENGTH_LONG);
+                });
+                return;
+            }
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                Set<String> selected = new LinkedHashSet<>();
+                selected.add(AppPreferences.get(this).getString(ThemeEnvironment.PACKAGE, ""));
+                AppChoiceListAdapter adapter = new AppChoiceListAdapter(this, apps, selected);
+                ListView list = new ListView(this);
+                list.setAdapter(adapter);
+                LinearLayout content = new LinearLayout(this);
+                content.setOrientation(LinearLayout.VERTICAL);
+                content.addView(text("在所选应用前台时固定使用指定配色，多选时取列表第一个。此规则不读取导航应用自身的昼夜状态；"
+                        + "其它前台或权限不可用时回落到日出日落、固定时段或系统。", 14, 0xFFD8E1EE, false));
+                content.addView(appSearchField(adapter));
+                content.addView(list, new LinearLayout.LayoutParams(-1, dp(320)));
+                new MaterialAlertDialogBuilder(this).setTitle("前台应用昼夜规则").setView(content)
+                        .setNeutralButton("使用情况访问", (dialog, which) -> openUsageAccessSettings())
+                        .setNegativeButton("清除规则", (dialog, which) -> {
+                            AppPreferences.get(this).edit().remove(ThemeEnvironment.PACKAGE).apply();
+                            AppPreferences.changed(this);
+                        }).setPositiveButton("选择配色", (dialog, which) -> {
+                            String chosen = "";
+                            for (InstalledAppListCache.AppChoice app : apps) {
+                                if (selected.contains(app.packageName)) { chosen = app.packageName; break; }
+                            }
+                            if (chosen.isEmpty()) return;
+                            final String target = chosen;
+                            new MaterialAlertDialogBuilder(this).setTitle("该应用前台时使用")
+                                    .setItems(new String[]{"白天配色", "夜晚配色"}, (ignored, index) -> {
+                                        AppPreferences.get(this).edit().putString(ThemeEnvironment.PACKAGE, target)
+                                                .putString(ThemeEnvironment.MODE, index == 0 ? "light" : "dark").apply();
+                                        AppPreferences.changed(this);
+                                    }).show();
+                        }).show();
+            });
+        });
+    }
+
     private void showAutoLaunchPackagePicker(MaterialButton target) {
         LinearLayout loading = new LinearLayout(this);
         loading.setPadding(dp(24), dp(16), dp(24), dp(16));
@@ -2535,6 +2700,25 @@ public final class MainActivity extends AppCompatActivity {
                 0xFF74869D, false);
         mainThemeNote.setPadding(0, dp(3), 0, dp(2));
         parent.addView(mainThemeNote);
+        MaterialSwitch solar = toggle("按当地日出日落切换", "跟随系统档生效；无可用位置时使用下方固定时段");
+        solar.setChecked(AppPreferences.get(this).getBoolean(ThemeEnvironment.SOLAR, false));
+        solar.setOnCheckedChangeListener((button, checked) -> {
+            AppPreferences.get(this).edit().putBoolean(ThemeEnvironment.SOLAR, checked).apply();
+            Object tag = button.getTag();
+            if (tag instanceof View[]) for (View row : (View[]) tag) {
+                row.setVisibility(checked || AppPreferences.themeScheduleEnabled(this) ? View.VISIBLE : View.GONE);
+            }
+            if (checked && Build.VERSION.SDK_INT >= 23 && !ThemeEnvironment.hasLocationAccess(this)) {
+                requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 2423);
+            }
+            AppPreferences.changed(this);
+        });
+        parent.addView(solar);
+        parent.addView(text("仅读取系统最近 24 小时的位置，不主动启动 GPS、不保存或上传坐标。"
+                + "没有位置时可先打开地图定位。以下应用规则优先于日出日落和固定时段。", 12, 0xFF74869D, false));
+        MaterialButton themeApp = button("设置前台应用昼夜规则", false);
+        themeApp.setOnClickListener(v -> showForegroundThemeRule());
+        parent.addView(themeApp, new LinearLayout.LayoutParams(-1, -2));
 
         // 可选的时间段（issue #34）：打开后按下面的深色时段自动切换；关掉就按上面的模式判断，
         // 「跟随系统」即由系统的深浅色决定。
@@ -2543,11 +2727,12 @@ public final class MainActivity extends AppCompatActivity {
         View startGroup = addThemeScheduleHour(parent, "深色开始（整点）", true);
         View endGroup = addThemeScheduleHour(parent, "深色结束（整点）", false);
         View[] scheduleRows = { startGroup, endGroup };
+        solar.setTag(scheduleRows);
         schedule.setChecked(AppPreferences.themeScheduleEnabled(this));
         schedule.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.setThemeScheduleEnabled(MainActivity.this, checked);
             for (View row : scheduleRows) {
-                row.setVisibility(checked ? View.VISIBLE : View.GONE);
+                row.setVisibility(checked || solar.isChecked() ? View.VISIBLE : View.GONE);
             }
             LyricsCompanionApp.applyMaterialTheme(
                     AppPreferences.resolvedThemeMode(MainActivity.this));
@@ -2555,7 +2740,7 @@ public final class MainActivity extends AppCompatActivity {
         });
         parent.addView(schedule);
         for (View row : scheduleRows) {
-            row.setVisibility(schedule.isChecked() ? View.VISIBLE : View.GONE);
+            row.setVisibility(schedule.isChecked() || solar.isChecked() ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -2942,6 +3127,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showFeedbackRepliesDialog(List<CommunityClient.FeedbackReply> replies) {
+        if (onboarding != null && onboarding.isActive()) return;
         if (feedbackReplyDialogVisible || replies == null || replies.isEmpty()) return;
         feedbackReplyDialogVisible = true;
         StringBuilder content = new StringBuilder();
@@ -2994,6 +3180,7 @@ public final class MainActivity extends AppCompatActivity {
         surface.setCornerSize(dp(20));
         surface.setElevation(dp(1));
         card.setBackground(surface);
+        SettingsSurface.apply(card);
         return card;
     }
 
@@ -3213,9 +3400,11 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         MaterialButton first = button(firstLabel, firstPrimary);
+        if ("音乐读取权限".equals(firstLabel)) onboardingTargets.put("music_permission", first);
         first.setOnClickListener(firstAction);
         row.addView(first, weightedButton());
         MaterialButton second = button(secondLabel, secondPrimary);
+        if ("悬浮窗权限".equals(secondLabel)) onboardingTargets.put("overlay_permission", second);
         second.setOnClickListener(secondAction);
         LinearLayout.LayoutParams secondParams = weightedButton();
         secondParams.leftMargin = dp(10);
@@ -3505,6 +3694,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void checkForUpdates(boolean manual) {
+        if (!manual && onboarding != null && onboarding.isActive()) return;
         if (updateBusy || updateStatus == null) return;
         String requestedChannel = AppPreferences.updateChannel(this);
         String manifestUrl = UpdateChannelRules.manifestUrl(requestedChannel,
@@ -3602,6 +3792,7 @@ public final class MainActivity extends AppCompatActivity {
      *   （Codex review P2）。
      */
     private void showUpdateDialog(AppUpdater.UpdateInfo info, String requestedChannel) {
+        if (onboarding != null && onboarding.isActive()) return;
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(18), dp(4), dp(18), dp(4));
@@ -3789,6 +3980,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void promptPermissionFaqIfStillMissing() {
+        if (onboarding != null && onboarding.isActive()) return;
         if (pendingPermissionFaqCheck == 0 || permissionFaqDialogVisible || isFinishing()) return;
         int pending = pendingPermissionFaqCheck;
         pendingPermissionFaqCheck = 0;

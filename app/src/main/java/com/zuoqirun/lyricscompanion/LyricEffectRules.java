@@ -36,6 +36,10 @@ final class LyricEffectRules {
         return (float) Math.sin((phase(timeMs, speed) + spatialPhase) * Math.PI * 2d);
     }
 
+    static float gradientTranslation(float textLeft, float textWidth, float phase, boolean sweep) {
+        return textLeft + Math.max(1f, textWidth) * (sweep ? phase * 2f - 1f : phase);
+    }
+
     static float bounce(long ageMs, int speed) {
         if (ageMs < 0L || entry(ageMs, speed) == 0f) return 0f;
         float duration = 60_000f / Math.max(25, Math.min(300, speed));

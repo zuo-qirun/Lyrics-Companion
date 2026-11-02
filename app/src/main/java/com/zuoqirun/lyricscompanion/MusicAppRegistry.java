@@ -10,6 +10,7 @@ final class MusicAppRegistry {
             new App("media", "Poweramp", "com.maxmpz.audioplayer"),
             new App("media", "Musicolet", "in.krosbits.musicolet"),
             new App("media", "AIMP", "com.aimp.player"),
+            new App("media", "静心音乐", "com.jingxin.jingxinmusic"),
             new App("netease", "网易云音乐", "com.netease.cloudmusic"),
             new App("netease", "网易云音乐车机版", "com.netease.cloudmusic.iot"),
             new App("qqmusic", "QQ 音乐", "com.tencent.qqmusic"),

@@ -13,6 +13,7 @@ final class LongLineLayout {
     static final String MODE_MARQUEE = "marquee";
     static final String MODE_SHRINK = "shrink";
     static final String MODE_WRAP = "wrap";
+    static final String MODE_ELLIPSIZE = "ellipsize";
     /** 缩小字号的下限：与 {@code fitSize} 一致，再小就不如换行了。 */
     static final float SHRINK_FLOOR_RATIO = 0.62f;
     /** 换行最多几行。 */
@@ -23,6 +24,7 @@ final class LongLineLayout {
     static String normalizeMode(String mode) {
         if (MODE_SHRINK.equals(mode)) return MODE_SHRINK;
         if (MODE_WRAP.equals(mode)) return MODE_WRAP;
+        if (MODE_ELLIPSIZE.equals(mode)) return MODE_ELLIPSIZE;
         return MODE_MARQUEE;
     }
 
@@ -42,6 +44,10 @@ final class LongLineLayout {
         if (requestedSize <= 0f || maxWidth <= 0f || textWidth <= maxWidth) return requestedSize;
         float ratio = Math.max(SHRINK_FLOOR_RATIO, maxWidth / Math.max(1f, textWidth));
         return requestedSize * Math.min(1f, ratio);
+    }
+
+    static float fittedSize(String mode, float requestedSize, float textWidth, float maxWidth) {
+        return MODE_ELLIPSIZE.equals(mode) ? requestedSize : shrinkSize(requestedSize, textWidth, maxWidth);
     }
 
     /** 「换行」档最多排几行：由可用高度与行高决定，至少 1 行、至多 {@link #MAX_WRAP_LINES}。 */
