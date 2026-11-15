@@ -36,7 +36,8 @@ import java.util.regex.Pattern;
 final class LocalLyricClient {
     private static final int MAX_BYTES = 10 * 1024 * 1024;
     private static final Pattern AWLRC_TAG = Pattern.compile("(?m)^\\[awlrc:([^]\\r\\n]+)]\\s*$");
-    private static final int MAX_DOCUMENTS = 2_000;
+    static final int MAX_DOCUMENTS = 100_000;
+    private static final LocalLyricLocationCache LOCATION_CACHE = new LocalLyricLocationCache();
     /** Unreadable directories and files are named a few times, then only counted. */
     private static final int MAX_UNREADABLE_LOGS = 3;
     /**
@@ -54,6 +55,8 @@ final class LocalLyricClient {
     LocalLyricClient(Context context) {
         this.context = context.getApplicationContext();
     }
+
+    static void clearLocationCache() { LOCATION_CACHE.clear(); }
 
     /** The lyric found locally, plus which link of the chain produced it. */
     static final class Hit {
@@ -217,15 +220,18 @@ final class LocalLyricClient {
                 record("本地歌词目录搜索失败=" + failureCause(error) + " dir=" + path);
             }
         }
-        String tree = AppPreferences.localLyricDirectoryUri(context);
-        if (tree.isEmpty() || Build.VERSION.SDK_INT < 21) return Hit.EMPTY;
-        try {
-            return searchTree(Uri.parse(tree), candidates, findAudioByName);
-        } catch (Throwable error) {
-            record("已授权歌词目录不可用=" + failureCause(error) + " tree=" + tree
-                    + " 请重新“选择本地音乐目录”授权");
-            return Hit.EMPTY;
+        if (Build.VERSION.SDK_INT < 21) return Hit.EMPTY;
+        for (String tree : AppPreferences.localLyricDirectoryUris(context)) {
+            if (Thread.currentThread().isInterrupted()) return Hit.EMPTY;
+            try {
+                Hit found = searchTree(Uri.parse(tree), candidates, findAudioByName);
+                if (!found.timeline.isEmpty()) return found;
+            } catch (Exception error) {
+                record("已授权歌词目录不可用=" + failureCause(error) + " tree=" + tree
+                        + " 请重新“选择本地音乐目录”授权");
+            }
         }
+        return Hit.EMPTY;
     }
 
     /**
@@ -456,14 +462,26 @@ final class LocalLyricClient {
     private Hit searchTree(Uri tree, Set<String> candidates, boolean findAudioByName)
             throws Exception {
         ContentResolver resolver = context.getContentResolver();
+        String cacheRoot = "tree:" + tree;
+        String cached = LOCATION_CACHE.get(cacheRoot, candidates, android.os.SystemClock.elapsedRealtime());
+        if (cached != null) {
+            try (InputStream input = resolver.openInputStream(
+                    DocumentsContract.buildDocumentUriUsingTree(tree, cached))) {
+                LrcTimeline timeline = parse(input);
+                if (!timeline.isEmpty()) return new Hit(timeline, false);
+            } catch (Exception ignored) { }
+            LOCATION_CACHE.remove(cacheRoot, candidates);
+        }
         ArrayDeque<String> directories = new ArrayDeque<>();
         directories.add(DocumentsContract.getTreeDocumentId(tree));
+        Set<String> seenDirectories = new LinkedHashSet<>(directories);
         List<AudioDocument> audioDocuments = new ArrayList<>(MAX_AUDIO_FILES);
         int visited = 0;
         int failedQueries = 0;
         int unreadableDocuments = 0;
         int matched = 0;
         while (!directories.isEmpty() && visited < MAX_DOCUMENTS) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             String parentId = directories.removeFirst();
             Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
             try (Cursor cursor = resolver.query(children, new String[]{
@@ -479,11 +497,12 @@ final class LocalLyricClient {
                     continue;
                 }
                 while (cursor.moveToNext() && visited++ < MAX_DOCUMENTS) {
+                    if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                     String id = cursor.getString(0);
                     String name = cursor.getString(1);
                     String mime = cursor.getString(2);
                     if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
-                        directories.addLast(id);
+                        if (seenDirectories.add(id)) directories.addLast(id);
                         continue;
                     }
                     String normalized = normalize(name);
@@ -492,7 +511,11 @@ final class LocalLyricClient {
                         Uri document = DocumentsContract.buildDocumentUriUsingTree(tree, id);
                         try (InputStream input = resolver.openInputStream(document)) {
                             LrcTimeline timeline = parse(input);
-                            if (!timeline.isEmpty()) return new Hit(timeline, false);
+                            if (!timeline.isEmpty()) {
+                                LOCATION_CACHE.put(cacheRoot, candidates, id,
+                                        android.os.SystemClock.elapsedRealtime());
+                                return new Hit(timeline, false);
+                            }
                         } catch (Exception error) {
                             unreadableDocuments++;
                             if (unreadableDocuments <= MAX_UNREADABLE_LOGS) {
@@ -507,6 +530,8 @@ final class LocalLyricClient {
                         audioDocuments.add(new AudioDocument(id, name));
                     }
                 }
+            } catch (InterruptedException error) {
+                throw error;
             } catch (Exception error) {
                 failedQueries++;
                 if (failedQueries <= MAX_UNREADABLE_LOGS) {
@@ -666,6 +691,15 @@ final class LocalLyricClient {
             throws Exception {
         if (root == null) return Hit.EMPTY;
         String path = root.getAbsolutePath();
+        String cacheRoot = "path:" + path;
+        String cached = LOCATION_CACHE.get(cacheRoot, candidates, android.os.SystemClock.elapsedRealtime());
+        if (cached != null) {
+            try {
+                LrcTimeline timeline = parse(new FileInputStream(cached));
+                if (!timeline.isEmpty()) return new Hit(timeline, false);
+            } catch (Exception ignored) { }
+            LOCATION_CACHE.remove(cacheRoot, candidates);
+        }
         if (!root.exists()) {
             record("本地歌词目录不存在 dir=" + path + " " + accessState());
             return Hit.EMPTY;
@@ -676,12 +710,15 @@ final class LocalLyricClient {
         }
         ArrayDeque<File> directories = new ArrayDeque<>();
         directories.add(root);
+        Set<String> seenDirectories = new LinkedHashSet<>();
+        seenDirectories.add(root.getCanonicalPath());
         List<File> audioFiles = new ArrayList<>(MAX_AUDIO_FILES);
         int visited = 0;
         int unreadableDirectories = 0;
         int unreadableFiles = 0;
         int matched = 0;
         while (!directories.isEmpty() && visited < MAX_DOCUMENTS) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             File directory = directories.removeFirst();
             File[] children;
             try {
@@ -698,14 +735,19 @@ final class LocalLyricClient {
                 continue;
             }
             for (File child : children) {
+                if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 if (visited++ >= MAX_DOCUMENTS) break;
                 if (child.isDirectory()) {
-                    directories.addLast(child);
+                    if (seenDirectories.add(child.getCanonicalPath())) directories.addLast(child);
                 } else if (candidates.contains(normalize(child.getName()))) {
                     matched++;
                     try {
                         LrcTimeline timeline = parse(new FileInputStream(child));
-                        if (!timeline.isEmpty()) return new Hit(timeline, false);
+                        if (!timeline.isEmpty()) {
+                            LOCATION_CACHE.put(cacheRoot, candidates, child.getAbsolutePath(),
+                                    android.os.SystemClock.elapsedRealtime());
+                            return new Hit(timeline, false);
+                        }
                     } catch (Exception error) {
                         unreadableFiles++;
                         if (unreadableFiles <= MAX_UNREADABLE_LOGS) {

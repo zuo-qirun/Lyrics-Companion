@@ -155,8 +155,7 @@ final class CrashReporter {
                 Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         boolean notifications = Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(
                 Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
-        boolean installPackages = Build.VERSION.SDK_INT < 26
-                || context.getPackageManager().canRequestPackageInstalls();
+        boolean installPackages = InstallPermission.canInstallUpdates(context);
         return "notificationAccess=" + MusicNotificationListener.hasNotificationAccess(context)
                 + "\noverlay=" + overlay
                 + "\nrecordAudio=" + recordAudio

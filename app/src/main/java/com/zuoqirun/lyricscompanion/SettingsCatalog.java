@@ -117,7 +117,7 @@ final class SettingsCatalog {
             }
         }
         if (AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION.equals(key)
-                && !values.enabled(AppPreferences.KEY_LIVE_LYRIC_ANIMATION)) return "开启实时歌词切句动画后可调整";
+                && !values.enabled(AppPreferences.KEY_LIVE_LYRIC_ANIMATION)) return "开启歌词切句动画后可调整";
         if (AppPreferences.KEY_OVERLAY_OFFSCREEN_PERCENT.equals(key)
                 && !values.enabled(AppPreferences.KEY_OVERLAY_ALLOW_OFFSCREEN)) return "允许面板移出屏幕边缘后可调整";
         if ((AppPreferences.KEY_PARTICLE_AMOUNT.equals(key) || AppPreferences.KEY_WORD_DISSOLVE.equals(key))

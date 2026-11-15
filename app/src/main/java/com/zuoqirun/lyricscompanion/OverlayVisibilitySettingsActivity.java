@@ -62,7 +62,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF07111F);
+        scroll.setBackgroundColor(SettingsStyleHelper.COLOR_BACKGROUND);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(12), dp(18), dp(32));
@@ -266,7 +266,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         seek.setProgress(seconds);
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
         }
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int progress,
@@ -429,7 +429,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         Set<String> selected = new HashSet<>(pickedPackages(kind));
         ListView list = new ListView(this);
         list.setDividerHeight(0);
-        list.setBackgroundColor(0xFF101E31);
+        list.setBackgroundColor(SettingsStyleHelper.COLOR_CARD_BG);
         AppChoiceListAdapter adapter = new AppChoiceListAdapter(this, apps, selected);
         list.setAdapter(adapter);
         LinearLayout content = new LinearLayout(this);
@@ -588,7 +588,7 @@ public final class OverlayVisibilitySettingsActivity extends AppCompatActivity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(15), dp(14), dp(15), dp(15));
         MaterialShapeDrawable surface = new MaterialShapeDrawable();
-        surface.setFillColor(ColorStateList.valueOf(0xFF101E31));
+        surface.setFillColor(ColorStateList.valueOf(SettingsStyleHelper.COLOR_CARD_BG));
         surface.setCornerSize(dp(20));
         card.setBackground(surface);
         card.addView(text(title, 13, 0xFF6EE7F2, true));

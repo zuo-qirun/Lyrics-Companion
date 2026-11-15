@@ -1,16 +1,22 @@
 package com.zuoqirun.lyricscompanion;
 
-/** Incoming live lines fade and rise without inventing singing or word timestamps. */
+/** Incoming timed and live lines fade and rise without inventing word timestamps. */
 final class LiveLyricTransition {
     private String track = "";
     private String line = "";
+    private long lineStart = -1L;
     private long elapsed;
     private long lastFrame;
     private boolean transitioning;
 
     void update(String trackId, String text, boolean live, boolean enabled,
                 boolean playing, long now, int durationMs) {
-        if (!live || !enabled || text == null || text.trim().isEmpty()) {
+        update(trackId, text, -1L, live, enabled, playing, now, durationMs);
+    }
+
+    void update(String trackId, String text, long startMs, boolean available, boolean enabled,
+                boolean playing, long now, int durationMs) {
+        if (!available || !enabled || text == null || text.trim().isEmpty()) {
             reset();
             return;
         }
@@ -18,9 +24,11 @@ final class LiveLyricTransition {
         if (!trackId.equals(track)) {
             track = trackId;
             line = normalized;
+            lineStart = startMs;
             transitioning = false;
-        } else if (!normalized.equals(line)) {
+        } else if (!normalized.equals(line) || startMs != lineStart) {
             line = normalized;
+            lineStart = startMs;
             elapsed = 0L;
             transitioning = durationMs > 0 && playing;
         } else if (transitioning && playing) {
@@ -41,6 +49,7 @@ final class LiveLyricTransition {
     private void reset() {
         track = "";
         line = "";
+        lineStart = -1L;
         elapsed = 0L;
         transitioning = false;
         lastFrame = 0L;

@@ -151,7 +151,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(15), dp(14), dp(15), dp(15));
         MaterialShapeDrawable surface = new MaterialShapeDrawable();
-        surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
+        surface.setFillColor(android.content.res.ColorStateList.valueOf(SettingsStyleHelper.COLOR_CARD_BG));
         surface.setCornerSize(dp(20));
         card.setBackground(surface);
         card.addView(text(title, 13, 0xFF6EE7F2, true));
@@ -162,7 +162,7 @@ public final class CompactSettingsActivity extends AppCompatActivity implements 
         toggle.setTextColor(0xFFF1F5FA);
         toggle.setTextSize(14f);
         toggle.setGravity(Gravity.CENTER_VERTICAL);
-        toggle.setPadding(0, dp(10), 0, 0);
+        toggle.setPadding(0, dp(8), 0, dp(8));
     }
 
     private TextView text(String text, int sp, int color, boolean bold) {

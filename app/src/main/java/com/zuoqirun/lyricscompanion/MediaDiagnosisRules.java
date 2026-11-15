@@ -36,7 +36,7 @@ final class MediaDiagnosisRules {
     static Verdict classify(boolean active, boolean titlePresent, boolean progressKnown,
                             boolean lyricLoaded, boolean lyricAvailable,
                             String lyricSourceName, int sessionCount, boolean serviceOnlyTitle) {
-        if ((!active || !titlePresent) && sessionCount > 0) {
+        if ((!active || !titlePresent) && (sessionCount > 0 || serviceOnlyTitle)) {
             return serviceOnlyTitle ? Verdict.SERVICE_ONLY : Verdict.EMPTY_SESSION;
         }
         return classify(active, titlePresent, progressKnown, lyricLoaded, lyricAvailable, lyricSourceName);
@@ -65,7 +65,7 @@ final class MediaDiagnosisRules {
             case EMPTY_SESSION:
                 return "媒体会话存在但没有可用歌名：部分 CarPlay / 互联客户端不发布元数据。可尝试蓝牙 AVRCP 或车机自带播放器";
             case SERVICE_ONLY:
-                return "播放器只发布了服务名，未发布当前歌曲：请换用兼容播放器或手动修正歌曲信息";
+                return "播放器只发布了服务名或连接状态，未提供当前歌名：请换用兼容播放器、关闭无效识别通道，或手动修正歌名后读取本地 .lrc";
             case TITLE_NO_PROGRESS:
                 return "有歌名但没有播放进度：歌词只能整句显示，无法跟随滚动";
             case LOADING:

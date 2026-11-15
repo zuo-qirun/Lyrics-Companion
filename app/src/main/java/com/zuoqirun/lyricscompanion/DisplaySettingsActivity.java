@@ -59,7 +59,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     .show();
             return true;
         });
-        LinearLayout common = card("常用调整");
+        LinearLayout common = card("⚡ 快速调节");
         preview = new LyricsPanelView(this, secondary);
         preview.setVisibility(View.GONE);
         MaterialButton previewToggle = new MaterialButton(this);
@@ -72,16 +72,16 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         });
         common.addView(previewToggle, new LinearLayout.LayoutParams(-1, dp(48)));
         common.addView(preview, new LinearLayout.LayoutParams(-1, dp(150)));
-        LinearLayout position = card("位置与交互");
-        LinearLayout motion = card("歌词动效");
-        LinearLayout timing = card("歌词时间校正");
+        LinearLayout timing = card("⏱ 时间校正");
+        LinearLayout panel = card("📝 文字与排版");
+        LinearLayout motion = card("✨ 动效");
+        LinearLayout position = card("🎮 位置与交互");
 
         String selectedStyle = AppPreferences.overlayStyle(this, secondary);
         boolean foliaStyle = FoliaModeCatalog.isStyle(selectedStyle);
         boolean originalFolia = FoliaModeCatalog.isOriginalStyle(selectedStyle);
         if (foliaStyle) addHelp(motion, text("Folia 使用效果自带的辉光与动画，不应用通用歌词特效。"
                 + "低配车机模式会关闭辉光和模糊；需要发光时可关闭低配模式并选择带辉光的 Folia 效果。", 12, 0xFF8392A8, false));
-        LinearLayout panel = card("文字与排版");
         Point screenDp = targetScreenSizeDp();
         int maximumWidth = Math.max(AppPreferences.minimumPanelWidthDp(this, secondary), screenDp.x);
         int maximumHeight = Math.max(AppPreferences.minimumPanelHeightDp(this, secondary), screenDp.y);
@@ -229,13 +229,13 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 addHelp(panel, text("高度受悬浮窗高度与上限共同限制；双行按行高分配，字号在行高内缩放。关闭自动分配后主行占比可设 35–85%；矮于 56dp 或过窄时退回单行。",
                         12, 0xFFD7E1EE, false));
             }
-            addToggle(motion, "播放器实时歌词切句动画", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
+            addToggle(motion, "歌词切句动画（实时 / 时间轴）", AppPreferences.KEY_LIVE_LYRIC_ANIMATION,
                     AppPreferences.liveLyricAnimation(this, secondary));
-            addSeek(motion, "实时歌词过渡时长", AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, 0, 800,
+            addSeek(motion, "歌词切句过渡时长", AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, 0, 800,
                     AppPreferences.liveLyricAnimationDuration(this, secondary), " ms",
                     value -> AppPreferences.putDisplayInt(this, secondary,
                             AppPreferences.KEY_LIVE_LYRIC_ANIMATION_DURATION, value));
-            addHelp(motion, text("实时歌词换句时淡入并轻微上移，不估算演唱或逐字时长；默认关闭，顶部歌词条不受影响。",
+            addHelp(motion, text("播放器实时歌词与带时间轴歌词均在换句时淡入并上移，可与平滑滚动叠加；不估算逐字时长，默认关闭，顶部歌词条不受影响。",
                     12, 0xFFD7E1EE, false));
             // 粒子量 and 逐字歌词及时擦除 belong to the dissolve: they are only offered while it is
             // switched on, and go away with it. The holder exists because the master toggle is built
@@ -387,12 +387,12 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 AppPreferences.displayInt(this, secondary, AppPreferences.KEY_LYRIC_OFFSET, 0), " ms",
                 value -> AppPreferences.putDisplayInt(this, secondary,
                         AppPreferences.KEY_LYRIC_OFFSET, value));
+        addCard(timing, SettingsCatalog.Category.MAINTENANCE);
         addCard(panel, SettingsCatalog.Category.TEXT);
         addCard(motion, SettingsCatalog.Category.EFFECTS);
         addCard(position, SettingsCatalog.Category.INTERACTION);
-        addCard(timing, SettingsCatalog.Category.MAINTENANCE);
 
-        LinearLayout spectrum = card("律动与频谱");
+        LinearLayout spectrum = card("✨ 律动与频谱");
         addToggle(spectrum, foliaStyle ? "跟随真实频谱" : "在当前歌词模式显示律动", AppPreferences.KEY_SPECTRUM_ENABLED,
                 AppPreferences.spectrumEnabled(this, secondary));
         if (!foliaStyle) {
@@ -454,12 +454,15 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                     AppPreferences.fullscreenCloseMode(this),
                     value -> AppPreferences.get(this).edit()
                             .putString(AppPreferences.KEY_FULLSCREEN_CLOSE_MODE, value).apply());
-            addChoice(controls, "桌面歌词右上角叉", AppPreferences.KEY_OVERLAY_CLOSE_MODE,
+            addChoice(controls, "锁定 / 穿透时右上角解锁叉", AppPreferences.KEY_OVERLAY_CLOSE_MODE,
                     new String[]{"弱化显示", "始终显示", "隐藏", "自动弱化（2 秒）", "自动隐藏（2 秒）"},
                     new String[]{"fade", "always", "hidden", "auto_fade", "auto_hide"},
                     AppPreferences.overlayCloseMode(this),
                     value -> AppPreferences.get(this).edit()
                             .putString(AppPreferences.KEY_OVERLAY_CLOSE_MODE, value).apply());
+            addHelp(controls, text("解锁叉仅在对应屏幕开启锁定位置或触摸穿透时出现；点击用于解除锁定 / 穿透。"
+                    + "「始终显示」也遵循此条件，关闭悬浮窗请使用主屏显示开关。显示方式对所有屏幕生效。",
+                    12, 0xFFD7E1EE, false));
             addCard(controls, SettingsCatalog.Category.INTERACTION);
         } else {
             LinearLayout controls = card("副屏播放控制");
@@ -518,7 +521,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addTrackCorrection(trackCorrection);
         addCard(trackCorrection, SettingsCatalog.Category.MAINTENANCE);
 
-        LinearLayout cache = card("歌词缓存");
+        LinearLayout cache = card("🗂 歌词缓存");
         addChoice(cache, "缓存保留方式", AppPreferences.KEY_LYRIC_CACHE_POLICY,
                 new String[]{"保留 30 天", "永久保留", "按容量自动淘汰（默认）"},
                 new String[]{"30d", "forever", "capacity"},
@@ -550,7 +553,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
                 0xFFD7E1EE, false));
         addCard(cache, SettingsCatalog.Category.MAINTENANCE);
 
-        LinearLayout artwork = card("背景与封面");
+        LinearLayout artwork = card("🎨 背景与封面");
         if (!"pure".equals(selectedStyle)) {
             addChoice(artwork, "封面来源", ArtistPortraitRepository.SOURCE,
                     new String[]{"播放器专辑封面（默认）", "歌手写真，取不到回落专辑封面"},
@@ -785,7 +788,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         toggle.setTextColor(0xFFF1F5FA);
         toggle.setTextSize(14f);
         toggle.setGravity(Gravity.CENTER_VERTICAL);
-        toggle.setPadding(0, dp(10), 0, dp(2));
+        toggle.setPadding(0, dp(8), 0, dp(8));
         toggle.setChecked(AppPreferences.overlayTouchThrough(this, secondary));
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putOverlayTouchThrough(this, secondary, checked);
@@ -910,12 +913,14 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     private LinearLayout card(String title) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(15), dp(14), dp(15), dp(15));
+        card.setPadding(dp(15), dp(14), dp(15), dp(16));
         MaterialShapeDrawable surface = new MaterialShapeDrawable();
         surface.setFillColor(android.content.res.ColorStateList.valueOf(0xFF101E31));
         surface.setCornerSize(dp(20));
         card.setBackground(surface);
-        card.addView(text(title, 13, 0xFF6EE7F2, true));
+        TextView cardTitle = text(title, 15, 0xFF6EE7F2, true);
+        cardTitle.setPadding(0, 0, 0, dp(10));
+        card.addView(cardTitle);
         return card;
     }
 
@@ -947,7 +952,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, 0, 0, 0);
-        row.addView(text(title, 14, 0xFFD7E1EE, true),
+        row.addView(text(title, 13, 0xFFD7E1EE, false),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         TextView value = text(formatValue(initial, suffix), 13, 0xFF6EE7F2, true);
         row.addView(value);
@@ -958,7 +963,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         seek.setProgress(clamp(initial, min, max) - min);
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
         }
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
@@ -988,7 +993,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         toggle.setTextColor(0xFFF1F5FA);
         toggle.setTextSize(14f);
         toggle.setGravity(Gravity.CENTER_VERTICAL);
-        toggle.setPadding(0, dp(10), 0, 0);
+        toggle.setPadding(0, dp(8), 0, dp(8));
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.putDisplayBoolean(this, secondary, key, checked);
@@ -1020,7 +1025,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
     private void addChoice(LinearLayout parent, String title, String key, String[] labels, String[] values,
                            String initial, StringConsumer consumer) {
         parent = navigation.row(parent, key, title);
-        TextView label = text(title, 14, 0xFFD7E1EE, true);
+        TextView label = text(title, 13, 0xFFD7E1EE, false);
         label.setPadding(0, 0, 0, dp(4));
         parent.addView(label);
         Spinner spinner = new Spinner(this, Spinner.MODE_DIALOG);
@@ -1075,7 +1080,7 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         seek.setMax(10_000);
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             seek.setProgressTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
-            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFFFFCA66));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(0xFF6EE7F2));
         }
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {

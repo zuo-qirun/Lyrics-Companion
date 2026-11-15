@@ -89,12 +89,12 @@ final class SettingsNavigator {
         search.setContentDescription("搜索设置");
         search.setPadding(dp(16), 0, dp(16), 0);
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(48));
-        searchParams.setMargins(dp(16), 0, dp(16), dp(4));
+        searchParams.setMargins(dp(16), dp(8), dp(16), dp(4));
         layout.addView(search, searchParams);
         scroll = new ScrollView(activity);
         scroll.setFillViewport(true);
         content = vertical();
-        content.setPadding(dp(16), 0, dp(16), dp(24));
+        content.setPadding(dp(16), dp(4), dp(16), dp(24));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
         layout.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
         results = vertical();
@@ -115,13 +115,24 @@ final class SettingsNavigator {
         SettingsSurface.apply(card);
         sections.add(new Section(card, category, label));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(12);
+        params.topMargin = dp(14);
         content.addView(card, params);
     }
 
     LinearLayout row(LinearLayout parent, String key, String label) {
+        // 已有行后插入 1dp 分隔线，让相邻设置项之间有清晰边界
+        if (parent.getChildCount() > 0
+                && parent.getChildAt(parent.getChildCount() - 1) instanceof LinearLayout) {
+            View divider = new View(activity);
+            divider.setBackgroundColor(0xFF1A2D42);
+            LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(
+                    -1, Math.max(1, Math.round(activity.getResources().getDisplayMetrics().density)));
+            divParams.topMargin = dp(2);
+            divParams.bottomMargin = dp(2);
+            parent.addView(divider, divParams);
+        }
         LinearLayout row = vertical();
-        row.setPadding(0, dp(10), 0, dp(8));
+        row.setPadding(0, dp(10), 0, dp(6));
         row.setContentDescription(label + "，" + SettingsCatalog.scope(key));
         parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
         rows.add(new Row(key, label, row));
@@ -129,7 +140,9 @@ final class SettingsNavigator {
     }
 
     void scopeNote(LinearLayout row, String key) {
-        row.addView(label(SettingsCatalog.scope(key), 11, 0xFF91A1B7));
+        TextView note = label(SettingsCatalog.scope(key), 11, 0xFF91A1B7);
+        note.setPadding(0, dp(3), 0, 0);
+        row.addView(note);
     }
 
     void value(TextView value) { value.setTag(VALUE_TAG); }

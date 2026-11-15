@@ -19,7 +19,14 @@ final class SessionMetadataRules {
     static boolean usableTitle(String title, String label) {
         String value = normalize(title);
         return !value.isEmpty() && !isServiceTitle(title, label)
+                && !isConnectionPlaceholder(title)
                 && !value.matches("(?:未知歌曲|未知歌名|unknown|unknownsong|unknowntrack|notprovided|unavailable)");
+    }
+
+    static boolean isConnectionPlaceholder(String text) {
+        return normalize(text).matches("(?:androidauto|carplay|蓝牙音频|bluetoothaudio|"
+                + "已连接|未连接|已断开|正在连接|连接中|配对中|无媒体信息|无媒体|"
+                + "connected|disconnected|connecting|pairing|nomedia|nomediainformation)");
     }
 
     static boolean retainMissingTitle(boolean sameSession, boolean hadTitle,
@@ -27,6 +34,16 @@ final class SessionMetadataRules {
         return sameSession && hadTitle && emptyTitle
                 && state != MusicPlaybackData.STATE_STOPPED
                 && state != MusicPlaybackData.STATE_ERROR;
+    }
+
+    static boolean matchesPublisher(String incomingSource, String incomingPackage,
+                                    String currentSource, String currentPackage) {
+        if (incomingPackage != null && !incomingPackage.isEmpty()
+                && incomingPackage.equals(currentPackage)) return true;
+        return incomingSource != null && incomingSource.equals(currentSource)
+                && (incomingPackage == null || incomingPackage.isEmpty()
+                || currentPackage == null || currentPackage.isEmpty()
+                || "bluetooth".equals(incomingSource));
     }
 
     private static String normalize(String text) {

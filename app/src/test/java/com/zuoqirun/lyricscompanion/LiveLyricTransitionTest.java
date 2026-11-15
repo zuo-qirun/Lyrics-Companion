@@ -4,6 +4,26 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class LiveLyricTransitionTest {
+    @Test public void timedRepeatedLineTransitionsAtEachTimestampAndRespectsDuration() {
+        LiveLyricTransition state = new LiveLyricTransition();
+        state.update("song", "重复副歌", 1000L, true, true, true, 100, 800);
+        assertEquals(1f, state.fraction(800), 0f);
+        state.update("song", "重复副歌", 3000L, true, true, true, 200, 800);
+        assertEquals(0f, state.fraction(800), 0f);
+        state.update("song", "重复副歌", 3000L, true, true, true, 600, 800);
+        assertEquals(0.75f, state.fraction(800), 0.001f);
+        state.update("song", "重复副歌", 3000L, true, true, true, 1000, 800);
+        assertFalse(state.isAnimating(true));
+    }
+
+    @Test public void switchingFromLiveToTimedLyricsDoesNotLeaveTheLineInvisible() {
+        LiveLyricTransition state = new LiveLyricTransition();
+        state.update("song", "第一句", -1L, true, true, true, 100, 300);
+        state.update("song", "第二句", 2000L, true, true, true, 200, 300);
+        assertTrue(state.isAnimating(true));
+        state.update("song", "第二句", 2000L, true, false, true, 250, 300);
+        assertEquals(1f, state.fraction(300), 0f);
+    }
     @Test public void firstLineIsVisibleAndOnlyChangedTextTransitions() {
         LiveLyricTransition state = new LiveLyricTransition();
         state.update("track", "first", true, true, true, 100, 300);

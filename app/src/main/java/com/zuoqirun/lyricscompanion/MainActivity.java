@@ -171,8 +171,14 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
 
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() {
-            refreshStatus();
-            if (onboarding != null) onboarding.refreshStatus();
+            try {
+                refreshStatus();
+                if (onboarding != null) onboarding.refreshStatus();
+            } catch (RuntimeException error) {
+                // 状态栏只是诊断展示；某个系统查询在个别车机上抛异常时不能把整个界面带走。
+                DiagnosticLog.record(MainActivity.this, "MainActivity",
+                        "刷新状态失败（已忽略）: " + error);
+            }
             handler.postDelayed(this, 700L);
         }
     };
@@ -258,6 +264,7 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         DiagnosticLog.record(this, "MainActivity", "resume dispatch=" + launcherDispatch);
         if (launcherDispatch) return;
         activityResumed = true;
+        if (!AppPreferences.avrcpEnabled(this)) BluetoothAvrcpReceiver.reset();
         ensureNotificationListenerConnected();
         bindPreferences();
         refreshDisplayChoices();
@@ -421,11 +428,15 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
             try {
                 getContentResolver().takePersistableUriPermission(uri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (Throwable ignored) { }
-            AppPreferences.get(this).edit().putString(
-                    AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI, uri.toString()).apply();
+            } catch (Exception error) {
+                SafeToast.show(this, "未能保留目录授权，请重新选择或手动填写歌词目录路径。",
+                        Toast.LENGTH_LONG);
+                return;
+            }
+            AppPreferences.addLocalLyricDirectory(this, uri.toString());
             MusicStateStore.reloadLyrics(this);
-            SafeToast.show(this, "已授权本地歌词目录", Toast.LENGTH_SHORT);
+            SafeToast.show(this, "已添加本地歌词目录，共 "
+                    + AppPreferences.localLyricDirectoryUris(this).size() + " 个", Toast.LENGTH_SHORT);
             return;
         }
         if (requestCode != REQUEST_CUSTOM_FONT || resultCode != RESULT_OK || data == null) return;
@@ -665,11 +676,14 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         LinearLayout.LayoutParams localDirectoryParams = new LinearLayout.LayoutParams(-1, dp(48));
         localDirectoryParams.topMargin = dp(8);
         lyricCard.addView(localLyricDirectory, localDirectoryParams);
+        MaterialButton manageLocalDirectories = button("管理已授权的本地音乐目录", false);
+        manageLocalDirectories.setOnClickListener(v -> manageLocalLyricDirectories());
+        lyricCard.addView(manageLocalDirectories, new LinearLayout.LayoutParams(-1, dp(48)));
         MaterialButton localLyricPath = button("手动填写歌词目录路径", false);
         localLyricPath.setOnClickListener(v -> editLocalLyricDirectoryPath());
         lyricCard.addView(localLyricPath, new LinearLayout.LayoutParams(-1, dp(48)));
         // U 盘 / 视频场景的引导（issue #62）：播放器可能压根不发布元数据，只能靠同名 .lrc 或目录授权。
-        TextView localLyricHint = text("U 盘歌曲：把同名 .lrc 放在歌曲同目录，或在这里授权该目录；"
+        TextView localLyricHint = text("U 盘歌曲：把同名 .lrc 放在歌曲同目录，或在这里添加多个授权目录（包含子目录）；"
                 + "播放器不发布歌名时本应用也读不到（可在「音乐状态与诊断」里看到结论）。",
                 12, 0xFF74869D, false);
         localLyricHint.setPadding(0, dp(6), 0, 0);
@@ -683,8 +697,8 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
                     != PackageManager.PERMISSION_GRANTED) {
                 SafeToast.show(this, "请在首页“使用权限”中授予蓝牙读取权限",
                         Toast.LENGTH_LONG);
-            } else if (!checked && BluetoothAvrcpReceiver.ownsCurrentState()) {
-                MusicStateStore.clear();
+            } else if (!checked) {
+                BluetoothAvrcpReceiver.reset();
             }
         });
         lyricCard.addView(avrcp);
@@ -1417,6 +1431,12 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         onboardingTargets.put("display_settings", main);
         main.setOnClickListener(v -> startActivity(new Intent(this, QuickDisplaySettingsActivity.class)));
         card.addView(main, new LinearLayout.LayoutParams(-1, dp(48)));
+        MaterialButton visibility = button("悬浮窗隐藏与自动隐藏规则", false);
+        visibility.setOnClickListener(v -> startActivity(
+                new Intent(this, OverlayVisibilitySettingsActivity.class)));
+        LinearLayout.LayoutParams visibilityParams = new LinearLayout.LayoutParams(-1, dp(48));
+        visibilityParams.topMargin = dp(8);
+        card.addView(visibility, visibilityParams);
         MaterialButton complete = button("需要更多显示设置", false);
         complete.setOnClickListener(v -> switchToCompleteDisplaySettings());
         LinearLayout.LayoutParams completeParams = new LinearLayout.LayoutParams(-1, dp(48));
@@ -1841,8 +1861,7 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
                 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 == PackageManager.PERMISSION_GRANTED;
         boolean usageAccess = ForegroundAppDetector.hasUsageAccess(this);
-        boolean installUpdates = Build.VERSION.SDK_INT < 26
-                || getPackageManager().canRequestPackageInstalls();
+        boolean installUpdates = InstallPermission.canInstallUpdates(this);
         String listenerState = listenerState(notificationAccess);
         permissionStatus.setText("通知读取  " + (notificationAccess ? "已授权" : "未授权")
                 + "     监听器  " + listenerState
@@ -3033,14 +3052,16 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         titleLayout.setHint("用于匹配的歌名");
         TextInputEditText titleInput = new TextInputEditText(titleLayout.getContext());
         titleInput.setSingleLine(true);
-        titleInput.setText(snapshot.title);
+        boolean usableMetadata = SessionMetadataRules.usableTitle(snapshot.title, snapshot.sourceName);
+        titleInput.setText(usableMetadata ? snapshot.title : "");
         titleLayout.addView(titleInput, new LinearLayout.LayoutParams(-1, -2));
         content.addView(titleLayout, new LinearLayout.LayoutParams(-1, -2));
         TextInputLayout artistLayout = new TextInputLayout(this);
         artistLayout.setHint("用于匹配的歌手（可留空）");
         TextInputEditText artistInput = new TextInputEditText(artistLayout.getContext());
         artistInput.setSingleLine(true);
-        artistInput.setText(snapshot.artist);
+        artistInput.setText(usableMetadata && !SessionMetadataRules.isConnectionPlaceholder(snapshot.artist)
+                ? snapshot.artist : "");
         artistLayout.addView(artistInput, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams artistParams = new LinearLayout.LayoutParams(-1, -2);
         artistParams.topMargin = dp(8);
@@ -3299,6 +3320,40 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         });
     }
 
+    private void manageLocalLyricDirectories() {
+        List<String> roots = new ArrayList<>(AppPreferences.localLyricDirectoryUris(this));
+        if (roots.isEmpty()) {
+            SafeToast.show(this, "尚未授权目录，请先选择本地音乐目录。", Toast.LENGTH_LONG);
+            return;
+        }
+        String[] labels = new String[roots.size()];
+        for (int i = 0; i < roots.size(); i++) {
+            try {
+                labels[i] = Build.VERSION.SDK_INT >= 21
+                        ? android.provider.DocumentsContract.getTreeDocumentId(Uri.parse(roots.get(i)))
+                        : roots.get(i);
+            } catch (Exception ignored) {
+                labels[i] = roots.get(i);
+            }
+        }
+        new MaterialAlertDialogBuilder(this).setTitle("选择要移除的本地音乐目录")
+                .setItems(labels, (dialog, which) -> new MaterialAlertDialogBuilder(this)
+                        .setTitle("移除目录授权？").setMessage(labels[which] + "\n不会删除目录中的文件。")
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("移除", (confirm, action) -> {
+                            AppPreferences.removeLocalLyricDirectory(this, roots.get(which));
+                            if (Build.VERSION.SDK_INT >= 21) {
+                                try {
+                                    getContentResolver().releasePersistableUriPermission(
+                                            Uri.parse(roots.get(which)), Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                } catch (Exception ignored) { }
+                            }
+                            MusicStateStore.reloadLyrics(this);
+                        }).show())
+                .setPositiveButton("添加目录", (dialog, which) -> openLocalLyricDirectoryPicker())
+                .setNegativeButton("取消", null).show();
+    }
+
     private void openLocalLyricDirectoryPicker() {
         if (Build.VERSION.SDK_INT < 21) {
             SafeToast.show(this, "Android 4.4 会直接尝试歌曲同目录；无需选择目录。",
@@ -3339,12 +3394,14 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
                 .setNeutralButton("清除", (dialog, which) -> {
                     AppPreferences.get(this).edit()
                             .remove(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_PATH).apply();
+                    LocalLyricClient.clearLocationCache();
                     MusicStateStore.reloadLyrics(this);
                 })
                 .setPositiveButton("保存", (dialog, which) -> {
                     String path = input.getText() == null ? "" : input.getText().toString().trim();
                     AppPreferences.get(this).edit()
                             .putString(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_PATH, path).apply();
+                    LocalLyricClient.clearLocationCache();
                     MusicStateStore.reloadLyrics(this);
                     if (path.isEmpty()) {
                         SafeToast.show(this, "已清除手动歌词目录", Toast.LENGTH_SHORT);
@@ -3506,8 +3563,8 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
     }
 
     private void resetSettingsToDefaults() {
-        String treeUri = AppPreferences.localLyricDirectoryUri(this);
-        if (!treeUri.isEmpty()) {
+        for (String treeUri : AppPreferences.localLyricDirectoryUris(this)) {
+            if (Build.VERSION.SDK_INT < 21) break;
             try {
                 getContentResolver().releasePersistableUriPermission(Uri.parse(treeUri),
                         Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -3515,6 +3572,7 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         }
         CustomFontStore.clear(this);
         int removed = AppPreferences.resetUserSettings(this);
+        LocalLyricClient.clearLocationCache();
         AudioSpectrumSource.release();
         MusicStateStore.reloadLyrics(this);
         AppPreferences.changed(this);

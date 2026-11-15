@@ -220,7 +220,7 @@ public final class StatusLyricSettingsActivity extends AppCompatActivity {
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setText(title);
         toggle.setTextColor(0xFFF1F5FA);
-        toggle.setPadding(0, dp(10), 0, 0);
+        toggle.setPadding(0, dp(8), 0, dp(8));
         toggle.setChecked(initial);
         toggle.setOnCheckedChangeListener((button, checked) -> {
             AppPreferences.get(this).edit().putBoolean(key, checked).apply();

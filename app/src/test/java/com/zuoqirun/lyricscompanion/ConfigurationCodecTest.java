@@ -10,6 +10,7 @@ public class ConfigurationCodecTest {
         assertFalse(ConfigurationCodec.shareableKey(AppPreferences.KEY_COMMUNITY_CLIENT_ID));
         assertFalse(ConfigurationCodec.shareableKey(AppPreferences.KEY_FEEDBACK_TICKETS));
         assertFalse(ConfigurationCodec.shareableKey(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI));
+        assertFalse(ConfigurationCodec.shareableKey(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URIS));
         assertFalse(ConfigurationCodec.shareableKey(AppPreferences.KEY_CUSTOM_FONT_FILE));
         assertFalse(ConfigurationCodec.shareableKey(AppPreferences.KEY_SERVICE_STOPPED_BY_USER));
         assertFalse(ConfigurationCodec.shareableKey("player_package_lyric_catalog_secret"));

@@ -43,10 +43,13 @@ public final class BluetoothAvrcpReceiver extends BroadcastReceiver {
         if ("android.bluetooth.avrcp-controller.profile.action.CONNECTION_STATE_CHANGED"
                 .equals(intent.getAction()) && intent.getIntExtra(BluetoothProfile.EXTRA_STATE,
                 BluetoothProfile.STATE_CONNECTED) == BluetoothProfile.STATE_DISCONNECTED) {
-            if ("bluetooth".equals(MusicStateStore.activeSourceId())) MusicStateStore.clear();
+            reset();
             return;
         }
-        if (!AppPreferences.avrcpEnabled(context)) return;
+        if (!AppPreferences.avrcpEnabled(context)) {
+            reset();
+            return;
+        }
         Bundle extras = intent.getExtras();
         // Fully validate lazy bundles before changing the remembered track or playback state.
         if (extras != null) for (String key : extras.keySet()) extras.get(key);
@@ -60,6 +63,19 @@ public final class BluetoothAvrcpReceiver extends BroadcastReceiver {
                 "artist", "singer", "android.media.metadata.ARTIST")
                 : firstMetadataText(metadata, "android.media.metadata.ARTIST",
                 "android.media.metadata.ALBUM_ARTIST");
+        if (!TextUtils.isEmpty(nextTitle)
+                && !SessionMetadataRules.usableTitle(nextTitle, "蓝牙音频")) {
+            reset();
+            MusicStateStore.rejectUnavailableMetadata("bluetooth", "com.android.bluetooth");
+            DiagnosticLog.record(context, "AVRCP", "connection placeholder ignored; no song published");
+            return;
+        }
+        if (!TextUtils.isEmpty(nextTitle) && !nextTitle.trim().equals(title)) {
+            artist = "";
+            mediaId = "";
+            durationMs = -1L;
+            positionMs = 0L;
+        }
         if (!TextUtils.isEmpty(nextTitle)) title = nextTitle.trim();
         if (!TextUtils.isEmpty(nextArtist)) artist = nextArtist.trim();
         if (metadata != null) {
@@ -77,7 +93,7 @@ public final class BluetoothAvrcpReceiver extends BroadcastReceiver {
             positionMs = positiveLong(extras, positionMs, "position", "positionMs", "elapsed");
             state = stateFromExtras(extras, state);
         }
-        if (title.isEmpty()) return;
+        if (!SessionMetadataRules.usableTitle(title, "蓝牙音频")) return;
         // 蓝牙通道被列进「忽略这些应用的媒体元数据」时不再写入状态（issue #35）：车机上蓝牙
         // AVRCP 与 CarPlay/媒体会话互相抢占时，用户可以只留一条通道。
         if (AppPreferences.ignoredPlayerPackage(context, "com.android.bluetooth")) {
@@ -94,6 +110,16 @@ public final class BluetoothAvrcpReceiver extends BroadcastReceiver {
 
     static boolean ownsCurrentState() {
         return "bluetooth".equals(MusicStateStore.activeSourceId());
+    }
+
+    static void reset() {
+        title = "";
+        artist = "";
+        mediaId = "";
+        durationMs = -1L;
+        positionMs = 0L;
+        state = MusicPlaybackData.STATE_NONE;
+        MusicStateStore.clearSource("bluetooth", "com.android.bluetooth");
     }
 
     private static Object findObject(Bundle extras, String className) {

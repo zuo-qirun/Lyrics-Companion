@@ -33,8 +33,7 @@ final class ModernPackageInstaller {
 
     private static void installInternal(Context context, File apk,
                                         AppUpdater.Listener listener) throws Exception {
-        if (Build.VERSION.SDK_INT >= 26
-                && !context.getPackageManager().canRequestPackageInstalls()) {
+        if (!InstallPermission.canInstallUpdates(context)) {
             AppUpdater.notify(listener, "未授予“安装未知应用”权限，跳过 PackageInstaller");
             AppUpdater.tryFallbackInstallers(context, apk, listener, "正在尝试备用安装器");
             return;

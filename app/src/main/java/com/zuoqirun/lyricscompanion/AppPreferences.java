@@ -300,6 +300,7 @@ final class AppPreferences {
     static final String KEY_BOTTOM_SPECTRUM_HEIGHT_DP = "bottom_spectrum_height_dp";
     static final String KEY_LOCAL_LYRIC_ENABLED = "local_lyric_enabled";
     static final String KEY_LOCAL_LYRIC_DIRECTORY_URI = "local_lyric_directory_uri";
+    static final String KEY_LOCAL_LYRIC_DIRECTORY_URIS = "local_lyric_directory_uris";
     static final String KEY_LOCAL_LYRIC_DIRECTORY_PATH = "local_lyric_directory_path";
     static final String KEY_AVRCP_ENABLED = "avrcp_enabled";
     static final String KEY_COMPOSITE_IDENTITY_FROM_ARTIST = "composite_identity_from_artist";
@@ -2059,6 +2060,39 @@ final class AppPreferences {
 
     static String localLyricDirectoryUri(Context context) {
         return get(context).getString(KEY_LOCAL_LYRIC_DIRECTORY_URI, "");
+    }
+
+    static Set<String> localLyricDirectoryUris(Context context) {
+        return mergeLocalLyricDirectories(localLyricDirectoryUri(context),
+                get(context).getStringSet(KEY_LOCAL_LYRIC_DIRECTORY_URIS, Collections.emptySet()));
+    }
+
+    static Set<String> mergeLocalLyricDirectories(String legacy, Set<String> saved) {
+        Set<String> roots = new LinkedHashSet<>();
+        if (legacy != null && !legacy.trim().isEmpty()) roots.add(legacy.trim());
+        if (saved != null) {
+            for (String root : new java.util.TreeSet<>(saved)) {
+                if (root != null && !root.trim().isEmpty()) roots.add(root.trim());
+            }
+        }
+        return roots;
+    }
+
+    static void addLocalLyricDirectory(Context context, String uri) {
+        Set<String> roots = localLyricDirectoryUris(context);
+        roots.add(uri);
+        get(context).edit().putStringSet(KEY_LOCAL_LYRIC_DIRECTORY_URIS, roots)
+                .putString(KEY_LOCAL_LYRIC_DIRECTORY_URI, uri).apply();
+        LocalLyricClient.clearLocationCache();
+    }
+
+    static void removeLocalLyricDirectory(Context context, String uri) {
+        Set<String> roots = localLyricDirectoryUris(context);
+        roots.remove(uri);
+        get(context).edit().putStringSet(KEY_LOCAL_LYRIC_DIRECTORY_URIS, roots)
+                .putString(KEY_LOCAL_LYRIC_DIRECTORY_URI,
+                        roots.isEmpty() ? "" : roots.iterator().next()).apply();
+        LocalLyricClient.clearLocationCache();
     }
 
     static String localLyricDirectoryPath(Context context) {

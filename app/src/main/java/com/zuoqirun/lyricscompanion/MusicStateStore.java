@@ -94,6 +94,10 @@ final class MusicStateStore {
             return;
         }
         String normalizedSource = TextUtils.isEmpty(newSource) ? "media" : newSource;
+        if ("bluetooth".equals(normalizedSource) && !AppPreferences.avrcpEnabled(context)) {
+            BluetoothAvrcpReceiver.reset();
+            return;
+        }
         String rawTitle = data.title;
         String rawArtist = data.artist;
         String compositeTitle = readsTitleFromArtist(context, normalizedSource)
@@ -103,6 +107,10 @@ final class MusicStateStore {
         String newTitle = hasCompositeIdentity ? compositeTitle : rawTitle;
         String newArtist = hasCompositeIdentity
                 ? stableArtistFromComposite(newTitle, rawArtist) : rawArtist;
+        if (!TextUtils.isEmpty(newTitle) && !SessionMetadataRules.usableTitle(newTitle, newSourceName)) {
+            rejectUnavailableMetadata(normalizedSource, newSourcePackage);
+            return;
+        }
         String incomingLiveSessionLyric = data.sessionLyricPresent
                 ? data.sessionLyric : hasCompositeIdentity ? rawTitle : "";
         String newMediaId = data.mediaId;
@@ -159,6 +167,7 @@ final class MusicStateStore {
                         + normalizedSourcePackage);
             }
             if (!decision.accepted) return;
+            unavailableMetadata = false;
             boolean netEaseUnsupported = isNetEaseAutoScrollUnsupported(
                     normalizedSource, rawTitle);
             if (netEaseUnsupported && sameSource && !TextUtils.isEmpty(title)) {
@@ -467,11 +476,27 @@ final class MusicStateStore {
         return true;
     }
 
+    private static volatile boolean unavailableMetadata;
+
+    static void clearSource(String sourceId, String packageName) {
+        synchronized (LOCK) {
+            if (SessionMetadataRules.matchesPublisher(sourceId, packageName, source, sourcePackage)) clear();
+        }
+    }
+
+    static void rejectUnavailableMetadata(String sourceId, String packageName) {
+        synchronized (LOCK) {
+            clearSource(sourceId, packageName);
+            if (!active) unavailableMetadata = true;
+        }
+    }
+
     static void clear() {
         boolean hadState;
         synchronized (LOCK) {
             hadState = active || !TextUtils.isEmpty(title);
             active = false;
+            unavailableMetadata = false;
             playing = false;
             lastExplicitPlayingElapsedMs = -1L;
             lastPositionEvidenceElapsedMs = -1L;
@@ -725,7 +750,9 @@ final class MusicStateStore {
     static String describe(Context context) {
         MusicSnapshot snapshot = snapshot(AppPreferences.lyricOffsetMs(context));
         if (!snapshot.active) return "等待兼容的音乐播放器\n" + MediaDiagnosisRules.verdictText(
-                MusicNotificationListener.getLastSessionCount() > 0
+                unavailableMetadata || MusicNotificationListener.hasServiceOnlyTitle()
+                        ? MediaDiagnosisRules.Verdict.SERVICE_ONLY
+                : MusicNotificationListener.getLastSessionCount() > 0
                         ? MediaDiagnosisRules.Verdict.EMPTY_SESSION : MediaDiagnosisRules.Verdict.NO_SESSION, "");
         String lyricState = snapshot.lyricAvailable ? "歌词已就绪"
                 : snapshot.lyricLoaded ? "未匹配到歌词" : "正在匹配歌词";
@@ -743,7 +770,8 @@ final class MusicStateStore {
                 + "\n" + MediaDiagnosisRules.verdictText(MediaDiagnosisRules.classify(
                 snapshot.active, !snapshot.title.isEmpty(), !unknownProgress,
                 snapshot.lyricLoaded, snapshot.lyricAvailable, snapshot.lyricSourceName,
-                MusicNotificationListener.getLastSessionCount(), MusicNotificationListener.hasServiceOnlyTitle()),
+                MusicNotificationListener.getLastSessionCount(),
+                unavailableMetadata || MusicNotificationListener.hasServiceOnlyTitle()),
                 snapshot.lyricSourceName);
     }
 
@@ -784,7 +812,7 @@ final class MusicStateStore {
                             !notificationProgressUnknown, lyricLoadFinished,
                             !timeline.isEmpty() || isLiveLyricUsable(liveSessionLyric),
                             lyricSourceName, MusicNotificationListener.getLastSessionCount(),
-                            MusicNotificationListener.hasServiceOnlyTitle()), lyricSourceName)
+                            unavailableMetadata || MusicNotificationListener.hasServiceOnlyTitle()), lyricSourceName)
                     + "\nkuwoWordChannelBackoffMs=" + KuwoLyricClient.wordChannelBlockedForMs();
         }
     }

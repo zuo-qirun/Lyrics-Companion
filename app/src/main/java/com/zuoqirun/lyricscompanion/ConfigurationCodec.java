@@ -73,6 +73,7 @@ final class ConfigurationCodec {
         editor.apply();
         // 导入可能改了「网络直连」（issue #153），立刻让新策略生效，不必等进程重启。
         NetworkDirectPolicy.apply(AppPreferences.networkDirect(context));
+        if (!AppPreferences.avrcpEnabled(context)) BluetoothAvrcpReceiver.reset();
         return imported;
     }
 
@@ -89,6 +90,7 @@ final class ConfigurationCodec {
                 && !key.startsWith("hide_overlays_in_apps")
                 && !key.equals(PlaybackPreferenceMigration.MARKER)
                 && !key.equals(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URI)
+                && !key.equals(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_URIS)
                 && !key.equals(AppPreferences.KEY_LOCAL_LYRIC_DIRECTORY_PATH)
                 && !key.equals(AppPreferences.KEY_CUSTOM_FONT_FILE)
                 && !key.equals(AppPreferences.KEY_LAUNCH_OVERLAY_LAST_AT)

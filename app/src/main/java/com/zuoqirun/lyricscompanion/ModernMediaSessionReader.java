@@ -135,12 +135,14 @@ final class ModernMediaSessionReader implements MusicSessionReader {
                 String label = applicationLabel(candidate.getPackageName());
                 String title = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_TITLE,
                         MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
-                boolean serviceTitle = SessionMetadataRules.isServiceTitle(title, label);
+                boolean serviceTitle = SessionMetadataRules.isServiceTitle(title, label)
+                        || SessionMetadataRules.isConnectionPlaceholder(title);
                 serviceOnlyTitle |= serviceTitle;
                 if (!SessionMetadataRules.usableTitle(title, label)) {
                     if (!serviceTitle && SessionMetadataRules.retainMissingTitle(
                             sameSession(selectedController, candidate), selectedController != null,
-                            true, state == null ? MusicPlaybackData.STATE_NONE : state.getState())) {
+                            title.trim().isEmpty(),
+                            state == null ? MusicPlaybackData.STATE_NONE : state.getState())) {
                         retained = candidate;
                     }
                     continue;

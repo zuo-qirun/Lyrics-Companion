@@ -660,16 +660,15 @@ final class LyricsPanelView extends View {
             if (artistPortrait == null) artistPortrait = new ArtistPortraitArtwork(getContext(), secondary);
             snapshot = artistPortrait.resolve(getContext(), snapshot, now);
         }
-        boolean live = snapshot.active && snapshot.lyricAvailable
-                && snapshot.lyrics.lineStartMs < 0L && !snapshot.lyrics.lyric.isEmpty();
+        boolean live = snapshot.active && snapshot.lyricAvailable && !snapshot.lyrics.lyric.isEmpty();
         boolean enableLive = liveLyricAnimation && !compactTextOnly && !browsingLyrics
                 && browseUntilElapsedMs <= now;
         liveTransition.update(snapshot.sourceName + "\n" + snapshot.title + "\n" + snapshot.artist,
-                snapshot.lyrics.lyric, live, enableLive, snapshot.playing, now,
+                snapshot.lyrics.lyric, snapshot.lyrics.lineStartMs, live, enableLive, snapshot.playing, now,
                 liveLyricAnimationDuration);
         liveTransitionFraction = liveTransition.fraction(liveLyricAnimationDuration);
         if (live && enableLive && !liveAnimationLogged) {
-            DiagnosticLog.record(getContext(), "LyricsPanelView", "liveLyricAnimations=fade-rise"
+            DiagnosticLog.record(getContext(), "LyricsPanelView", "lyricLineAnimations=fade-rise"
                     + " durationMs=" + liveLyricAnimationDuration + " secondary=" + secondary);
             liveAnimationLogged = true;
         } else if (!live || !enableLive) {
@@ -4065,7 +4064,7 @@ final class LyricsPanelView extends View {
         liveTransitionDepth++;
         if (liveTransitionDepth > 1 || liveTransitionFraction >= 1f) return -1;
         int save = saveLayerAlphaCompat(canvas, panelRect, Math.round(liveTransitionFraction * 255f));
-        canvas.translate(0f, (1f - liveTransitionFraction) * 8f
+        canvas.translate(0f, (1f - liveTransitionFraction) * 16f
                 * getResources().getDisplayMetrics().density);
         return save;
     }

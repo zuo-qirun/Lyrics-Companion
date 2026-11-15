@@ -35,6 +35,7 @@ final class NotificationTrackParser {
     static boolean isNoise(String value, String label) {
         String v = clean(value).toLowerCase(Locale.ROOT);
         return v.isEmpty() || SessionMetadataRules.isServiceTitle(value, label)
+                || SessionMetadataRules.isConnectionPlaceholder(value)
                 || v.matches("(?:正在运行|运行中|已启动|后台运行|正在播放|正在缓冲|加载中|已暂停|暂停播放|播放|暂停|上一首|下一首|关闭|收藏|喜欢|未知歌手|未知艺术家|unknown artist|unknown|play|pause|next|previous|playing|paused)")
                 || v.matches("\\d{1,3}:\\d{2}(?:\\s*/\\s*\\d{1,3}:\\d{2})?")
                 || v.contains("下载") || v.contains("升级") || v.contains("更新版本")
