@@ -1,0 +1,81 @@
+name: 匹配规则提交 / 反馈
+description: 提交一条元数据清洗规则、报告规则问题，或申请把规则收录进应用内「规则市场」。
+title: "[Match Rule] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        优先在应用内提交：**设置 → 匹配规则 → 提交到市场**，审核通过后其他人可一键启用。
+        这个模板用于：应用内无法上传、想先讨论规则、或反馈某条市场规则的问题。
+
+        规则格式、条件/动作表、示例与常见问题见**规则 Wiki**：
+        https://github.com/zuo-qirun/lyrics-companion-match-rules/wiki
+        示例规则包与 JSON Schema 见模板仓库：
+        https://github.com/zuo-qirun/lyrics-companion-match-rules
+
+        规则只存服务器，不需要在仓库里放 JSON 文件；审核通过后会出现在应用的规则市场。
+        提交前请确认：规则里不含账号、手机号、车牌、文件路径等隐私信息。
+  - type: input
+    id: rule_name
+    attributes:
+      label: 规则名称
+      placeholder: 例：回声音乐：歌手名塞进歌名
+    validations:
+      required: true
+  - type: input
+    id: player
+    attributes:
+      label: 适用播放器 / 包名
+      description: 在应用的「匹配诊断」页可以复制当前播放器包名；全局规则可留空。
+      placeholder: 例：回声音乐 · com.example.echo；或留空表示所有播放器
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 播放器给出的原始歌名/歌手是什么、期望匹配成什么；最好附上歌曲和歌手。
+      placeholder: |
+        原始：title=张学友 - 吻别，artist=车载音乐
+        期望：title=吻别，artist=张学友
+    validations:
+      required: true
+  - type: textarea
+    id: rule_json
+    attributes:
+      label: 规则 JSON
+      description: 在应用内编辑器「JSON 代码」模式复制；也可以只写「想怎么清洗」，由维护者代写。
+      render: json
+      placeholder: |
+        {
+          "schemaVersion": 1,
+          "id": "echo-artist-title-split",
+          "name": "回声：歌手名塞进歌名",
+          "version": 1,
+          "author": "your-name",
+          "description": "拆分「歌手 - 歌名」",
+          "rules": []
+        }
+    validations:
+      required: true
+  - type: input
+    id: tested
+    attributes:
+      label: 已验证的歌曲
+      description: 至少一首能复现的歌；写「歌曲名 / 歌手 / 播放器」即可。
+      placeholder: 例：吻别 / 张学友 / 回声音乐
+    validations:
+      required: true
+  - type: dropdown
+    id: market
+    attributes:
+      label: 是否同意收录进规则市场
+      options:
+        - 同意（审核通过后供其他用户一键启用）
+        - 仅自己使用，不希望公开
+        - 先讨论，之后再决定
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 诊断页复制的 MediaSession 信息、截图、同款车机/播放器版本等。含隐私信息请先打码。
