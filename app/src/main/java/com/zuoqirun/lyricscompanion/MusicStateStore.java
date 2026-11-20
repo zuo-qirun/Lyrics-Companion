@@ -30,6 +30,7 @@ final class MusicStateStore {
     private static String mediaId = "";
     private static String title = "";
     private static String artist = "";
+    private static String album = "";
     private static Bitmap albumArt;
     private static String albumArtUri = "";
     private static String mediaUri = "";
@@ -72,6 +73,13 @@ final class MusicStateStore {
         }
     }
 
+    /** 当前播放器包名；没有时返回空串（诊断页用，spec §2.1）。 */
+    static String activeSourcePackage() {
+        synchronized (LOCK) {
+            return sourcePackage == null ? "" : sourcePackage;
+        }
+    }
+
     static void initialize(Context context) {
         synchronized (LOCK) {
             if (lyricClient == null) {
@@ -100,6 +108,7 @@ final class MusicStateStore {
         }
         String rawTitle = data.title;
         String rawArtist = data.artist;
+        String rawAlbum = data.album;
         String compositeTitle = readsTitleFromArtist(context, normalizedSource)
                 ? titleFromCompositeArtist(rawArtist) : "";
         boolean hasCompositeIdentity = !TextUtils.isEmpty(compositeTitle)
@@ -113,6 +122,7 @@ final class MusicStateStore {
         }
         String incomingLiveSessionLyric = data.sessionLyricPresent
                 ? data.sessionLyric : hasCompositeIdentity ? rawTitle : "";
+        String newAlbum = rawAlbum;
         String newMediaId = data.mediaId;
         Bitmap newAlbumArt = AlbumArtLoader.limitShared(data.albumArt, AppPreferences.lowResourceMode(context));
         String newAlbumArtUri = data.albumArtUri;
@@ -133,6 +143,9 @@ final class MusicStateStore {
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
         long generationToLoad = -1L;
         long generationForAlbumArt = -1L;
+        // 实际用于匹配的 title/artist：命中用户确认过的修正时与显示值不同（spec §2）。
+        String matchTitle = newTitle;
+        String matchArtist = newArtist;
         boolean trackChangedForLog = false;
         boolean playbackChangedForLog = false;
         String playbackStateForLog = "";
@@ -238,8 +251,15 @@ final class MusicStateStore {
                 if (TextUtils.isEmpty(newAlbumArtUri)) newAlbumArtUri = albumArtUri;
                 if (TextUtils.isEmpty(newMediaUri)) newMediaUri = mediaUri;
             }
+            // 用户确认过的修正只影响歌词匹配；界面/快照仍显示播放器原始元数据（spec §2）。
+            MatchCorrectionStore.Correction correction = MatchCorrectionStore.find(context,
+                    normalizedSourcePackage, newTitle, newArtist);
+            if (correction != null) {
+                matchTitle = correction.title;
+                matchArtist = correction.artist;
+            }
             boolean newActive = isDisplayableSession(newTitle, stateValue);
-            String newTrackKey = lyricTrackKey(normalizedSource, newTitle, newArtist,
+            String newTrackKey = lyricTrackKey(normalizedSource, matchTitle, matchArtist,
                     newDuration, newMediaId, selectedCatalog, playerCatalogFallback);
             boolean identityChanged = !TextUtils.equals(trackKey, newTrackKey);
             boolean changed = identityChanged || !samePublisher;
@@ -347,6 +367,7 @@ final class MusicStateStore {
             mediaId = safe(newMediaId);
             title = safe(newTitle);
             artist = safe(newArtist);
+            album = safe(newAlbum);
             if (newAlbumArt != null) albumArt = newAlbumArt;
             albumArtUri = safe(newAlbumArtUri);
             mediaUri = safe(newMediaUri);
@@ -442,8 +463,8 @@ final class MusicStateStore {
         if (generationToLoad >= 0L && !TextUtils.isEmpty(newTitle)) {
             scheduleLyricLoad(generationToLoad, normalizedSource, normalizedSourcePackage,
                     newMediaId, newMediaUri,
-                    newTitle, newArtist, newDuration, selectedCatalog, playerCatalogFallback,
-                    forcedPlayerCatalog);
+                    matchTitle, matchArtist, newAlbum, newDuration, selectedCatalog,
+                    playerCatalogFallback, forcedPlayerCatalog);
             if (newAlbumArt == null && TextUtils.isEmpty(newAlbumArtUri)) {
                 scheduleCatalogAlbumArtLoad(generationToLoad, newTitle, newArtist, newDuration);
             }
@@ -683,11 +704,16 @@ final class MusicStateStore {
     }
 
     static void reloadLyrics(Context context, String overrideTitle, String overrideArtist) {
-        reloadLyrics(context, overrideTitle, overrideArtist, null);
+        reloadLyrics(context, overrideTitle, overrideArtist, null, false);
     }
 
     static void reloadLyrics(Context context, String overrideTitle, String overrideArtist,
                              String selectedCatalogOverride) {
+        reloadLyrics(context, overrideTitle, overrideArtist, selectedCatalogOverride, false);
+    }
+
+    static void reloadLyrics(Context context, String overrideTitle, String overrideArtist,
+                             String selectedCatalogOverride, boolean remember) {
         initialize(context);
         long generation;
         String requestedSource;
@@ -696,6 +722,9 @@ final class MusicStateStore {
         String requestedMediaUri;
         String requestedTitle;
         String requestedArtist;
+        String requestedAlbum;
+        String originalTitle;
+        String originalArtist;
         long requestedDuration;
         String selectedCatalog;
         boolean playerCatalogFallback = AppPreferences.playerCatalogFallback(context);
@@ -717,6 +746,9 @@ final class MusicStateStore {
             requestedMediaUri = mediaUri;
             requestedTitle = TextUtils.isEmpty(overrideTitle) ? title : overrideTitle.trim();
             requestedArtist = overrideArtist == null ? artist : overrideArtist.trim();
+            requestedAlbum = album;
+            originalTitle = title;
+            originalArtist = artist;
             requestedDuration = durationMs;
             trackKey = lyricTrackKey(requestedSource, title, artist,
                     requestedDuration, mediaId, selectedCatalog,
@@ -735,10 +767,15 @@ final class MusicStateStore {
         DiagnosticLog.record(context, "Lyrics", "manual reload generation=" + generation
                 + " source=" + requestedSource + " selected=" + selectedCatalog
                 + " playerFallback=" + playerCatalogFallback + " title=" + requestedTitle);
+        // remember=true：先把「原始元数据 → 用户选择」记成修正，下次自动匹配直接复用。
+        if (remember && !TextUtils.isEmpty(overrideTitle)) {
+            MatchCorrectionStore.remember(context, requestedSourcePackage, originalTitle,
+                    originalArtist, requestedTitle, requestedArtist);
+        }
         scheduleLyricLoad(generation, requestedSource, requestedSourcePackage,
                 requestedMediaId, requestedMediaUri, requestedTitle,
-                requestedArtist, requestedDuration, selectedCatalog, playerCatalogFallback,
-                forcedPlayerCatalog);
+                requestedArtist, requestedAlbum, requestedDuration, selectedCatalog,
+                playerCatalogFallback, forcedPlayerCatalog);
     }
 
     static void applyResourceProfile(Context context) {
@@ -813,7 +850,10 @@ final class MusicStateStore {
                             !timeline.isEmpty() || isLiveLyricUsable(liveSessionLyric),
                             lyricSourceName, MusicNotificationListener.getLastSessionCount(),
                             unavailableMetadata || MusicNotificationListener.hasServiceOnlyTitle()), lyricSourceName)
-                    + "\nkuwoWordChannelBackoffMs=" + KuwoLyricClient.wordChannelBlockedForMs();
+                    + "\nkuwoWordChannelBackoffMs=" + KuwoLyricClient.wordChannelBlockedForMs()
+                    + "\nmatchCorrections=" + (appContext == null ? 0
+                    : MatchCorrectionStore.count(appContext))
+                    + "\n" + MatchTrace.describe();
         }
     }
 
@@ -821,6 +861,7 @@ final class MusicStateStore {
                                           String requestedSourcePackage,
                                           String requestedMediaId, String requestedMediaUri,
                                           String requestedTitle, String requestedArtist,
+                                          String requestedAlbum,
                                           long requestedDuration, String selectedCatalog,
                                           boolean playerCatalogFallback,
                                           boolean forcedPlayerCatalog) {
@@ -838,7 +879,7 @@ final class MusicStateStore {
                     MultiSourceLyricClient.Result result = lyricClient.load(requestedSource,
                             selectedCatalog, playerCatalogFallback, forcedPlayerCatalog,
                             requestedSourcePackage, requestedMediaId, requestedMediaUri,
-                            requestedTitle, requestedArtist, requestedDuration, () -> {
+                            requestedTitle, requestedArtist, requestedAlbum, requestedDuration, () -> {
                                 synchronized (LOCK) {
                                     return generation == trackGeneration && usingSessionTimeline
                                             ? timeline : LrcTimeline.EMPTY;

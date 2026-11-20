@@ -521,6 +521,52 @@ public final class DisplaySettingsActivity extends AppCompatActivity implements 
         addTrackCorrection(trackCorrection);
         addCard(trackCorrection, SettingsCatalog.Category.MAINTENANCE);
 
+        LinearLayout matchRules = card("匹配规则与规则市场");
+        matchRules.addView(text("内置清洗规则会优先参与匹配；市场规则与个人规则可在这里编辑、启用，"
+                + "也可以提交到规则市场审核。规则只影响用来匹配的歌名/歌手，不修改播放器显示的原始信息。",
+                12, 0xFF8392A8, false));
+        MaterialButton openMatchEditor = new MaterialButton(this);
+        openMatchEditor.setText("打开匹配规则编辑器");
+        openMatchEditor.setTextSize(13f);
+        openMatchEditor.setTextColor(0xFFF1F5FA);
+        openMatchEditor.setAllCaps(false);
+        openMatchEditor.setCornerRadius(dp(15));
+        openMatchEditor.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0xFF25364D));
+        openMatchEditor.setOnClickListener(v ->
+                startActivity(new Intent(this, MatchRuleEditorActivity.class)));
+        LinearLayout.LayoutParams openMatchEditorParams = new LinearLayout.LayoutParams(-1, dp(48));
+        openMatchEditorParams.topMargin = dp(10);
+        matchRules.addView(openMatchEditor, openMatchEditorParams);
+        MaterialButton openMatchMarket = new MaterialButton(this);
+        openMatchMarket.setText("打开规则市场");
+        openMatchMarket.setTextSize(13f);
+        openMatchMarket.setTextColor(0xFFF1F5FA);
+        openMatchMarket.setAllCaps(false);
+        openMatchMarket.setCornerRadius(dp(15));
+        openMatchMarket.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0xFF25364D));
+        openMatchMarket.setOnClickListener(v ->
+                startActivity(new Intent(this, MatchMarketActivity.class)));
+        LinearLayout.LayoutParams openMatchMarketParams = new LinearLayout.LayoutParams(-1, dp(48));
+        openMatchMarketParams.topMargin = dp(10);
+        matchRules.addView(openMatchMarket, openMatchMarketParams);
+        MaterialButton openMatchDiagnostics = new MaterialButton(this);
+        openMatchDiagnostics.setText("查看匹配诊断");
+        openMatchDiagnostics.setTextSize(13f);
+        openMatchDiagnostics.setTextColor(0xFFF1F5FA);
+        openMatchDiagnostics.setAllCaps(false);
+        openMatchDiagnostics.setCornerRadius(dp(15));
+        openMatchDiagnostics.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0xFF25364D));
+        openMatchDiagnostics.setOnClickListener(v ->
+                startActivity(new Intent(this, MatchDiagnosticsActivity.class)));
+        LinearLayout.LayoutParams openMatchDiagnosticsParams =
+                new LinearLayout.LayoutParams(-1, dp(48));
+        openMatchDiagnosticsParams.topMargin = dp(10);
+        matchRules.addView(openMatchDiagnostics, openMatchDiagnosticsParams);
+        addCard(matchRules, SettingsCatalog.Category.MAINTENANCE);
+
         LinearLayout cache = card("🗂 歌词缓存");
         addChoice(cache, "缓存保留方式", AppPreferences.KEY_LYRIC_CACHE_POLICY,
                 new String[]{"保留 30 天", "永久保留", "按容量自动淘汰（默认）"},

@@ -208,6 +208,7 @@ final class ModernMediaSessionReader implements MusicSessionReader {
         String artist = firstNonEmpty(metadata,
                 MediaMetadata.METADATA_KEY_ARTIST, MediaMetadata.METADATA_KEY_ALBUM_ARTIST,
                 MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+        String album = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_ALBUM);
         String mediaId = firstNonEmpty(metadata, MediaMetadata.METADATA_KEY_MEDIA_ID);
         Bitmap art = firstBitmap(metadata, MediaMetadata.METADATA_KEY_ALBUM_ART,
                 MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON);
@@ -230,7 +231,7 @@ final class ModernMediaSessionReader implements MusicSessionReader {
             } catch (RuntimeException ignored) { }
             sessionTimeline = reader.read(mediaId, title, artist, raw);
         }
-        return new MusicPlaybackData(mediaId, title, artist, art, artUri, mediaUri, duration,
+        return new MusicPlaybackData(mediaId, title, artist, album, art, artUri, mediaUri, duration,
                 state != null,
                 state == null ? MusicPlaybackData.STATE_NONE : state.getState(),
                 state == null ? 0L : Math.max(0L, state.getPosition()),

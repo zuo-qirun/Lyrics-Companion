@@ -40,8 +40,12 @@ public class NetEaseLyricClientTest {
                 226_000L, "夜曲", "其他歌手", 225_500L));
         assertFalse(NetEaseLyricClient.plausibleMatch("夜曲", "周杰伦",
                 226_000L, "夜曲", "周杰伦", 310_000L));
-        assertFalse(NetEaseLyricClient.plausibleMatch("夜曲", "周杰伦",
+        // 软噪声（live/现场）只影响打分，不再拒绝候选（issue #174：规则与打分分离）。
+        assertTrue(NetEaseLyricClient.plausibleMatch("夜曲", "周杰伦",
                 226_000L, "夜曲 (Live)", "周杰伦", 225_500L));
+        // 硬噪声（伴奏/纯音乐等）与原始串不一致时仍然拒绝。
+        assertFalse(NetEaseLyricClient.plausibleMatch("夜曲", "周杰伦",
+                226_000L, "夜曲 (KTV版伴奏)", "周杰伦", 225_500L));
     }
 
     @Test public void keepsRomanizationBesideTranslationAndWordTiming() throws Exception {

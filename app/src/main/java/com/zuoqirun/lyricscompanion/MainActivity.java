@@ -1106,6 +1106,27 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         rematchParams.topMargin = dp(12);
         stateCard.addView(rematchLyrics, rematchParams);
 
+        MaterialButton matchRulesButton = button("匹配规则", false);
+        matchRulesButton.setOnClickListener(v ->
+                startActivity(new Intent(this, MatchRuleEditorActivity.class)));
+        LinearLayout.LayoutParams matchRulesParams = new LinearLayout.LayoutParams(-1, dp(48));
+        matchRulesParams.topMargin = dp(10);
+        stateCard.addView(matchRulesButton, matchRulesParams);
+
+        MaterialButton matchMarketButton = button("规则市场", false);
+        matchMarketButton.setOnClickListener(v ->
+                startActivity(new Intent(this, MatchMarketActivity.class)));
+        LinearLayout.LayoutParams matchMarketParams = new LinearLayout.LayoutParams(-1, dp(48));
+        matchMarketParams.topMargin = dp(10);
+        stateCard.addView(matchMarketButton, matchMarketParams);
+
+        MaterialButton matchDiagnosticsButton = button("匹配诊断", false);
+        matchDiagnosticsButton.setOnClickListener(v ->
+                startActivity(new Intent(this, MatchDiagnosticsActivity.class)));
+        LinearLayout.LayoutParams matchDiagnosticsParams = new LinearLayout.LayoutParams(-1, dp(48));
+        matchDiagnosticsParams.topMargin = dp(10);
+        stateCard.addView(matchDiagnosticsButton, matchDiagnosticsParams);
+
         LinearLayout settingsModeCard = buildSettingsModeCard();
         LinearLayout quickControlCard = buildQuickControlCard();
         LinearLayout displayDirectoryCard = buildDisplayDirectoryCard();
@@ -3076,6 +3097,14 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
         LinearLayout.LayoutParams catalogParams = new LinearLayout.LayoutParams(-1, dp(52));
         catalogParams.topMargin = dp(10);
         content.addView(catalogSpinner, catalogParams);
+        CheckBox rememberCorrection = new CheckBox(this);
+        rememberCorrection.setText("记住这次修正（仅对该播放器生效）");
+        rememberCorrection.setTextColor(0xFFD7E1EE);
+        rememberCorrection.setTextSize(13f);
+        rememberCorrection.setChecked(true);
+        LinearLayout.LayoutParams rememberParams = new LinearLayout.LayoutParams(-1, -2);
+        rememberParams.topMargin = dp(8);
+        content.addView(rememberCorrection, rememberParams);
         new MaterialAlertDialogBuilder(this)
                 .setTitle("修正歌曲信息并匹配歌词")
                 .setView(content)
@@ -3087,9 +3116,12 @@ public final class MainActivity extends AppCompatActivity implements OnboardingT
                             : artistInput.getText().toString().trim();
                     if (requestedTitle.isEmpty()) requestedTitle = snapshot.title;
                     MusicStateStore.reloadLyrics(this, requestedTitle, requestedArtist,
-                            catalogs[catalogSpinner.getSelectedItemPosition()]);
+                            catalogs[catalogSpinner.getSelectedItemPosition()],
+                            rememberCorrection.isChecked());
                     refreshPreview();
-                    SafeToast.show(this, "已按修正后的歌曲信息开始匹配",
+                    SafeToast.show(this, rememberCorrection.isChecked()
+                                    ? "已按修正后的歌曲信息开始匹配，并记住这次修正"
+                                    : "已按修正后的歌曲信息开始匹配",
                             Toast.LENGTH_SHORT);
                 })
                 .show();

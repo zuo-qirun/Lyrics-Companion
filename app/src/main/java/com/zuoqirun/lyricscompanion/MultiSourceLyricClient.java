@@ -26,6 +26,8 @@ final class MultiSourceLyricClient {
      */
     private static final ExecutorService UPGRADE_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final AtomicReference<Thread> UPGRADE_THREAD = new AtomicReference<>();
+    /** 一次匹配最多尝试的查询词数：规则/候选/falback/简繁变体都在这个预算内（issue #174）。 */
+    private static final int MAX_CATALOG_QUERIES = 24;
     private final NetEaseLyricClient netease;
     private final QQMusicLyricClient qq;
     private final KugouLyricClient kugou;
@@ -34,9 +36,15 @@ final class MultiSourceLyricClient {
     private final SodaLyricClient soda;
     private final LocalLyricClient local;
     private final Context appContext;
+    /**
+     * static 的 catalogQueries 需要 Context 才能读用户/市场规则包；构造时记一份应用 Context。
+     * JVM 单元测试没有 Context，回退到内置规则包，行为与 Android 上的内置部分一致。
+     */
+    private static Context sharedContext;
 
     MultiSourceLyricClient(Context context) {
         appContext = context.getApplicationContext();
+        sharedContext = appContext;
         LyricSourceRules.initialize(appContext);
         netease = new NetEaseLyricClient(context);
         qq = new QQMusicLyricClient(context);
@@ -52,7 +60,8 @@ final class MultiSourceLyricClient {
                 String sourcePackage, String mediaId, String mediaUri, String title, String artist,
                 long durationMs) throws Exception {
         return load(currentSource, selectedCatalog, playerCatalogFallback, forceSelectedCatalog,
-                sourcePackage, mediaId, mediaUri, title, artist, durationMs, () -> LrcTimeline.EMPTY);
+                sourcePackage, mediaId, mediaUri, title, artist, "", durationMs,
+                () -> LrcTimeline.EMPTY, false);
     }
 
     interface SessionTimeline { LrcTimeline current(); }
@@ -62,15 +71,33 @@ final class MultiSourceLyricClient {
                 String sourcePackage, String mediaId, String mediaUri, String title, String artist,
                 long durationMs, SessionTimeline sessionTimeline) throws Exception {
         return load(currentSource, selectedCatalog, playerCatalogFallback, forceSelectedCatalog,
-                sourcePackage, mediaId, mediaUri, title, artist, durationMs, sessionTimeline, false);
+                sourcePackage, mediaId, mediaUri, title, artist, "", durationMs, sessionTimeline,
+                false);
     }
 
     Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
                 boolean forceSelectedCatalog, String sourcePackage, String mediaId, String mediaUri,
                 String title, String artist, long durationMs, SessionTimeline sessionTimeline,
                 boolean bypassMatchedCache) throws Exception {
+        return load(currentSource, selectedCatalog, playerCatalogFallback, forceSelectedCatalog,
+                sourcePackage, mediaId, mediaUri, title, artist, "", durationMs, sessionTimeline,
+                bypassMatchedCache);
+    }
+
+    Result load(String currentSource, String selectedCatalog, boolean playerCatalogFallback,
+                boolean forceSelectedCatalog, String sourcePackage, String mediaId, String mediaUri,
+                String title, String artist, String album, long durationMs,
+                SessionTimeline sessionTimeline, boolean bypassMatchedCache) throws Exception {
+        // 规则引擎只影响匹配用的查询词，曲目身份/界面仍用播放器原始元数据（issue #174）。
+        MatchInput ruleInput = new MatchInput(title, artist, album, sourcePackage, currentSource);
+        MatchOutput ruleOutput = MatchRuleEngine.apply(enabledRulePacks(), ruleInput);
+        MatchTrace.clear();
+        MatchTrace.recordInput(ruleInput);
+        MatchTrace.recordEngine(ruleOutput);
+        List<LocalTrackQueryRules.Query> queries = buildCatalogQueries(currentSource, title, artist,
+                ruleOutput);
         if (AppPreferences.localLyricEnabled(appContext)) {
-            LocalLyricClient.Hit localHit = local.load(mediaUri, title, artist);
+            LocalLyricClient.Hit localHit = local.load(mediaUri, title, artist, sourcePackage);
             if (!localHit.timeline.isEmpty()) {
                 // A tag inside an audio file found by name (the player gave us no readable path)
                 // is a different link of the chain than a .lrc file: say which one matched.
@@ -99,7 +126,6 @@ final class MultiSourceLyricClient {
                 + " providers=" + plan.providers + " title=" + title + " artist=" + artist
                 + " durationMs=" + durationMs + " directMediaId="
                 + (!directMediaId(currentSource, currentSource, mediaId).isEmpty()));
-        List<LocalTrackQueryRules.Query> queries = catalogQueries(currentSource, title, artist);
         MatchedLyricCache matchedCache = new MatchedLyricCache(appContext);
         // Read all allowed local results before issuing even the first catalog search.
         for (String provider : bypassMatchedCache ? java.util.Collections.<String>emptyList() : plan.providers) {
@@ -128,11 +154,14 @@ final class MultiSourceLyricClient {
                         }
                     });
                 }
+                MatchTrace.recordMatch(provider, title, artist, -1,
+                        "本地缓存 · " + providerLabel(provider));
                 return new Result(cached, "本地缓存 · " + providerLabel(provider), provider);
             }
         }
         for (int queryIndex = 0; queryIndex < queries.size(); queryIndex++) {
             LocalTrackQueryRules.Query query = queries.get(queryIndex);
+            MatchTrace.recordQuery(queryIndex, query.title, query.artist);
             if (queryIndex > 0) {
                 DiagnosticLog.record(appContext, "Lyrics", "fallback query index="
                         + queryIndex + " title=" + query.title + " artist=" + query.artist);
@@ -141,7 +170,11 @@ final class MultiSourceLyricClient {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 if ("kuwo".equals(provider)) {
                     LrcTimeline session = sessionTimeline.current();
-                    if (!session.isEmpty()) return new Result(session, "酷我播放器歌词", "kuwo_session");
+                    if (!session.isEmpty()) {
+                        MatchTrace.recordMatch("kuwo_session", query.title, query.artist, -1,
+                                "酷我播放器歌词");
+                        return new Result(session, "酷我播放器歌词", "kuwo_session");
+                    }
                 }
                 Log.i(TAG, "Trying catalog " + provider + ": "
                         + query.title + " / " + query.artist);
@@ -151,6 +184,8 @@ final class MultiSourceLyricClient {
                         query.title, query.artist, durationMs);
                 if (!result.timeline.isEmpty()) {
                     if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                    MatchTrace.recordMatch(result.providerId, query.title, query.artist, -1,
+                            result.sourceName);
                     matchedCache.write(MatchedLyricCache.key(provider, title, artist, durationMs,
                             directMediaId(currentSource, provider, mediaId), sourcePackage), result.timeline);
                     return result;
@@ -163,6 +198,8 @@ final class MultiSourceLyricClient {
                     query, queryIndex == 0, durationMs, sessionTimeline);
             if (!result.timeline.isEmpty()) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                MatchTrace.recordMatch(result.providerId, query.title, query.artist, -1,
+                        result.sourceName);
                 matchedCache.write(MatchedLyricCache.key(result.providerId, title, artist,
                         durationMs, directMediaId(currentSource, result.providerId, mediaId),
                         sourcePackage), result.timeline);
@@ -250,6 +287,63 @@ final class MultiSourceLyricClient {
             for (LocalTrackQueryRules.Query variant : scriptVariants(query.title, query.artist)) {
                 addQuery(queries, variant.title, variant.artist);
             }
+        }
+        return queries;
+    }
+
+    /**
+     * 带 package 作用域的查询列表（issue #174）：原始 query 固定第 0 个，随后是规则输出的
+     * primary 与候选，再对每个「基础 query」追加 fallbackQueries 与简繁变体，总数上限 24。
+     */
+    static List<LocalTrackQueryRules.Query> catalogQueries(String source, String title,
+                                                          String artist, String sourcePackage) {
+        return buildCatalogQueries(source, title, artist,
+                matchTrack(sourcePackage, source, title, artist, ""));
+    }
+
+    /** 规则引擎输出；album 为空时不影响内置规则，但 context 规则可以按专辑匹配。 */
+    static MatchOutput matchTrack(String sourcePackage, String source, String title, String artist,
+                                  String album) {
+        MatchInput input = new MatchInput(title, artist, album, sourcePackage, source);
+        return MatchRuleEngine.apply(enabledRulePacks(), input);
+    }
+
+    private static List<MatchRulePack> enabledRulePacks() {
+        Context context = sharedContext;
+        if (context == null) return BuiltinMatchRules.packs();
+        return MatchRuleStore.enabledPacks(context);
+    }
+
+    static List<LocalTrackQueryRules.Query> buildCatalogQueries(String source, String title,
+                                                                String artist,
+                                                                MatchOutput matchOutput) {
+        List<LocalTrackQueryRules.Query> queries = new ArrayList<>();
+        queries.add(new LocalTrackQueryRules.Query(title, artist));
+        if (matchOutput != null && matchOutput.changed) {
+            addQuery(queries, matchOutput.primaryTitle, matchOutput.primaryArtist);
+        }
+        if (matchOutput != null) {
+            for (MatchOutput.Candidate candidate : matchOutput.candidates) {
+                addQuery(queries, candidate.title, candidate.artist);
+            }
+        }
+        int baseQueryCount = queries.size();
+        for (int i = 0; i < baseQueryCount; i++) {
+            LocalTrackQueryRules.Query base = queries.get(i);
+            for (LocalTrackQueryRules.Query fallback
+                    : LocalTrackQueryRules.fallbackQueries(source, base.title, base.artist)) {
+                addQuery(queries, fallback.title, fallback.artist);
+            }
+        }
+        int originalQueryCount = queries.size();
+        for (int i = 0; i < originalQueryCount; i++) {
+            LocalTrackQueryRules.Query query = queries.get(i);
+            for (LocalTrackQueryRules.Query variant : scriptVariants(query.title, query.artist)) {
+                addQuery(queries, variant.title, variant.artist);
+            }
+        }
+        if (queries.size() > MAX_CATALOG_QUERIES) {
+            return new ArrayList<>(queries.subList(0, MAX_CATALOG_QUERIES));
         }
         return queries;
     }

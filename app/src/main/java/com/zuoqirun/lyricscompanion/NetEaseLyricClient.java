@@ -144,22 +144,22 @@ final class NetEaseLyricClient {
         String wantedTitle = normalize(title);
         String foundTitle = normalize(candidateTitle);
         if (wantedTitle.isEmpty() || foundTitle.isEmpty()) return false;
-        String wantedArtist = normalize(artist);
-        String foundArtist = normalize(candidateArtist);
+        String wantedArtist = artist == null ? "" : artist.trim();
+        String foundArtist = candidateArtist == null ? "" : candidateArtist.trim();
         if (!wantedArtist.isEmpty() && !foundArtist.isEmpty()
-                && !wantedArtist.contains(foundArtist) && !foundArtist.contains(wantedArtist)) {
+                && ArtistMatchRules.score(wantedArtist, foundArtist) < 0) {
             return false;
         }
         long durationDifference = durationMs > 0L && candidateDurationMs > 0L
                 ? Math.abs(durationMs - candidateDurationMs) : -1L;
         if (durationDifference > 15_000L) return false;
         if (wantedTitle.equals(foundTitle)) return true;
-        // A near-identical title can be a display suffix. Only accept it with matching artist,
-        // close duration, and no extra live/remix/accompaniment version marker.
+        // 近似标题可能只是显示后缀。要求歌手可对应、时长接近，且不能引入
+        // 硬噪声版本标记（伴奏/remix 等）；软噪声（live/现场）不阻止匹配，只影响分数。
         return !wantedArtist.isEmpty() && !foundArtist.isEmpty()
                 && durationDifference >= 0L && durationDifference <= 2_000L
                 && (wantedTitle.contains(foundTitle) || foundTitle.contains(wantedTitle))
-                && hasVersionNoise(title) == hasVersionNoise(candidateTitle);
+                && hasHardNoise(title) == hasHardNoise(candidateTitle);
     }
 
     static int matchScore(String title, String artist, long durationMs,
@@ -170,20 +170,18 @@ final class NetEaseLyricClient {
         if (wantedTitle.isEmpty() || foundTitle.isEmpty()) return Integer.MIN_VALUE;
         int score = wantedTitle.equals(foundTitle) ? 100
                 : wantedTitle.contains(foundTitle) || foundTitle.contains(wantedTitle) ? 55 : -80;
-        String wantedArtist = normalize(artist);
-        String foundArtist = normalize(candidateArtist);
-        if (!wantedArtist.isEmpty() && !foundArtist.isEmpty()) {
-            if (wantedArtist.equals(foundArtist)) score += 70;
-            else if (wantedArtist.contains(foundArtist) || foundArtist.contains(wantedArtist)) {
-                score += 45;
-            } else score -= 45;
-        }
+        int artistScore = ArtistMatchRules.score(artist, candidateArtist);
+        if (artistScore != 0) score += artistScore;
         if (durationMs > 0L && candidateDurationMs > 0L) {
             long difference = Math.abs(durationMs - candidateDurationMs);
             score += difference <= 2_000L ? 35 : difference <= 5_000L ? 25
                     : difference <= 15_000L ? 5 : -20;
         }
-        if (!hasVersionNoise(title) && hasVersionNoise(candidateTitle)) {
+        // 噪声只影响打分：软噪声轻微降权，硬噪声（伴奏/remix 等）明显降权。
+        if (!hasSoftNoise(title) && hasSoftNoise(candidateTitle)) {
+            score -= 25;
+        }
+        if (!hasHardNoise(title) && hasHardNoise(candidateTitle)) {
             score -= 60;
         }
         return score;
@@ -255,9 +253,14 @@ final class NetEaseLyricClient {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\s]+", "");
     }
 
-    private static boolean hasVersionNoise(String value) {
-        String normalized = value == null ? "" : value.toLowerCase(Locale.ROOT);
-        return normalized.matches(".*(伴奏|翻唱|现场|升调|降调|live|remix|dj|sped|slowed|ktv).*");
+    private static boolean hasSoftNoise(String value) {
+        String normalized = normalize(value);
+        return normalized.matches(".*(live|现场|演唱会|acoustic|unplugged).*");
+    }
+
+    private static boolean hasHardNoise(String value) {
+        String normalized = normalize(value);
+        return normalized.matches(".*(伴奏|纯音乐|instrumental|remix|dj|sped|slowed|ktv|翻唱|升调|降调).*");
     }
 
     static final class Result {

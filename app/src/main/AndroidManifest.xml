@@ -114,6 +114,15 @@
             android:name=".FullscreenLyricsActivity"
             android:exported="false" />
         <activity
+            android:name=".MatchRuleEditorActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MatchMarketActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MatchDiagnosticsActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

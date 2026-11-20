@@ -9,6 +9,7 @@ const {loadEnv} = require("./release-sync-config");
 const {DiagnosticStore, FeedbackStore, OnlineTracker, normalizeClientId} = require("./community");
 const {publicBaseUrl} = require("./server-address");
 const {ConfigShareStore} = require("./config-share");
+const {createMatchRulesHandler} = require("./match-rules");
 
 loadEnv(path.join(__dirname, ".env"));
 
@@ -23,6 +24,11 @@ const versionsPath = path.join(publicDir, "versions.json");
 const syncScript = path.join(__dirname, "sync-release.js");
 const stateDir = process.env.STATE_DIR
   ? path.resolve(process.env.STATE_DIR) : path.resolve(__dirname, "state");
+// 匹配规则市场：规则包只写 STATE_DIR/match-rules/，不进入仓库。
+const matchRulesHandler = createMatchRulesHandler({
+  stateDir,
+  adminToken: process.env.ADMIN_TOKEN || "",
+});
 const feedbackPath = path.join(stateDir, "feedback.jsonl");
 const feedbackRepliesPath = path.join(stateDir, "feedback-replies.jsonl");
 const diagnosticsPath = path.join(stateDir, "diagnostics.jsonl");
@@ -351,6 +357,8 @@ const server = http.createServer(async (req, res) => {
         createdAt: entry.createdAt, expiresAt: entry.expiresAt, config: entry.config});
       return;
     }
+    if (await matchRulesHandler(req, res, url,
+      {sendJson, readJson, clientIp: clientAddress})) return;
     if (url.pathname === "/api/admin/feedback") {
       if (!requireAdmin(req, res)) return;
       if (req.method !== "GET") { sendText(res, 405, "method not allowed"); return; }

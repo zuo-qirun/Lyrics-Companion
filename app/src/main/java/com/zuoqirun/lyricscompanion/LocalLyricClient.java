@@ -46,6 +46,8 @@ final class LocalLyricClient {
      * from reading several 8 MB files in a row.
      */
     private static final int MAX_AUDIO_FILES = 3;
+    /** 候选文件名（.lrc/.krc 各算一个）总数上限，规则候选超出部分直接截断。 */
+    private static final int MAX_CANDIDATE_NAMES = 12;
     /** 播放器缓存探测的汇总诊断只记一次，避免每首歌都刷同样一行（issue #154）。 */
     private static final AtomicBoolean PLAYER_CACHE_SUMMARY_LOGGED = new AtomicBoolean();
     /** 同名缓存文件读取失败也只记一次，避免一首坏文件在每次切歌时重复报错。 */
@@ -172,6 +174,10 @@ final class LocalLyricClient {
      * same text the player itself shows.
      */
     Hit load(String mediaUri, String title, String artist) {
+        return load(mediaUri, title, artist, "");
+    }
+
+    Hit load(String mediaUri, String title, String artist, String sourcePackage) {
         try {
             File sidecar = sidecarFile(mediaUri);
             if (sidecar == null && (title.startsWith("/") || title.startsWith("file://"))) {
@@ -210,7 +216,7 @@ final class LocalLyricClient {
                     : "播放器音频路径不可用 mediaUri=" + mediaUri
                             + "，改为在已授权目录里按文件名查找音频文件");
         }
-        Set<String> candidates = candidateNames(mediaUri, title, artist);
+        Set<String> candidates = candidateNames(mediaUri, title, artist, sourcePackage);
         String path = AppPreferences.localLyricDirectoryPath(context);
         if (!path.isEmpty()) {
             try {
@@ -430,7 +436,8 @@ final class LocalLyricClient {
                 + ".lrc");
     }
 
-    private Set<String> candidateNames(String mediaUri, String title, String artist) {
+    private Set<String> candidateNames(String mediaUri, String title, String artist,
+                                       String sourcePackage) {
         Set<String> names = new LinkedHashSet<>();
         addCandidate(names, title);
         addCandidate(names, LocalTrackQueryRules.cleanFileTitle(title));
@@ -442,7 +449,31 @@ final class LocalLyricClient {
             int dot = displayName.lastIndexOf('.');
             addCandidate(names, dot > 0 ? displayName.substring(0, dot) : displayName);
         } catch (Throwable ignored) { }
-        return names;
+        // 规则引擎清洗后的候选名（issue #174）：例如「张学友 - 吻别」→「吻别」，
+        // 这样同一目录里只按歌名命名的 .lrc 也能命中。规则包按 package 作用域过滤。
+        appendRuleCandidates(names, title, artist, sourcePackage);
+        if (names.size() <= MAX_CANDIDATE_NAMES) return names;
+        Set<String> limited = new LinkedHashSet<>();
+        for (String name : names) {
+            if (limited.size() >= MAX_CANDIDATE_NAMES) break;
+            limited.add(name);
+        }
+        return limited;
+    }
+
+    private void appendRuleCandidates(Set<String> names, String title, String artist,
+                                      String sourcePackage) {
+        try {
+            MatchInput input = new MatchInput(title, artist, "", sourcePackage, "");
+            MatchOutput output = MatchRuleEngine.apply(MatchRuleStore.enabledPacks(context), input);
+            if (output.changed) addCandidate(names, output.primaryTitle);
+            for (MatchOutput.Candidate candidate : output.candidates) {
+                addCandidate(names, candidate.title);
+            }
+        } catch (Throwable error) {
+            // 规则失败必须回落到原来的候选名，不能因为它挡住本地歌词加载。
+            record("匹配规则候选名生成失败=" + failureCause(error));
+        }
     }
 
     private static void addCandidate(Set<String> names, String value) {
