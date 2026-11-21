@@ -5,6 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const {compileAssetPattern, parseHistoryLimit, safeSegment, loadEnv} =
   require("./release-sync-config");
+const dns = require("dns");
+
+// GitHub 资源的 IPv6 回源在部分服务器上会连接超时，强制优先 IPv4，
+// 否则同步会反复卡在 asset 下载并长期停留在旧版本。
+dns.setDefaultResultOrder("ipv4first");
 
 loadEnv(path.join(__dirname, ".env"));
 
