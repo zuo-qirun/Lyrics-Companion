@@ -415,7 +415,10 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/versions-github.json") { sendJson(res, 200, readVersions(req, true)); return; }
     const route = url.pathname === "/" ? "/index.html"
       : url.pathname === "/versions" ? "/versions.html"
-        : url.pathname === "/feedback" ? "/feedback.html" : url.pathname;
+        : url.pathname === "/feedback" ? "/feedback.html"
+          : url.pathname === "/rules" || url.pathname === "/rules/" ? "/match-rules.html"
+            : url.pathname === "/rules/admin" || url.pathname === "/rules/admin/" ? "/match-rules-admin.html"
+              : url.pathname;
     const filePath = path.resolve(publicDir, `.${decodeURIComponent(route)}`);
     if (!filePath.startsWith(publicDir + path.sep)) { sendText(res, 403, "forbidden"); return; }
     sendFile(res, filePath, types[path.extname(filePath).toLowerCase()] || "application/octet-stream");

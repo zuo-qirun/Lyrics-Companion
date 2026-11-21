@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="robots" content="noindex, nofollow" />
+        <meta name="theme-color" content="#111310" />
+        <title>规则审核台 · 歌词伴侣</title>
+        <link rel="stylesheet" href="/site.css?v=20261023" />
+        <style>
+            .admin-note {
+                font: 11px var(--mono);
+                color: var(--muted);
+                letter-spacing: 0.4px;
+            }
+            .admin-hero {
+                padding: 54px 0 28px;
+            }
+            .admin-hero h1 {
+                font: 500 clamp(30px, 4vw, 46px)/1.2 var(--serif);
+                letter-spacing: -1px;
+                margin: 10px 0 12px;
+            }
+            .admin-hero p {
+                margin: 0;
+                max-width: 680px;
+                color: var(--muted);
+                font-size: 14px;
+                line-height: 1.65;
+            }
+            .admin-auth {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                align-items: center;
+                margin-top: 22px;
+                padding: 14px;
+                border: 1px solid var(--line);
+                border-radius: 12px;
+                background: var(--panel);
+            }
+            .admin-auth input {
+                flex: 1;
+                min-width: 220px;
+                padding: 10px 12px;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                background: #0d100c;
+                color: var(--ink);
+                font: 13px var(--mono);
+            }
+            .admin-auth input::placeholder {
+                color: #79816e;
+            }
+            .admin-auth .button {
+                padding: 10px 16px;
+                font-size: 12px;
+            }
+            .admin-bar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 14px 0;
+                border-top: 1px solid var(--line);
+                border-bottom: 1px solid var(--line);
+                margin-bottom: 22px;
+            }
+            .admin-tabs {
+                display: flex;
+                gap: 6px;
+            }
+            .admin-tab {
+                border: 1px solid var(--line);
+                border-radius: 999px;
+                background: transparent;
+                color: var(--muted);
+                padding: 7px 13px;
+                font: 11.5px var(--mono);
+                cursor: pointer;
+                letter-spacing: 0.3px;
+            }
+            .admin-tab[aria-selected="true"] {
+                color: var(--ink);
+                border-color: var(--accent);
+                background: #232b1d;
+            }
+            .admin-status {
+                font: 11px var(--mono);
+                color: var(--muted);
+                letter-spacing: 0.3px;
+            }
+            .admin-status.error {
+                color: #ec9d86;
+            }
+            .admin-layout {
+                display: grid;
+                grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.4fr);
+                gap: 20px;
+                align-items: start;
+                padding-bottom: 60px;
+            }
+            .admin-list {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .admin-item {
+                border: 1px solid var(--line);
+                border-radius: 12px;
+                background: #171c14;
+                padding: 15px 16px;
+                cursor: pointer;
+                text-align: left;
+                width: 100%;
+                color: var(--ink);
+                font: inherit;
+                display: block;
+            }
+            .admin-item:hover {
+                border-color: #4c5a42;
+            }
+            .admin-item[aria-current="true"] {
+                border-color: #6f8a5d;
+                background: #1c2419;
+            }
+            .admin-item-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 6px;
+            }
+            .admin-item-name {
+                font: 600 15px/1.4 var(--sans);
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .admin-badge {
+                flex-shrink: 0;
+                font: 10px var(--mono);
+                letter-spacing: 0.4px;
+                border: 1px solid var(--line);
+                border-radius: 999px;
+                padding: 2px 7px;
+                color: var(--muted);
+            }
+            .admin-badge.pending {
+                color: #e9c46a;
+                border-color: #6b5c33;
+            }
+            .admin-badge.approved {
+                color: #a9d18e;
+                border-color: #4a5c3c;
+            }
+            .admin-badge.rejected,
+            .admin-badge.disabled {
+                color: #e09f8c;
+                border-color: #6d4a3a;
+            }
+            .admin-item-meta {
+                font: 10.5px var(--mono);
+                color: var(--muted);
+                line-height: 1.7;
+                word-break: break-all;
+            }
+            .admin-detail {
+                position: sticky;
+                top: 18px;
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                background: #151a13;
+                padding: 20px;
+                min-height: 260px;
+            }
+            .admin-detail h2 {
+                margin: 0 0 4px;
+                font: 600 20px/1.4 var(--serif);
+            }
+            .admin-detail .admin-item-meta {
+                margin-bottom: 14px;
+            }
+            .admin-detail pre {
+                max-height: 330px;
+                overflow: auto;
+                margin: 0;
+                padding: 14px;
+                border: 1px solid var(--line);
+                border-radius: 10px;
+                background: #0b0d0a;
+                color: #cfd8c4;
+                font: 11.5px/1.6 var(--mono);
+                white-space: pre;
+            }
+            .admin-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 16px;
+            }
+            .admin-actions .button {
+                padding: 9px 14px;
+                font-size: 12px;
+            }
+            .admin-actions .button.danger {
+                background: transparent;
+                color: #e09f8c;
+                border-color: #6d4a3a;
+            }
+            .admin-actions .button.danger:hover {
+                background: #2a1d18;
+            }
+            .admin-note-field {
+                width: 100%;
+                min-height: 64px;
+                margin-top: 12px;
+                padding: 10px 12px;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                background: #0d100c;
+                color: var(--ink);
+                font: 12.5px/1.6 var(--sans);
+                resize: vertical;
+            }
+            .admin-result {
+                margin-top: 10px;
+                font-size: 12.5px;
+                line-height: 1.6;
+                color: var(--muted);
+                word-break: break-word;
+            }
+            .admin-result.ok {
+                color: #a9d18e;
+            }
+            .admin-result.bad {
+                color: #e09f8c;
+            }
+            .admin-empty {
+                border: 1px dashed var(--line);
+                border-radius: 12px;
+                padding: 28px 18px;
+                color: var(--muted);
+                font-size: 13px;
+                text-align: center;
+            }
+            .admin-foot {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 18px;
+                justify-content: space-between;
+                padding: 26px 0 46px;
+                border-top: 1px solid var(--line);
+                font: 11px var(--mono);
+                color: var(--muted);
+            }
+            @media (max-width: 900px) {
+                .admin-layout {
+                    grid-template-columns: 1fr;
+                }
+                .admin-detail {
+                    position: static;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header class="shell nav">
+            <a class="brand" href="/" aria-label="歌词伴侣首页"
+                ><span class="brand-mark" aria-hidden="true">♪</span
+                ><span class="brand-name"
+                    >歌词伴侣<small>LYRICS COMPANION</small></span
+                ></a
+            >
+            <nav class="nav-links" aria-label="主要导航">
+                <a href="/">首页</a>
+                <a href="/rules">规则市场</a>
+                <a href="/versions">版本归档</a>
+            </nav>
+        </header>
+        <main class="shell">
+            <section class="admin-hero">
+                <div class="eyebrow">PRIVATE REVIEW DESK</div>
+                <h1>规则审核台</h1>
+                <p>
+                    审核社区提交的元数据匹配规则。通过后规则会出现在
+                    <a class="text-link" href="/rules">公开规则市场</a>，应用内可一键下载启用；
+                    驳回或下架会立即从市场移除。审核令牌只保存在本次浏览器会话中。
+                </p>
+                <form class="admin-auth" id="admin-auth">
+                    <input
+                        id="admin-token"
+                        type="password"
+                        autocomplete="current-password"
+                        placeholder="ADMIN_TOKEN"
+                        aria-label="管理员令牌"
+                    />
+                    <button class="button primary" type="submit" id="admin-enter">
+                        进入审核台
+                    </button>
+                    <span class="admin-note" id="admin-hint"
+                        >令牌与服务器 .env 中的 ADMIN_TOKEN 一致</span
+                    >
+                </form>
+            </section>
+            <section id="admin-workspace" hidden>
+                <div class="admin-bar">
+                    <div class="admin-tabs" role="tablist" aria-label="审核状态">
+                        <button
+                            class="admin-tab"
+                            type="button"
+                            role="tab"
+                            data-status="pending"
+                            aria-selected="true"
+                        >
+                            待审核
+                        </button>
+                        <button
+                            class="admin-tab"
+                            type="button"
+                            role="tab"
+                            data-status="approved"
+                            aria-selected="false"
+                        >
+                            已上架
+                        </button>
+                        <button
+                            class="admin-tab"
+                            type="button"
+                            role="tab"
+                            data-status="all"
+                            aria-selected="false"
+                        >
+                            全部
+                        </button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px">
+                        <span class="admin-status" id="admin-status"
+                            >等待加载</span
+                        >
+                        <button class="button" type="button" id="admin-refresh">
+                            刷新
+                        </button>
+                        <button
+                            class="text-link"
+                            type="button"
+                            id="admin-signout"
+                            style="background: none; border: 0; cursor: pointer"
+                        >
+                            退出
+                        </button>
+                    </div>
+                </div>
+                <div class="admin-layout">
+                    <div>
+                        <div class="admin-list" id="admin-list"></div>
+                    </div>
+                    <aside
+                        class="admin-detail"
+                        id="admin-detail"
+                        aria-live="polite"
+                    >
+                        <div class="admin-empty">
+                            选择左侧一条提交，查看规则内容并审核。
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </main>
+        <footer class="shell admin-foot">
+            <span
+                >审核操作会写入服务器 state/match-rules/，并记录在
+                submissions.jsonl。</span
+            >
+            <span
+                ><a class="text-link" href="/rules">查看公开规则市场 →</a></span
+            >
+        </footer>
+        <script>
+            (() => {
+                "use strict";
+                const TOKEN_KEY = "lyrics-match-rules-admin-token";
+                const STATUS_LABELS = {
+                    pending: "待审核",
+                    approved: "已上架",
+                    rejected: "已驳回",
+                    disabled: "已下架",
+                };
+                const $ = (id) => document.getElementById(id);
+                const authForm = $("admin-auth");
+                const tokenInput = $("admin-token");
+                const hint = $("admin-hint");
+                const workspace = $("admin-workspace");
+                const list = $("admin-list");
+                const detail = $("admin-detail");
+                const statusLine = $("admin-status");
+                const state = {
+                    token: sessionStorage.getItem(TOKEN_KEY) || "",
+                    filter: "pending",
+                    items: [],
+                    selected: null,
+                    busy: false,
+                };
+                tokenInput.value = state.token;
+
+                function node(tag, className, text) {
+                    const element = document.createElement(tag);
+                    if (className) element.className = className;
+                    if (text !== undefined) element.textContent = text;
+                    return element;
+                }
+
+                function formatDate(value) {
+                    if (!value) return "未知";
+                    const date = new Date(value);
+                    if (Number.isNaN(date.getTime())) return value;
+                    return date.toLocaleString("zh-CN", { hour12: false });
+                }
+
+                function setStatus(text, isError) {
+                    statusLine.textContent = text;
+                    statusLine.classList.toggle("error", Boolean(isError));
+                }
+
+                async function request(path, options) {
+                    const headers = Object.assign({}, options && options.headers);
+                    headers["x-admin-token"] = state.token;
+                    const response = await fetch(path, Object.assign({}, options, { headers }));
+                    const body = await response.json().catch(() => ({}));
+                    if (!response.ok || !body.ok) {
+                        throw new Error(body.error || "HTTP " + response.status);
+                    }
+                    return body;
+                }
+
+                function statusBadge(status) {
+                    const label = STATUS_LABELS[status] || status || "未知";
+                    return node("span", "admin-badge " + (status || ""), label);
+                }
+
+                function scopePackages(rule) {
+                    const scope = rule && rule.scope;
+                    return scope && Array.isArray(scope.packages) ? scope.packages : [];
+                }
+
+                function renderList() {
+                    list.textContent = "";
+                    if (!state.items.length) {
+                        const empty = node(
+                            "div",
+                            "admin-empty",
+                            state.filter === "pending"
+                                ? "没有待审核的规则提交，喝口水吧。"
+                                : "这个状态下暂时没有记录。",
+                        );
+                        list.append(empty);
+                        return;
+                    }
+                    for (const item of state.items) {
+                        const rule = item.rule || {};
+                        const packages = scopePackages(rule);
+                        const row = node("button", "admin-item");
+                        row.type = "button";
+                        row.setAttribute(
+                            "aria-current",
+                            String(Boolean(state.selected && state.selected.id === item.id)),
+                        );
+                        const head = node("div", "admin-item-head");
+                        head.append(
+                            node("span", "admin-item-name", rule.name || item.id),
+                            statusBadge(item.status),
+                        );
+                        const meta = node(
+                            "div",
+                            "admin-item-meta",
+                            [
+                                `v${rule.version || 1} · ${item.id}`,
+                                `提交 ${formatDate(item.submittedAt)}`,
+                                item.author ? `作者 ${item.author}` : "作者未署名",
+                                packages.length ? `作用域 ${packages.join(", ")}` : "全局规则",
+                            ].join("\n"),
+                        );
+                        row.append(head, meta);
+                        row.addEventListener("click", () => {
+                            state.selected = item;
+                            renderList();
+                            renderDetail();
+                        });
+                        list.append(row);
+                    }
+                }
+
+                function reviewButton(label, action, danger) {
+                    const button = node("button", "button" + (danger ? " danger" : ""), label);
+                    button.type = "button";
+                    button.addEventListener("click", () => review(action));
+                    return button;
+                }
+
+                function renderDetail() {
+                    detail.textContent = "";
+                    const item = state.selected;
+                    if (!item) {
+                        detail.append(
+                            node(
+                                "div",
+                                "admin-empty",
+                                "选择左侧一条提交，查看规则内容并审核。",
+                            ),
+                        );
+                        return;
+                    }
+                    const rule = item.rule || {};
+                    detail.append(
+                        node("h2", "", rule.name || "未命名规则"),
+                        statusBadge(item.status),
+                        node(
+                            "div",
+                            "admin-item-meta",
+                            [
+                                `提交编号 ${item.id}`,
+                                `规则 id ${rule.id || "—"}`,
+                                `版本 v${rule.version || 1}`,
+                                `作者 ${item.author || rule.author || "未署名"}`,
+                                `提交时间 ${formatDate(item.submittedAt)}`,
+                                `更新时间 ${formatDate(item.updatedAt)}`,
+                                rule.scope && Array.isArray(rule.scope.packages)
+                                    && rule.scope.packages.length
+                                    ? `作用域 ${rule.scope.packages.join(", ")}`
+                                    : "作用域 全局规则",
+                                item.description ? `说明 ${item.description}` : "",
+                            ]
+                                .filter(Boolean)
+                                .join("\n"),
+                        ),
+                    );
+                    const pre = node("pre", "", JSON.stringify(rule, null, 2));
+                    detail.append(pre);
+
+                    if (item.status === "pending") {
+                        const note = node("textarea", "admin-note-field");
+                        note.placeholder = "审核备注（可选，驳回时建议说明原因）";
+                        note.setAttribute("aria-label", "审核备注");
+                        const actions = node("div", "admin-actions");
+                        actions.append(
+                            reviewButton("通过并上架", "approve"),
+                            reviewButton("驳回", "reject", true),
+                        );
+                        const result = node("div", "admin-result");
+                        detail.append(note, actions, result);
+                        detail.dataset.noteId = item.id;
+                    } else if (item.status === "approved") {
+                        const actions = node("div", "admin-actions");
+                        actions.append(reviewButton("下架", "disable", true));
+                        const result = node("div", "admin-result");
+                        detail.append(actions, result);
+                    } else {
+                        detail.append(
+                            node(
+                                "p",
+                                "admin-result",
+                                "该提交已结束审核，可在「全部」标签中查看历史。",
+                            ),
+                        );
+                    }
+                    const link = node("p", "admin-result");
+                    const anchor = node("a", "text-link", "在公开市场查看 →");
+                    anchor.href = "/rules";
+                    link.append(anchor);
+                    detail.append(link);
+                }
+
+                async function review(action) {
+                    if (state.busy || !state.selected) return;
+                    const item = state.selected;
+                    const result = detail.querySelector(".admin-result");
+                    const noteField = detail.querySelector(".admin-note-field");
+                    const note = noteField ? noteField.value.trim() : "";
+                    if (action === "reject" && !note) {
+                        if (
+                            !window.confirm(
+                                "没有填写驳回说明，仍然驳回？提交者将无法看到具体原因。",
+                            )
+                        ) {
+                            return;
+                        }
+                    }
+                    state.busy = true;
+                    detail.querySelectorAll(".button").forEach((button) => {
+                        button.disabled = true;
+                    });
+                    if (result) {
+                        result.className = "admin-result";
+                        result.textContent = "正在提交审核结果…";
+                    }
+                    try {
+                        const body = await request("/api/match-rules/admin/review", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                                id: item.id,
+                                action,
+                                note: note || undefined,
+                            }),
+                        });
+                        if (result) {
+                            result.className = "admin-result ok";
+                            result.textContent = `已${action === "approve" ? "通过并上架" : action === "reject" ? "驳回" : "下架"}（${body.status || ""}）。`;
+                        }
+                        await load({ keepSelectionId: item.id });
+                    } catch (error) {
+                        if (result) {
+                            result.className = "admin-result bad";
+                            result.textContent = `操作失败：${error.message}`;
+                        }
+                    } finally {
+                        state.busy = false;
+                    }
+                }
+
+                async function load(options) {
+                    const keepId = options && options.keepSelectionId;
+                    setStatus("正在读取…");
+                    try {
+                        const body = await request(
+                            "/api/match-rules/admin/list?status=" +
+                                encodeURIComponent(state.filter),
+                        );
+                        state.items = Array.isArray(body.items) ? body.items : [];
+                        if (keepId) {
+                            state.selected =
+                                state.items.find((item) => item.id === keepId) || null;
+                            if (!state.selected && state.filter !== "all") {
+                                state.filter = "all";
+                                const all = await request(
+                                    "/api/match-rules/admin/list?status=all",
+                                );
+                                state.items = Array.isArray(all.items) ? all.items : [];
+                                state.selected =
+                                    state.items.find((item) => item.id === keepId) || null;
+                                syncTabs();
+                            }
+                        } else if (
+                            state.selected &&
+                            !state.items.some((item) => item.id === state.selected.id)
+                        ) {
+                            state.selected = null;
+                        }
+                        workspace.hidden = false;
+                        hint.textContent = "令牌已保存到本次浏览器会话";
+                        renderList();
+                        renderDetail();
+                        const pending = state.items.filter(
+                            (item) => item.status === "pending",
+                        ).length;
+                        setStatus(
+                            `已同步 ${new Date().toLocaleTimeString("zh-CN", {
+                                hour12: false,
+                            })} · ${state.items.length} 条${
+                                state.filter === "pending" ? `（待审核 ${pending}）` : ""
+                            }`,
+                        );
+                    } catch (error) {
+                        if (/authentication|401/i.test(error.message)) {
+                            sessionStorage.removeItem(TOKEN_KEY);
+                            workspace.hidden = true;
+                            hint.textContent = "令牌无效或已过期，请重新输入";
+                        }
+                        setStatus(`加载失败：${error.message}`, true);
+                    }
+                }
+
+                function syncTabs() {
+                    document.querySelectorAll(".admin-tab").forEach((tab) => {
+                        tab.setAttribute(
+                            "aria-selected",
+                            String(tab.dataset.status === state.filter),
+                        );
+                    });
+                }
+
+                authForm.addEventListener("submit", (event) => {
+                    event.preventDefault();
+                    const token = tokenInput.value.trim();
+                    if (!token) {
+                        hint.textContent = "请先输入管理员令牌";
+                        return;
+                    }
+                    state.token = token;
+                    state.selected = null;
+                    load()
+                        .then(() => {
+                            sessionStorage.setItem(TOKEN_KEY, token);
+                        })
+                        .catch(() => {
+                            sessionStorage.removeItem(TOKEN_KEY);
+                        });
+                });
+                document.querySelectorAll(".admin-tab").forEach((tab) => {
+                    tab.addEventListener("click", () => {
+                        state.filter = tab.dataset.status;
+                        state.selected = null;
+                        syncTabs();
+                        load();
+                    });
+                });
+                $("admin-refresh").addEventListener("click", () => load());
+                $("admin-signout").addEventListener("click", () => {
+                    sessionStorage.removeItem(TOKEN_KEY);
+                    state.token = "";
+                    state.items = [];
+                    state.selected = null;
+                    workspace.hidden = true;
+                    hint.textContent = "已退出；重新输入令牌可继续审核";
+                });
+                if (state.token) {
+                    load().catch(() => sessionStorage.removeItem(TOKEN_KEY));
+                }
+            })();
+        </script>
+    </body>
+</html>
