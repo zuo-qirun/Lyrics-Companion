@@ -250,22 +250,25 @@
   响应体必须是紧凑 JSON（无缩进空格）：客户端按响应原文中 `"rule"` 子串计算
   SHA-256，pretty-print 会因缩进而校验失败。
 - `GET /api/match-rules/status?id=<id>&token=<token>` →
-  `{ok:true,id,status:"pending"|"approved"|"rejected"|"disabled",note:"",updatedAt}`；
-  token 不匹配 403。
+  `{ok:true,id,status:"pending"|"approved"|"rejected"|"disabled",updatedAt,
+  messages:[{at,text}]}`；token 不匹配 403。`messages` 是审核员写给提交者的公开回复
+  （时间正序、最多 20 条、单条 ≤500 字符）；内部备注 `note` 不对外返回。
 - `POST /api/match-rules/report` body `{id, reason:"..."}`（reason ≤200）→
   `{ok:true}`，落 `STATE_DIR/match-rules/reports.jsonl`（保留最近 1000 条）。
 - 管理接口（请求头 `x-admin-token: <ADMIN_TOKEN>`，缺失/错误 401）：
-  - `GET /api/match-rules/admin/list?status=pending|approved|all` →
-    `{ok:true, items:[{id,status,submittedAt,updatedAt,author,description,rule}]}`
+  - `GET /api/match-rules/admin/list?status=pending|approved|rejected|disabled|all` →
+    `{ok:true, items:[{id,status,submittedAt,updatedAt,author,description,note,messages,rule}]}`
   - `POST /api/match-rules/admin/review` body
-    `{id, action:"approve"|"reject"|"disable", note?:""}` →
-    `{ok:true,id,status}`；approve 时重新校验规则包并写入 `approved/`；
-    reject/disable 保留记录。
+    `{id, action:"approve"|"enable"|"reject"|"disable"|"reopen"|"reply",
+    note?:"", message?:""}`（也可用 `status` 字段代替 action）→
+    `{ok:true,id,status,messages}`；approve/enable 时重新校验规则包并写入 `approved/`，
+    版本冲突 409；disable 删除发布副本；reopen 退回待审；reply 只追加公开回复、不改状态。
+    `note` 是管理员内部备注，`message` 是给提交者的公开回复。
 - 存储（全部在 `STATE_DIR/match-rules/`，不写仓库）：
   `pending/<id>.json`、`approved/<id>.json`、`reports.jsonl`、`submissions.jsonl`；
   `approved/<id>.json` 结构 `{id,status:"approved",rule:{...},sha256,size,submittedAt,
-  updatedAt,downloads,author,description}`。启动时扫描 `approved/` 构建目录；
-  审核操作后刷新。
+  updatedAt,downloads,author,description,messages}`（不写 tokenHash）；启动时扫描
+  `approved/` 构建目录；审核操作后刷新。
 - 安全：不信任客户端；包大小 ≤64KB（服务端再限一次）、规则包校验、id 冲突时同 id 新版本
   必须 version 更大（否则 409）；`<id>` 白名单字符；JSON 解析异常 400；所有响应
   `X-Content-Type-Options: nosniff`。
@@ -275,8 +278,9 @@
   `/api/config/*` 路由之后加：
   `if (await matchRulesHandler(req, res, url, {sendJson, readJson, clientIp})) return;`
   （若 server.js 没有 `clientIp` 辅助函数，用 `req.socket.remoteAddress` 现算，传给模块）。
-- `match-rules-admin.js`：`node match-rules-admin.js list [pending|approved|all]` /
-  `node match-rules-admin.js approve <id> [note]` / `reject` / `disable`；读取
+- `match-rules-admin.js`：`node match-rules-admin.js list [pending|approved|rejected|disabled|all]` /
+  `node match-rules-admin.js approve|enable|reject|disable|reopen <id> [note]` /
+  `node match-rules-admin.js reply <id> <message>`；读取
   `BASE_URL`（默认 `http://127.0.0.1:8790`）与 `ADMIN_TOKEN`，输出中文摘要，不打印 token。
 - 测试约束：`server.js` 目前因维护者未提交改动 require 了不存在的 `online-stats.js`，
   **不要新建 online-stats.js，不要修它**；测试只 `require("../match-rules")` 起独立
@@ -292,7 +296,7 @@
   - `fetchCatalog(Callback<List<CatalogItem>>)`（解析 `rules`，ETag 可忽略）
   - `downloadPack(String id, int version, Callback<MatchRulePack>)`（校验 sha256 与 id/version）
   - `submit(MatchRulePack, String description, Callback<SubmitResult{id,token}>)`
-  - `status(String id, String token, Callback<StatusResult{status,note}>)`
+  - `status(String id, String token, Callback<StatusResult{status,note,messages}>)`
   - `report(String id, String reason, Callback<Boolean>)`
   失败时给中文错误（网络异常/服务器不可用/规则无效）。
 - `MatchRuleEditorActivity.java`：代码 + 图形向导两种模式。
@@ -351,7 +355,7 @@ static void updateSubmissionStatus(Context context, String id, String status);
 final class CatalogItem { String id, name, author, description, sha256;
                           int version, downloads; long size; }
 final class SubmitResult { String id, token, status; }
-final class StatusResult { String status, note; }
+final class StatusResult { String status, note; List<String> messages; }
 final class Submission { String id, token, name, status; long submittedAt; }
 ```
 

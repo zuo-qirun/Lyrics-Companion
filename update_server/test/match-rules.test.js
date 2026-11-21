@@ -394,12 +394,15 @@ test("匹配目录在校验通过前不可见；approve 后可见，ETag 304，�
     const approved = await adminReview(harness, {
       id,
       action: "approve",
-      note: "规则合理，通过",
+      note: "内部备注：与 issue #174 场景一致",
+      message: "规则合理，已上架。",
     });
     assert.equal(approved.status, 200);
     assert.equal(approved.payload.ok, true);
     assert.equal(approved.payload.id, id);
     assert.equal(approved.payload.status, "approved");
+    assert.deepEqual(approved.payload.messages.map((item) => item.text),
+      ["规则合理，已上架。"]);
 
     const approvedPath = path.join(harness.rulesDir, "approved", `${id}.json`);
     assert.equal(fs.existsSync(approvedPath), true);
@@ -495,7 +498,10 @@ test("匹配目录在校验通过前不可见；approve 后可见，ETag 304，�
     );
     assert.equal(status.status, 200);
     assert.equal(status.payload.status, "approved");
-    assert.equal(status.payload.note, "规则合理，通过");
+    assert.deepEqual(status.payload.messages.map((item) => item.text),
+      ["规则合理，已上架。"]);
+    // note 是管理员内部备注，不对外暴露；公开回复走 messages。
+    assert.equal("note" in status.payload, false);
   } finally {
     await harness.close();
   }
@@ -585,7 +591,8 @@ test("reject 保留记录，status 返回 rejected 与审核备注", async () =>
     const rejected = await adminReview(harness, {
       id,
       action: "reject",
-      note: "规则描述不清晰，请补充说明后重新提交",
+      note: "内部备注：重复提交",
+      message: "规则描述不清晰，请补充说明后重新提交",
     });
     assert.equal(rejected.status, 200);
     assert.equal(rejected.payload.status, "rejected");
@@ -595,7 +602,8 @@ test("reject 保留记录，status 返回 rejected 与审核备注", async () =>
     );
     assert.equal(status.status, 200);
     assert.equal(status.payload.status, "rejected");
-    assert.equal(status.payload.note, "规则描述不清晰，请补充说明后重新提交");
+    assert.deepEqual(status.payload.messages.map((item) => item.text),
+      ["规则描述不清晰，请补充说明后重新提交"]);
 
     const catalog = await harness.request("/api/match-rules/catalog.json");
     assert.deepEqual(catalog.payload.rules, []);
@@ -603,7 +611,9 @@ test("reject 保留记录，status 返回 rejected 与审核备注", async () =>
     const pendingPath = path.join(harness.rulesDir, "pending", `${id}.json`);
     const record = JSON.parse(fs.readFileSync(pendingPath, "utf8"));
     assert.equal(record.status, "rejected");
-    assert.equal(record.note, "规则描述不清晰，请补充说明后重新提交");
+    assert.equal(record.note, "内部备注：重复提交");
+    assert.deepEqual(record.messages.map((item) => item.text),
+      ["规则描述不清晰，请补充说明后重新提交"]);
     assert.equal(record.rule.id, "reject-me-pack");
     assert.equal(pendingFiles(harness.rulesDir).length, 1);
 
@@ -612,6 +622,8 @@ test("reject 保留记录，status 返回 rejected 与审核备注", async () =>
     });
     assert.equal(list.payload.items.length, 1);
     assert.equal(list.payload.items[0].status, "rejected");
+    assert.equal(list.payload.items[0].note, "内部备注：重复提交");
+    assert.equal(list.payload.items[0].messages.length, 1);
     assert.equal("tokenHash" in list.payload.items[0], false);
   } finally {
     await harness.close();
@@ -627,7 +639,12 @@ test("disable 后目录与下载都不可见，status 返回 disabled", async ()
     assert.equal(approved.payload.status, "approved");
     assert.equal(approvedFiles(harness.rulesDir).length, 1);
 
-    const disabled = await adminReview(harness, {id, action: "disable", note: "命中举报，暂时下架"});
+    const disabled = await adminReview(harness, {
+      id,
+      action: "disable",
+      note: "内部备注：命中举报",
+      message: "因命中举报，暂时下架；请修正后重新提交。",
+    });
     assert.equal(disabled.status, 200);
     assert.equal(disabled.payload.status, "disabled");
     assert.equal(approvedFiles(harness.rulesDir).length, 0);
@@ -642,7 +659,8 @@ test("disable 后目录与下载都不可见，status 返回 disabled", async ()
       `/api/match-rules/status?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`,
     );
     assert.equal(status.payload.status, "disabled");
-    assert.equal(status.payload.note, "命中举报，暂时下架");
+    assert.deepEqual(status.payload.messages.map((item) => item.text),
+      ["因命中举报，暂时下架；请修正后重新提交。"]);
   } finally {
     await harness.close();
   }
@@ -680,6 +698,96 @@ test("version 冲突：同 rule.id 重复版本 409，更高版本可提交并�
       headers: {"x-admin-token": ADMIN_TOKEN},
     });
     assert.equal(list.payload.items.length, 2);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("审核可自由切换状态，reply 不改变状态，非法 action 返回 400", async () => {
+  let clock = Date.parse("2026-11-21T12:00:00.000Z");
+  const harness = await startHarness({now: () => clock});
+  try {
+    const submitted = await submit(harness, minimalPack("free-switch-pack", 1));
+    assert.equal(submitted.status, 201);
+    const {id, token} = submitted.payload;
+
+    const catalogCount = async () => {
+      const catalog = await harness.request("/api/match-rules/catalog.json");
+      return catalog.payload.rules.length;
+    };
+
+    let reviewed = await adminReview(harness, {id, action: "approve", message: "第一次上架"});
+    assert.equal(reviewed.payload.status, "approved");
+    assert.equal(await catalogCount(), 1);
+
+    reviewed = await adminReview(harness, {id, action: "disable", message: "暂时下架"});
+    assert.equal(reviewed.payload.status, "disabled");
+    assert.equal(await catalogCount(), 0);
+
+    reviewed = await adminReview(harness, {id, action: "enable", message: "恢复上架"});
+    assert.equal(reviewed.payload.status, "approved");
+    assert.equal(await catalogCount(), 1);
+
+    reviewed = await adminReview(harness, {id, action: "reopen", message: "请补充说明"});
+    assert.equal(reviewed.payload.status, "pending");
+    assert.equal(await catalogCount(), 0);
+
+    reviewed = await adminReview(harness, {id, action: "reject", message: "缺少作用域"});
+    assert.equal(reviewed.payload.status, "rejected");
+
+    // reply 只追加公开回复，不改变当前状态。
+    clock += 60 * 1000;
+    reviewed = await adminReview(harness, {id, action: "reply", message: "请顺便补一下版本号"});
+    assert.equal(reviewed.payload.status, "rejected");
+
+    // 也支持用 status 字段直接指定目标状态（approved）。
+    reviewed = await adminReview(harness, {id, status: "approved"});
+    assert.equal(reviewed.payload.status, "approved");
+
+    const status = await harness.request(
+      `/api/match-rules/status?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`,
+    );
+    assert.equal(status.status, 200);
+    assert.equal(status.payload.status, "approved");
+    assert.deepEqual(status.payload.messages.map((item) => item.text), [
+      "第一次上架",
+      "暂时下架",
+      "恢复上架",
+      "请补充说明",
+      "缺少作用域",
+      "请顺便补一下版本号",
+    ]);
+    assert.equal("note" in status.payload, false);
+
+    const badAction = await adminReview(harness, {id, action: "publish"});
+    assert.equal(badAction.status, 400);
+    assert.match(badAction.payload.error, /action/);
+
+    const emptyReply = await adminReview(harness, {id, action: "reply"});
+    assert.equal(emptyReply.status, 400);
+    assert.match(emptyReply.payload.error, /message/);
+
+    // 管理列表支持按 rejected / disabled 过滤。
+    const pendingList = await harness.request("/api/match-rules/admin/list?status=pending", {
+      headers: {"x-admin-token": ADMIN_TOKEN},
+    });
+    assert.equal(pendingList.status, 200);
+    assert.deepEqual(pendingList.payload.items, []);
+    const rejectedList = await harness.request("/api/match-rules/admin/list?status=rejected", {
+      headers: {"x-admin-token": ADMIN_TOKEN},
+    });
+    assert.equal(rejectedList.status, 200);
+    assert.deepEqual(rejectedList.payload.items, []);
+    const disabledList = await harness.request("/api/match-rules/admin/list?status=disabled", {
+      headers: {"x-admin-token": ADMIN_TOKEN},
+    });
+    assert.equal(disabledList.status, 200);
+    assert.deepEqual(disabledList.payload.items, []);
+    const approvedList = await harness.request("/api/match-rules/admin/list?status=approved", {
+      headers: {"x-admin-token": ADMIN_TOKEN},
+    });
+    assert.equal(approvedList.status, 200);
+    assert.equal(approvedList.payload.items.length, 1);
   } finally {
     await harness.close();
   }

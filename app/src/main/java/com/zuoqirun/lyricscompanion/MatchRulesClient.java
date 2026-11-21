@@ -118,10 +118,13 @@ final class MatchRulesClient {
     static final class StatusResult {
         final String status;
         final String note;
+        /** 审核员写给提交者的公开回复（按时间正序，最多 20 条）。 */
+        final List<String> messages;
 
-        StatusResult(String status, String note) {
+        StatusResult(String status, String note, List<String> messages) {
             this.status = status;
             this.note = note;
+            this.messages = messages;
         }
     }
 
@@ -292,9 +295,20 @@ final class MatchRulesClient {
                 }
                 String path = "/status?id=" + encode(safeId) + "&token=" + encode(safeToken);
                 JSONObject json = request("GET", path, null).json;
+                List<String> messages = new ArrayList<>();
+                JSONArray messageArray = json.optJSONArray("messages");
+                if (messageArray != null) {
+                    for (int index = 0; index < messageArray.length(); index++) {
+                        JSONObject message = messageArray.optJSONObject(index);
+                        if (message == null) continue;
+                        String text = trimmed(message.optString("text", ""));
+                        if (!text.isEmpty()) messages.add(text);
+                    }
+                }
                 callback.complete(Result.success(new StatusResult(
                         trimmed(json.optString("status", "")),
-                        trimmed(json.optString("note", "")))));
+                        trimmed(json.optString("note", "")),
+                        messages)));
             } catch (Throwable error) {
                 callback.complete(Result.failure(message(error)));
             }

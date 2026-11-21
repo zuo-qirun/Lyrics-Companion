@@ -638,8 +638,9 @@ function createMatchRulesHandler(options = {}) {
       if (record.status === "approved") records.set(record.id, record);
     }
     let entries = [...records.values()];
-    if (filter === "pending") entries = entries.filter((record) => record.status === "pending");
-    else if (filter === "approved") entries = entries.filter((record) => record.status === "approved");
+    if (filter && filter !== "all") {
+      entries = entries.filter((record) => record.status === filter);
+    }
     entries.sort((left, right) => String(right.submittedAt || "")
       .localeCompare(String(left.submittedAt || "")));
     return entries.map((record) => ({
@@ -649,6 +650,8 @@ function createMatchRulesHandler(options = {}) {
       updatedAt: String(record.updatedAt || ""),
       author: String(record.author || ""),
       description: String(record.description || ""),
+      note: String(record.note || ""),
+      messages: normalizeReviewMessages(record.messages),
       rule: record.rule,
     }));
   }
@@ -786,6 +789,43 @@ function createMatchRulesHandler(options = {}) {
     return true;
   }
 
+  const REVIEW_ACTIONS = ["approve", "enable", "reject", "disable", "reopen", "reply"];
+  const REVIEW_MESSAGE_MAX = 500;
+  const REVIEW_MESSAGES_MAX = 20;
+
+  /** 规范化提交记录里的公开回复；只接受 {at, text}，最多保留 20 条。 */
+  function normalizeReviewMessages(value) {
+    if (!Array.isArray(value)) return [];
+    const messages = [];
+    for (const item of value) {
+      if (!isPlainObject(item)) continue;
+      const text = String(item.text || "").trim().slice(0, REVIEW_MESSAGE_MAX);
+      if (!text) continue;
+      messages.push({at: String(item.at || ""), text});
+      if (messages.length >= REVIEW_MESSAGES_MAX) break;
+    }
+    return messages;
+  }
+
+  /**
+   * 把 review 请求里的 action（或备用 status 字段）映射为目标状态。
+   * 返回 null 表示参数不合法；返回 "" 表示只回复、不改变状态。
+   */
+  function reviewTargetStatus(action, body) {
+    const normalized = String(action || "").trim().toLowerCase();
+    if (normalized === "approve" || normalized === "enable") return "approved";
+    if (normalized === "reject") return "rejected";
+    if (normalized === "disable") return "disabled";
+    if (normalized === "reopen") return "pending";
+    if (normalized === "reply") return "";
+    const byStatus = String((body && body.status) || "").trim().toLowerCase();
+    if (byStatus === "approved" || byStatus === "rejected"
+      || byStatus === "disabled" || byStatus === "pending") {
+      return byStatus;
+    }
+    return null;
+  }
+
   async function handleReview(req, res, url, helpers, sender) {
     let body;
     try {
@@ -803,23 +843,59 @@ function createMatchRulesHandler(options = {}) {
       sender.json(400, {ok: false, error: "规则 id 不合法"});
       return true;
     }
-    const action = String(body.action || "");
-    if (!["approve", "reject", "disable"].includes(action)) {
-      sender.json(400, {ok: false, error: "action 只能是 approve、reject 或 disable"});
+    const action = String(body.action || "").trim().toLowerCase();
+    const targetStatus = reviewTargetStatus(action, body);
+    if (targetStatus === null) {
+      sender.json(400, {
+        ok: false,
+        error: "action 只能是 approve、enable、reject、disable、reopen 或 reply",
+      });
       return true;
     }
-    const note = body.note === undefined ? "" : String(body.note).trim().slice(0, 300);
     const pending = readPendingRecord(id);
     const approved = approvedRecords.get(id) || null;
-    const rule = pending ? pending.rule : (approved ? approved.rule : null);
+    const current = pending || approved;
+    const rule = current ? current.rule : null;
     if (!rule) {
       sender.json(404, {ok: false, error: "规则不存在"});
       return true;
     }
     const nowValue = nowMs();
     const updatedAt = currentIso(nowValue);
-    // approve 前重新校验整包：客户端校验不可信，pending 文件也可能被人工改过。
-    if (action === "approve") {
+    // 未传 note 时保留上一次的内部备注，避免后续状态切换把它清空。
+    const previousNote = String((pending && pending.note) || (approved && approved.note) || "");
+    const note = body.note === undefined
+      ? previousNote : String(body.note).trim().slice(0, 300);
+    const rawMessage = body.message !== undefined ? body.message : body.reply;
+    const message = rawMessage === undefined || rawMessage === null
+      ? "" : String(rawMessage).trim().slice(0, REVIEW_MESSAGE_MAX);
+    if (action === "reply" && !message) {
+      sender.json(400, {ok: false, error: "reply 需要提供 message 内容"});
+      return true;
+    }
+    if (rawMessage !== undefined && rawMessage !== null && typeof rawMessage !== "string") {
+      sender.json(400, {ok: false, error: "message 必须是字符串"});
+      return true;
+    }
+    const previousMessages = normalizeReviewMessages(
+      (pending && pending.messages) || (approved && approved.messages));
+    const messages = message
+      ? [...previousMessages, {at: updatedAt, text: message}].slice(-REVIEW_MESSAGES_MAX)
+      : previousMessages;
+    let sha256 = String((pending && pending.sha256) || (approved && approved.sha256) || "");
+    let size = Number((pending && pending.size) || (approved && approved.size) || 0);
+    const submittedAt = String((pending && pending.submittedAt)
+      || (approved && approved.submittedAt) || updatedAt);
+    const author = String((pending && pending.author) || (approved && approved.author) || "");
+    const description = String((pending && pending.description)
+      || (approved && approved.description) || "");
+    const tokenHash = String((pending && pending.tokenHash)
+      || (approved && approved.tokenHash) || "");
+    const downloads = Number((pending && pending.downloads)
+      || (approved && approved.downloads) || 0);
+
+    // 上架（approve / enable）：重新校验整包并检查同一 rule.id 的已上架版本。
+    if (targetStatus === "approved") {
       const validationError = validateRulePack(rule);
       if (validationError) {
         sender.json(400, {ok: false, error: `规则包校验失败：${validationError}`});
@@ -849,46 +925,37 @@ function createMatchRulesHandler(options = {}) {
           return true;
         }
       }
-      const submittedAt = String((pending && pending.submittedAt)
-        || (approved && approved.submittedAt) || updatedAt);
+      sha256 = sha256Hex(serialized);
+      size = toBytes(serialized);
       const record = {
         id,
         status: "approved",
         rule,
-        sha256: sha256Hex(serialized),
-        size: toBytes(serialized),
+        sha256,
+        size,
         submittedAt,
         updatedAt,
-        downloads: Number((approved && approved.downloads) || 0),
-        author: String((pending && pending.author) || (approved && approved.author) || ""),
-        description: String((pending && pending.description)
-          || (approved && approved.description) || ""),
+        downloads,
+        author,
+        description,
+        note,
+        messages,
       };
+      // approved/ 下的记录会被 catalog 读取，绝不能写入 tokenHash。
       try {
         writeJsonFile(approvedFile(id), record);
-        writeJsonFile(pendingFile(id), {
-          ...(pending || {}),
-          id,
-          status: "approved",
-          rule,
-          sha256: record.sha256,
-          size: record.size,
-          submittedAt,
-          updatedAt,
-          author: record.author,
-          description: record.description,
-          note,
-          tokenHash: String((pending && pending.tokenHash) || ""),
-        });
+        writeJsonFile(pendingFile(id), {...record, tokenHash});
       } catch (_error) {
         sender.json(500, {ok: false, error: "审核结果保存失败"});
         return true;
       }
       refreshApproved();
-      sender.json(200, {ok: true, id, status: "approved"});
+      sender.json(200, {ok: true, id, status: "approved", messages});
       return true;
     }
-    const status = action === "reject" ? "rejected" : "disabled";
+
+    // 其余状态（或者只回复）：移出 approved/，把状态与公开回复写回 pending 记录。
+    const status = targetStatus || String(current.status || "pending");
     try {
       if (approved) {
         fs.rmSync(approvedFile(id), {force: true});
@@ -898,22 +965,22 @@ function createMatchRulesHandler(options = {}) {
         id,
         status,
         rule,
-        sha256: String((pending && pending.sha256) || (approved && approved.sha256) || ""),
-        size: Number((pending && pending.size) || (approved && approved.size) || 0),
-        submittedAt: String((pending && pending.submittedAt)
-          || (approved && approved.submittedAt) || updatedAt),
+        sha256,
+        size,
+        submittedAt,
         updatedAt,
-        author: String((pending && pending.author) || (approved && approved.author) || ""),
-        description: String((pending && pending.description)
-          || (approved && approved.description) || ""),
+        author,
+        description,
         note,
-        tokenHash: String((pending && pending.tokenHash) || ""),
+        messages,
+        tokenHash,
+        downloads,
       });
     } catch (_error) {
       sender.json(500, {ok: false, error: "审核结果保存失败"});
       return true;
     }
-    sender.json(200, {ok: true, id, status});
+    sender.json(200, {ok: true, id, status, messages});
     return true;
   }
 
@@ -987,8 +1054,9 @@ function createMatchRulesHandler(options = {}) {
       ok: true,
       id: record.id,
       status: record.status,
-      note: String(record.note || ""),
       updatedAt: String(record.updatedAt || ""),
+      // 公开回复线程：审核员写给提交者的说明，App「我的提交」会展示。
+      messages: normalizeReviewMessages(record.messages),
     });
     return true;
   }
@@ -1035,8 +1103,11 @@ function createMatchRulesHandler(options = {}) {
           return true;
         }
         const status = String(url.searchParams.get("status") || "all");
-        if (!["pending", "approved", "all"].includes(status)) {
-          sender.json(400, {ok: false, error: "status 只能是 pending、approved 或 all"});
+        if (!["pending", "approved", "rejected", "disabled", "all"].includes(status)) {
+          sender.json(400, {
+            ok: false,
+            error: "status 只能是 pending、approved、rejected、disabled 或 all",
+          });
           return true;
         }
         sender.json(200, {ok: true, items: adminItems(status)});

@@ -103,9 +103,11 @@ curl -sS http://127.0.0.1:8790/api/match-rules/packs/r-1a2b3c4d/1.json
 
 ### GET /api/match-rules/status?id=&lt;id&gt;&token=&lt;token&gt;
 
-查询自己提交的审核状态。
+查询自己提交的审核状态与审核回复。
 
-- `200`：`{"ok":true,"id","status":"pending|approved|rejected|disabled","note":"<审核备注>","updatedAt"}`
+- `200`：`{"ok":true,"id","status":"pending|approved|rejected|disabled","updatedAt","messages":[{"at":"<ISO 时间>","text":"<审核员回复>"}]}`
+- `messages` 是审核员写给提交者的公开回复（按时间正序，最多 20 条，单条 ≤500 字符）；
+  内部备注 `note` 不会出现在这里。
 - `403`：token 不匹配或缺失
 - `404`：记录不存在
 
@@ -134,29 +136,44 @@ curl -sS -X POST http://127.0.0.1:8790/api/match-rules/report \
 
 请求头：`x-admin-token: <ADMIN_TOKEN>`；缺失或错误返回 `401`。
 
-### GET /api/match-rules/admin/list?status=pending|approved|all
+### GET /api/match-rules/admin/list?status=pending|approved|rejected|disabled|all
 
 列出规则包（默认 `all`）。每项包含
-`{id,status,submittedAt,updatedAt,author,description,rule}`，不返回 token 摘要。
+`{id,status,submittedAt,updatedAt,author,description,note,messages,rule}`，不返回 token 摘要。
+`note` 是管理员内部备注；`messages` 是给提交者的公开回复。
 
 ### POST /api/match-rules/admin/review
 
 ```json
-{"id": "r-1a2b3c4d", "action": "approve | reject | disable", "note": "审核备注（可选，≤300 字符）"}
+{
+  "id": "r-1a2b3c4d",
+  "action": "approve | enable | reject | disable | reopen | reply",
+  "note": "内部备注（可选，≤300 字符，仅管理员可见）",
+  "message": "回复提交者（可选，≤500 字符，公开）"
+}
 ```
 
-- `approve`：重新做完整规则包校验，通过后写入 `approved/<id>.json` 并刷新目录；
-  校验失败 `400`，版本冲突 `409`
+也可以省略 `action`，直接传 `status: "pending|approved|rejected|disabled"`。
+
+- `approve` / `enable`：重新做完整规则包校验，通过后写入 `approved/<id>.json` 并刷新目录；
+  校验失败 `400`，版本冲突 `409`。`enable` 用于把已下架/已驳回归还上架。
 - `reject`：置为 `rejected`，保留提交记录
 - `disable`：置为 `disabled`，删除对外发布副本，目录与下载立即不可见
-- 成功：`{"ok":true,"id":"r-1a2b3c4d","status":"approved|rejected|disabled"}`
+- `reopen`：退回 `pending` 重新审核
+- `reply`：只追加公开回复，不改变当前状态（必须提供非空 `message`）
+- 成功：`{"ok":true,"id":"r-1a2b3c4d","status":"...","messages":[...]}`
+- 非法 `action` 返回 `400`；`reply` 缺少 `message` 返回 `400`
 
 ```bash
 ADMIN_TOKEN=<令牌> node match-rules-admin.js list pending
 ADMIN_TOKEN=<令牌> node match-rules-admin.js approve r-1a2b3c4d "规则合理，通过"
-ADMIN_TOKEN=<令牌> node match-rules-admin.js reject r-1a2b3c4d "描述不清晰"
 ADMIN_TOKEN=<令牌> node match-rules-admin.js disable r-1a2b3c4d "命中举报"
+ADMIN_TOKEN=<令牌> node match-rules-admin.js enable r-1a2b3c4d
+ADMIN_TOKEN=<令牌> node match-rules-admin.js reply r-1a2b3c4d "请补充作用域后再提交"
 ```
+
+`note` 是内部备注（只给管理员看）；给提交者的公开回复用 `message`（网页审核台有独立输入框），
+或者用 CLI 的 `reply` 子命令。网页审核台地址：`https://lyrics-companion.zuoqirun.top/rules/admin`。
 
 命令行工具读取 `BASE_URL`（默认 `http://127.0.0.1:8790`）与 `ADMIN_TOKEN`，中文输出，
 不会打印令牌。等价的 curl 调用：
@@ -167,7 +184,7 @@ curl -sS http://127.0.0.1:8790/api/match-rules/admin/list?status=pending \
 
 curl -sS -X POST http://127.0.0.1:8790/api/match-rules/admin/review \
   -H "x-admin-token: <管理令牌>" -H "content-type: application/json" \
-  --data-binary '{"id":"r-1a2b3c4d","action":"approve","note":"规则合理，通过"}'
+  --data-binary '{"id":"r-1a2b3c4d","action":"approve","note":"内部备注","message":"规则合理，已上架"}'
 ```
 
 ## 存储结构
@@ -175,8 +192,8 @@ curl -sS -X POST http://127.0.0.1:8790/api/match-rules/admin/review \
 ```
 STATE_DIR/
 └── match-rules/
-    ├── pending/<id>.json      # 提交记录：status/tokenHash/note/rule/sha256/size/时间
-    ├── approved/<id>.json     # 对外发布副本：id/status/rule/sha256/size/时间/downloads/author/description
+    ├── pending/<id>.json      # 提交记录：status/tokenHash/note/messages/rule/sha256/size/时间
+    ├── approved/<id>.json     # 对外发布副本：id/status/rule/sha256/size/时间/downloads/author/description/messages
     ├── submissions.jsonl      # 提交审计日志（id/ruleId/version/author/submittedAt）
     └── reports.jsonl          # 举报记录，只保留最近 1000 条
 ```

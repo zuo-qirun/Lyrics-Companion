@@ -23,10 +23,13 @@ function usage() {
     "匹配规则市场管理工具",
     "",
     "用法：",
-    "  node match-rules-admin.js list [pending|approved|all]",
-    "  node match-rules-admin.js approve <id> [note]",
-    "  node match-rules-admin.js reject <id> [note]",
-    "  node match-rules-admin.js disable <id> [note]",
+    "  node match-rules-admin.js list [pending|approved|rejected|disabled|all]",
+    "  node match-rules-admin.js approve <id> [内部备注]",
+    "  node match-rules-admin.js enable <id> [内部备注]     # 重新上架",
+    "  node match-rules-admin.js reject <id> [内部备注]",
+    "  node match-rules-admin.js disable <id> [内部备注]",
+    "  node match-rules-admin.js reopen <id> [内部备注]     # 退回待审",
+    "  node match-rules-admin.js reply <id> <回复内容>      # 公开回复，不改状态",
     "",
     "环境变量：",
     `  BASE_URL     服务端地址（当前 ${BASE_URL}）`,
@@ -35,6 +38,7 @@ function usage() {
     "示例：",
     "  BASE_URL=http://127.0.0.1:8790 ADMIN_TOKEN=*** node match-rules-admin.js list pending",
     "  node match-rules-admin.js approve r-1a2b3c4d 规则合理，通过",
+    "  node match-rules-admin.js reply r-1a2b3c4d 请去掉正则里的命名捕获组",
   ].join("\n"));
 }
 
@@ -88,8 +92,8 @@ function describeItem(item) {
 
 async function commandList(status) {
   const filter = status || "all";
-  if (!["pending", "approved", "all"].includes(filter)) {
-    console.error("list 的状态只能是 pending、approved 或 all");
+  if (!["pending", "approved", "rejected", "disabled", "all"].includes(filter)) {
+    console.error("list 的状态只能是 pending、approved、rejected、disabled 或 all");
     process.exitCode = 1;
     return;
   }
@@ -115,10 +119,15 @@ async function commandList(status) {
   for (const item of items) console.log(describeItem(item));
 }
 
-async function commandReview(action, id, note) {
+async function commandReview(action, id, note, message) {
   const {response, payload, text} = await callApi("/api/match-rules/admin/review", {
     method: "POST",
-    body: {id, action, note: note || ""},
+    body: {
+      id,
+      action,
+      note: note || "",
+      message: message || undefined,
+    },
   });
   if (!response.ok || !payload || payload.ok !== true) {
     const detail = payload && payload.error ? `：${payload.error}` : "";
@@ -127,8 +136,17 @@ async function commandReview(action, id, note) {
     process.exitCode = 1;
     return;
   }
-  const labels = {approve: "已通过", reject: "已拒绝", disable: "已下架"};
-  console.log(`${labels[action]}：${payload.id}（当前状态 ${payload.status}）`);
+  const labels = {
+    approve: "已通过并上架",
+    enable: "已重新上架",
+    reject: "已驳回",
+    disable: "已下架",
+    reopen: "已退回待审",
+    reply: "已回复提交者",
+  };
+  const reply = payload.messages && payload.messages.length
+    ? `，现有 ${payload.messages.length} 条公开回复` : "";
+  console.log(`${labels[action]}：${payload.id}（当前状态 ${payload.status}${reply}）`);
 }
 
 async function main(argv) {
@@ -142,7 +160,19 @@ async function main(argv) {
     await commandList(rest[0]);
     return;
   }
-  if (command === "approve" || command === "reject" || command === "disable") {
+  if (command === "reply") {
+    const id = rest[0];
+    const message = rest.slice(1).join(" ").trim();
+    if (!id || !message) {
+      console.error("reply 需要规则 id 和回复内容，例如：reply r-1a2b3c4d 请补充作用域");
+      usage();
+      process.exitCode = 1;
+      return;
+    }
+    await commandReview("reply", id, "", message);
+    return;
+  }
+  if (["approve", "enable", "reject", "disable", "reopen"].includes(command)) {
     const id = rest[0];
     if (!id) {
       console.error(`${command} 需要规则 id，例如 r-1a2b3c4d`);

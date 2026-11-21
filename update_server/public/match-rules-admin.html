@@ -237,6 +237,38 @@
             .admin-result.bad {
                 color: #e09f8c;
             }
+            .admin-detail h3 {
+                margin: 20px 0 8px;
+                font-size: 12px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--muted);
+                font-family: var(--mono);
+            }
+            .admin-messages {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                margin-top: 4px;
+            }
+            .admin-message {
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                padding: 9px 11px;
+                background: #0d100c;
+            }
+            .admin-message-date {
+                font: 10.5px var(--mono);
+                color: var(--muted);
+                margin-bottom: 3px;
+            }
+            .admin-message-text {
+                font-size: 12.5px;
+                line-height: 1.6;
+                color: var(--ink);
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
             .admin-empty {
                 border: 1px dashed var(--line);
                 border-radius: 12px;
@@ -324,6 +356,24 @@
                             aria-selected="false"
                         >
                             已上架
+                        </button>
+                        <button
+                            class="admin-tab"
+                            type="button"
+                            role="tab"
+                            data-status="disabled"
+                            aria-selected="false"
+                        >
+                            已下架
+                        </button>
+                        <button
+                            class="admin-tab"
+                            type="button"
+                            role="tab"
+                            data-status="rejected"
+                            aria-selected="false"
+                        >
+                            已驳回
                         </button>
                         <button
                             class="admin-tab"
@@ -498,6 +548,35 @@
                     return button;
                 }
 
+                function actionLabel(action) {
+                    return {
+                        approve: "通过并上架",
+                        enable: "重新上架",
+                        reject: "驳回",
+                        disable: "下架",
+                        reopen: "退回待审",
+                        reply: "回复提交者",
+                    }[action] || action;
+                }
+
+                function renderMessages(item) {
+                    const messages = Array.isArray(item.messages) ? item.messages : [];
+                    const wrap = node("div", "admin-messages");
+                    if (!messages.length) {
+                        wrap.append(node("p", "admin-result", "还没有回复记录。"));
+                        return wrap;
+                    }
+                    for (const message of messages) {
+                        const row = node("div", "admin-message");
+                        row.append(
+                            node("div", "admin-message-date", formatDate(message.at)),
+                            node("div", "admin-message-text", message.text),
+                        );
+                        wrap.append(row);
+                    }
+                    return wrap;
+                }
+
                 function renderDetail() {
                     detail.textContent = "";
                     const item = state.selected;
@@ -534,36 +613,49 @@
                                 .filter(Boolean)
                                 .join("\n"),
                         ),
+                        node("h3", "", "规则 JSON"),
+                        node("pre", "", JSON.stringify(rule, null, 2)),
+                        node("h3", "", "回复记录（提交者可见）"),
+                        renderMessages(item),
                     );
-                    const pre = node("pre", "", JSON.stringify(rule, null, 2));
-                    detail.append(pre);
 
+                    const note = node("textarea", "admin-note-field");
+                    note.placeholder = "内部备注（可选，仅管理员可见，不会发给提交者）";
+                    note.setAttribute("aria-label", "内部备注");
+                    note.value = String(item.note || "");
+
+                    const reply = node("textarea", "admin-note-field");
+                    reply.placeholder = "回复提交者（公开，会显示在 App「我的提交」里；例如：请去掉正则里的命名捕获组）";
+                    reply.setAttribute("aria-label", "回复提交者");
+
+                    const actions = node("div", "admin-actions");
                     if (item.status === "pending") {
-                        const note = node("textarea", "admin-note-field");
-                        note.placeholder = "审核备注（可选，驳回时建议说明原因）";
-                        note.setAttribute("aria-label", "审核备注");
-                        const actions = node("div", "admin-actions");
                         actions.append(
                             reviewButton("通过并上架", "approve"),
                             reviewButton("驳回", "reject", true),
                         );
-                        const result = node("div", "admin-result");
-                        detail.append(note, actions, result);
-                        detail.dataset.noteId = item.id;
                     } else if (item.status === "approved") {
-                        const actions = node("div", "admin-actions");
                         actions.append(reviewButton("下架", "disable", true));
-                        const result = node("div", "admin-result");
-                        detail.append(actions, result);
-                    } else {
-                        detail.append(
-                            node(
-                                "p",
-                                "admin-result",
-                                "该提交已结束审核，可在「全部」标签中查看历史。",
-                            ),
+                    } else if (item.status === "disabled") {
+                        actions.append(reviewButton("重新上架", "enable"));
+                    } else if (item.status === "rejected") {
+                        actions.append(
+                            reviewButton("退回待审", "reopen"),
+                            reviewButton("直接上架", "approve"),
                         );
                     }
+                    actions.append(reviewButton("发送回复", "reply"));
+
+                    const result = node("div", "admin-result");
+                    detail.append(
+                        node("h3", "", "审核操作"),
+                        note,
+                        reply,
+                        actions,
+                        result,
+                    );
+                    detail.dataset.noteId = item.id;
+
                     const link = node("p", "admin-result");
                     const anchor = node("a", "text-link", "在公开市场查看 →");
                     anchor.href = "/rules";
@@ -576,11 +668,20 @@
                     const item = state.selected;
                     const result = detail.querySelector(".admin-result");
                     const noteField = detail.querySelector(".admin-note-field");
-                    const note = noteField ? noteField.value.trim() : "";
-                    if (action === "reject" && !note) {
+                    const fields = detail.querySelectorAll(".admin-note-field");
+                    const note = fields[0] ? fields[0].value.trim() : "";
+                    const message = fields[1] ? fields[1].value.trim() : "";
+                    if (action === "reply" && !message) {
+                        if (result) {
+                            result.className = "admin-result bad";
+                            result.textContent = "请先填写要回复给提交者的内容。";
+                        }
+                        return;
+                    }
+                    if (action === "reject" && !message && !note) {
                         if (
                             !window.confirm(
-                                "没有填写驳回说明，仍然驳回？提交者将无法看到具体原因。",
+                                "没有填写回复说明，提交者将看不到具体原因，仍然驳回？",
                             )
                         ) {
                             return;
@@ -602,11 +703,12 @@
                                 id: item.id,
                                 action,
                                 note: note || undefined,
+                                message: message || undefined,
                             }),
                         });
                         if (result) {
                             result.className = "admin-result ok";
-                            result.textContent = `已${action === "approve" ? "通过并上架" : action === "reject" ? "驳回" : "下架"}（${body.status || ""}）。`;
+                            result.textContent = `已${actionLabel(action)}（${body.status || ""}）。`;
                         }
                         await load({ keepSelectionId: item.id });
                     } catch (error) {

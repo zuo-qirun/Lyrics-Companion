@@ -474,7 +474,7 @@ public final class MatchMarketActivity extends AppCompatActivity {
         for (final MatchRulesClient.Submission submission : queryable) {
             MatchRulesClient.status(submission.id, submission.token, result -> {
                 boolean failed = result == null || !result.ok || result.value == null;
-                String note = "";
+                String latestReply = "";
                 if (!failed) {
                     try {
                         MatchRulesClient.updateSubmissionStatus(this, submission.id,
@@ -482,16 +482,21 @@ public final class MatchMarketActivity extends AppCompatActivity {
                     } catch (Throwable ignored) {
                         // 本地写入失败不影响刷新结果展示。
                     }
-                    note = result.value.note == null ? "" : result.value.note.trim();
+                    if (result.value.messages != null && !result.value.messages.isEmpty()) {
+                        latestReply = result.value.messages.get(
+                                result.value.messages.size() - 1).trim();
+                    }
                 }
                 final boolean statusFailed = failed;
-                final String statusNote = note;
+                final String statusReply = latestReply;
                 runOnUiThread(() -> {
                     if (!isAlive()) return;
                     if (statusFailed) {
                         statusFailures.incrementAndGet();
-                    } else if (!statusNote.isEmpty()) {
-                        notes.add(statusNote);
+                    } else if (!statusReply.isEmpty()) {
+                        notes.add((submission.name == null || submission.name.isEmpty()
+                                ? submission.id : submission.name)
+                                + "：" + statusReply);
                     }
                     pendingStatusRefreshes--;
                     if (pendingStatusRefreshes > 0) return;
@@ -500,7 +505,7 @@ public final class MatchMarketActivity extends AppCompatActivity {
                         StringBuilder joined = new StringBuilder();
                         for (String item : notes) {
                             if (joined.length() > 0) joined.append('\n');
-                            joined.append("审核备注：").append(item);
+                            joined.append("审核回复：").append(item);
                         }
                         submissionsNote.setText(joined.toString());
                     }
