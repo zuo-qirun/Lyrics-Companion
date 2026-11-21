@@ -447,6 +447,37 @@ test("匹配目录在校验通过前不可见；approve 后可见，ETag 304，�
     assert.equal(download.payload.sha256, approvedRecord.sha256);
     assert.equal(download.payload.sha256, sha256Hex(JSON.stringify(download.payload.rule)));
 
+    // 响应必须是紧凑 JSON：客户端按响应原文里 "rule" 子串校验 SHA-256，
+    // pretty-print 会让子串带缩进而校验失败。
+    const ruleKeyIndex = download.text.indexOf('"rule"');
+    assert.ok(ruleKeyIndex > 0);
+    const ruleStart = download.text.indexOf("{", download.text.indexOf(":", ruleKeyIndex));
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let ruleEnd = -1;
+    for (let index = ruleStart; index < download.text.length; index += 1) {
+      const char = download.text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === "{") depth += 1;
+      else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          ruleEnd = index + 1;
+          break;
+        }
+      }
+    }
+    const rawRule = download.text.slice(ruleStart, ruleEnd);
+    assert.equal(rawRule, JSON.stringify(download.payload.rule));
+    assert.equal(sha256Hex(rawRule), download.payload.sha256);
+
     const downloadEtag = download.headers.get("etag");
     assert.match(downloadEtag, /^"[a-f0-9]{32}"$/);
     const cachedDownload = await harness.request(`/api/match-rules/packs/${id}/1.json`, {

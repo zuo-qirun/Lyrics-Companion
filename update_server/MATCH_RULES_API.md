@@ -92,6 +92,7 @@ curl -sS -o /dev/null -w "%{http_code}\n" \
 下载规则包正文。
 
 - `200`：`{"ok":true,"id":"r-xxxxxxxx","version":1,"sha256":"<sha256(JSON.stringify(rule))>","rule":{...}}`
+- 响应体是**紧凑 JSON**（无缩进空格），客户端可直接按响应原文里 `"rule"` 对应的子串计算 SHA-256，结果必然等于 `sha256` 字段；不要改成 pretty-print，否则子串带缩进会导致校验失败。
 - 响应头：`ETag`、`Cache-Control: public, max-age=86400`
 - 规则不存在、版本不匹配、未审核或已下架：`404` JSON
 - 每次成功下载会累加目录里的 `downloads` 计数

@@ -247,6 +247,8 @@
   `Cache-Control: public, max-age=300`。只含已审核通过且未下架的包。
 - `GET /api/match-rules/packs/<id>/<version>.json`
   `{ok:true, id, version, sha256, rule:{...}}`；ETag + `max-age=86400`；404 JSON。
+  响应体必须是紧凑 JSON（无缩进空格）：客户端按响应原文中 `"rule"` 子串计算
+  SHA-256，pretty-print 会因缩进而校验失败。
 - `GET /api/match-rules/status?id=<id>&token=<token>` →
   `{ok:true,id,status:"pending"|"approved"|"rejected"|"disabled",note:"",updatedAt}`；
   token 不匹配 403。

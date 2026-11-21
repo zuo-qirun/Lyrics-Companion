@@ -575,6 +575,11 @@ function createMatchRulesHandler(options = {}) {
       raw(status, body, headers = {}) {
         writeBody(res, status, body, headers);
       },
+      /** 紧凑 JSON：规则包下载必须用它，保证响应里 "rule" 子串与 sha256 计算用的
+       * JSON.stringify(rule) 完全一致（客户端按原始文本校验 SHA-256）。 */
+      compact(status, value, headers = {}) {
+        writeBody(res, status, Buffer.from(`${JSON.stringify(value)}\n`), headers);
+      },
       empty(status, headers = {}) {
         res.writeHead(status, {"x-content-type-options": "nosniff", ...headers});
         res.end();
@@ -952,7 +957,7 @@ function createMatchRulesHandler(options = {}) {
     } catch (_error) {
       // 下载计数写失败不影响返回规则正文。
     }
-    sender.json(200, {
+    sender.compact(200, {
       ok: true,
       id,
       version,
