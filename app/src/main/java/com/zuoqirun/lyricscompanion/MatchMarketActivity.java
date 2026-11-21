@@ -63,6 +63,9 @@ public final class MatchMarketActivity extends AppCompatActivity {
     private final AtomicInteger statusFailures = new AtomicInteger();
 
     private LinearLayout marketContainer;
+    private LinearLayout rulesContainer;
+    private TextView rulesSummary;
+    private MaterialButton rulesToggleAll;
     private LinearLayout submissionsContainer;
     private TextView marketStatus;
     private TextView submissionsSummary;
@@ -90,6 +93,7 @@ public final class MatchMarketActivity extends AppCompatActivity {
 
         buildToolbar(root);
         buildRefreshArea(root);
+        buildRulesSection(root);
         buildMarketSection(root);
         buildSubmissionsSection(root);
         buildFooter(root);
@@ -97,6 +101,7 @@ public final class MatchMarketActivity extends AppCompatActivity {
         setContentView(scroll);
         CustomFontStore.applyToViewTree(this, scroll);
 
+        renderRules();
         renderSubmissions();
         refreshCatalog(false);
     }
@@ -133,6 +138,157 @@ public final class MatchMarketActivity extends AppCompatActivity {
         statusRow.addView(retryButton, retryParams);
 
         root.addView(statusRow, marginParams(-1, -2, 6));
+    }
+
+    private void buildRulesSection(LinearLayout root) {
+        LinearLayout card = card("本机规则");
+        rulesSummary = text("", 12, COLOR_TEXT_HINT, false);
+        rulesSummary.setLineSpacing(dp(2), 1f);
+        card.addView(rulesSummary, marginParams(-1, -2, 8));
+
+        rulesContainer = new LinearLayout(this);
+        rulesContainer.setOrientation(LinearLayout.VERTICAL);
+        card.addView(rulesContainer, new LinearLayout.LayoutParams(-1, -2));
+
+        rulesToggleAll = secondaryButton("");
+        rulesToggleAll.setOnClickListener(v -> toggleAllMarketPacks());
+        card.addView(rulesToggleAll, marginParams(-1, dp(44), 10));
+
+        addCard(root, card);
+    }
+
+    /** 渲染「本机规则」：内置、已安装市场规则（可逐个或一键启停）、个人规则。 */
+    private void renderRules() {
+        if (rulesContainer == null) return;
+        rulesContainer.removeAllViews();
+        List<MatchRulePack> builtin = BuiltinMatchRules.packs();
+        List<MatchRulePack> market = MatchRuleStore.marketPacks(this);
+        List<MatchRulePack> user = MatchRuleStore.userPacks(this);
+        int enabledCount = MatchRuleStore.enabledMarketPackCount(this);
+        if (rulesSummary != null) {
+            rulesSummary.setText("市场规则启用 " + enabledCount + " / " + market.size()
+                    + " 条；内置规则始终启用，个人规则始终参与匹配。");
+        }
+        if (rulesToggleAll != null) {
+            boolean allDisabled = !market.isEmpty() && enabledCount == 0;
+            rulesToggleAll.setText(allDisabled ? "启用全部市场规则" : "停用全部市场规则");
+            rulesToggleAll.setEnabled(!market.isEmpty());
+        }
+
+        rulesContainer.addView(text("内置规则", 12, COLOR_ACCENT, true),
+                marginParams(-1, -2, 6));
+        for (MatchRulePack pack : builtin) {
+            rulesContainer.addView(text("· " + safePackName(pack) + "  v" + pack.version
+                    + " · " + pack.rules.size() + " 条 · 始终启用",
+                    12, COLOR_TEXT_SECONDARY, false), marginParams(-1, -2, 4));
+        }
+
+        rulesContainer.addView(text("市场规则", 12, COLOR_ACCENT, true),
+                marginParams(-1, -2, 12));
+        for (MatchRulePack pack : market) {
+            rulesContainer.addView(buildInstalledPackRow(pack));
+        }
+        if (market.isEmpty()) {
+            TextView empty = text("还没有安装市场规则。在下方「市场规则」里选择「下载并启用」后，"
+                    + "会在这里显示并可以随时停用或移除。", 12, COLOR_TEXT_HELP, false);
+            empty.setLineSpacing(dp(2), 1f);
+            rulesContainer.addView(empty, marginParams(-1, -2, 6));
+        }
+
+        if (!user.isEmpty()) {
+            rulesContainer.addView(text("个人规则", 12, COLOR_ACCENT, true),
+                    marginParams(-1, -2, 12));
+            for (MatchRulePack pack : user) {
+                rulesContainer.addView(text("· " + safePackName(pack) + "  v" + pack.version
+                        + " · " + pack.rules.size() + " 条", 12, COLOR_TEXT_SECONDARY, false),
+                        marginParams(-1, -2, 4));
+            }
+        }
+    }
+
+    private View buildInstalledPackRow(final MatchRulePack pack) {
+        boolean enabled = false;
+        try {
+            enabled = MatchRuleStore.isMarketPackEnabled(this, pack.id);
+        } catch (Throwable ignored) {
+            enabled = false;
+        }
+        final boolean packEnabled = enabled;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(10), 0, 0);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = text(safePackName(pack), 13, COLOR_TEXT_PRIMARY, true);
+        titleRow.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        titleRow.addView(text(packEnabled ? "已启用" : "已停用", 11,
+                packEnabled ? COLOR_ACCENT : COLOR_TEXT_HELP, true));
+        row.addView(titleRow);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton toggle = secondaryButton(packEnabled ? "停用" : "启用");
+        toggle.setOnClickListener(v -> changeInstalledPackEnabled(pack, packEnabled));
+        MaterialButton remove = secondaryButton("移除");
+        LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        removeParams.leftMargin = dp(8);
+        remove.setOnClickListener(v -> confirmRemoveInstalledPack(pack));
+        actions.addView(toggle, new LinearLayout.LayoutParams(0, dp(40), 1f));
+        actions.addView(remove, removeParams);
+        row.addView(actions, marginParams(-1, -2, 8));
+        return row;
+    }
+
+    private void changeInstalledPackEnabled(MatchRulePack pack, boolean currentlyEnabled) {
+        try {
+            MatchRuleStore.setMarketPackEnabled(this, pack.id, !currentlyEnabled);
+            SafeToast.show(this, (currentlyEnabled ? "已停用：" : "已启用：") + safePackName(pack),
+                    Toast.LENGTH_SHORT);
+        } catch (Throwable error) {
+            SafeToast.show(this, "操作失败：" + describe(error), Toast.LENGTH_LONG);
+        }
+        renderRules();
+        renderMarketRows();
+    }
+
+    private void toggleAllMarketPacks() {
+        boolean disableAll = MatchRuleStore.enabledMarketPackCount(this) > 0;
+        try {
+            MatchRuleStore.setAllMarketPacksEnabled(this, !disableAll);
+            SafeToast.show(this, disableAll ? "已停用全部市场规则" : "已启用全部市场规则",
+                    Toast.LENGTH_SHORT);
+        } catch (Throwable error) {
+            SafeToast.show(this, "操作失败：" + describe(error), Toast.LENGTH_LONG);
+        }
+        renderRules();
+        renderMarketRows();
+    }
+
+    private void confirmRemoveInstalledPack(final MatchRulePack pack) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("移除市场规则")
+                .setMessage("确定从本机移除「" + safePackName(pack) + "」吗？移除后该规则不再参与匹配，"
+                        + "需要时可以重新下载。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("移除", (dialog, which) -> {
+                    try {
+                        MatchRuleStore.removeMarketPack(this, pack.id);
+                        SafeToast.show(this, "已移除：" + safePackName(pack), Toast.LENGTH_SHORT);
+                    } catch (Throwable error) {
+                        SafeToast.show(this, "移除失败：" + describe(error), Toast.LENGTH_LONG);
+                    }
+                    renderRules();
+                    renderMarketRows();
+                })
+                .show();
+    }
+
+    private static String safePackName(MatchRulePack pack) {
+        if (pack == null) return "规则包";
+        String name = pack.name == null ? "" : pack.name.trim();
+        return name.isEmpty() ? pack.id : name;
     }
 
     private void buildMarketSection(LinearLayout root) {
@@ -241,11 +397,11 @@ public final class MatchMarketActivity extends AppCompatActivity {
         if (catalog.isEmpty()) return;
         Map<String, PackInfo> installed = readInstalledPacks();
         for (MatchRulesClient.CatalogItem item : catalog) {
-            PackInfo local = installed.get(item.id);
+            PackInfo local = findInstalled(installed, item);
             boolean enabled = false;
             if (local != null) {
                 try {
-                    enabled = MatchRuleStore.isMarketPackEnabled(this, item.id);
+                    enabled = MatchRuleStore.isMarketPackEnabled(this, local.packId);
                 } catch (Throwable ignored) {
                     enabled = false;
                 }
@@ -258,11 +414,17 @@ public final class MatchMarketActivity extends AppCompatActivity {
     private Map<String, PackInfo> readInstalledPacks() {
         Map<String, PackInfo> installed = new HashMap<>();
         try {
+            Map<String, String> recordIds = MatchRuleStore.marketRecordIds(this);
             List<MatchRulePack> packs = MatchRuleStore.marketPacks(this);
             if (packs != null) {
                 for (MatchRulePack pack : packs) {
                     PackInfo info = readPackInfo(pack);
-                    if (info != null) installed.put(info.id, info);
+                    if (info == null) continue;
+                    installed.put(info.packId, info);
+                    String recordId = recordIds.get(info.packId);
+                    if (recordId != null && !recordId.trim().isEmpty()) {
+                        installed.put(recordId.trim(), info);
+                    }
                 }
             }
         } catch (Throwable error) {
@@ -272,6 +434,26 @@ public final class MatchMarketActivity extends AppCompatActivity {
             }
         }
         return installed;
+    }
+
+    /**
+     * 找目录条目对应的本机已安装规则。
+     *
+     * <p>新安装会记录「服务器记录 id → 规则包 id」映射；旧版本安装的包没有映射，按名称
+     * （优先同版本）回退匹配，避免升级后仍显示「未安装」。</p>
+     */
+    private PackInfo findInstalled(Map<String, PackInfo> installed,
+                                   MatchRulesClient.CatalogItem item) {
+        if (installed == null || item == null) return null;
+        PackInfo direct = installed.get(item.id);
+        if (direct != null) return direct;
+        PackInfo sameName = null;
+        for (PackInfo info : installed.values()) {
+            if (info == null || !info.name.equals(item.name)) continue;
+            if (info.version == item.version) return info;
+            if (sameName == null) sameName = info;
+        }
+        return sameName;
     }
 
     private View buildMarketItem(MatchRulesClient.CatalogItem item, PackInfo local,
@@ -334,14 +516,14 @@ public final class MatchMarketActivity extends AppCompatActivity {
             LinearLayout.LayoutParams toggleParams =
                     new LinearLayout.LayoutParams(0, dp(42), 1f);
             toggleParams.leftMargin = canUpdate ? dp(8) : 0;
-            toggle.setOnClickListener(v -> setPackEnabled(item, enabled));
+            toggle.setOnClickListener(v -> setPackEnabled(local, enabled));
             actions.addView(toggle, toggleParams);
 
             MaterialButton remove = secondaryButton("移除");
             LinearLayout.LayoutParams removeParams =
                     new LinearLayout.LayoutParams(0, dp(42), 1f);
             removeParams.leftMargin = dp(8);
-            remove.setOnClickListener(v -> confirmRemove(item));
+            remove.setOnClickListener(v -> confirmRemove(local));
             actions.addView(remove, removeParams);
         }
         itemView.addView(actions, marginParams(-1, -2, 10));
@@ -361,40 +543,45 @@ public final class MatchMarketActivity extends AppCompatActivity {
                 return;
             }
             try {
-                MatchRuleStore.installMarketPack(this, result.value);
-                MatchRuleStore.setMarketPackEnabled(this, item.id, true);
+                MatchRuleStore.installMarketPack(this, result.value, item.id);
+                MatchRuleStore.setMarketPackEnabled(this, result.value.id, true);
                 SafeToast.show(this, "已下载并启用：" + item.name, Toast.LENGTH_SHORT);
             } catch (Throwable error) {
                 SafeToast.show(this, "安装规则失败：" + describe(error), Toast.LENGTH_LONG);
             }
+            renderRules();
             renderMarketRows();
         }));
     }
 
-    private void setPackEnabled(MatchRulesClient.CatalogItem item, boolean currentlyEnabled) {
+    private void setPackEnabled(PackInfo local, boolean currentlyEnabled) {
+        if (local == null) return;
         try {
-            MatchRuleStore.setMarketPackEnabled(this, item.id, !currentlyEnabled);
-            SafeToast.show(this, (currentlyEnabled ? "已停用：" : "已启用：") + item.name,
+            MatchRuleStore.setMarketPackEnabled(this, local.packId, !currentlyEnabled);
+            SafeToast.show(this, (currentlyEnabled ? "已停用：" : "已启用：") + local.name,
                     Toast.LENGTH_SHORT);
         } catch (Throwable error) {
             SafeToast.show(this, "操作失败：" + describe(error), Toast.LENGTH_LONG);
         }
+        renderRules();
         renderMarketRows();
     }
 
-    private void confirmRemove(final MatchRulesClient.CatalogItem item) {
+    private void confirmRemove(final PackInfo local) {
+        if (local == null) return;
         new MaterialAlertDialogBuilder(this)
                 .setTitle("移除市场规则")
-                .setMessage("确定从本机移除「" + item.name + "」吗？移除后该规则不再参与匹配，"
+                .setMessage("确定从本机移除「" + local.name + "」吗？移除后该规则不再参与匹配，"
                         + "需要时可以重新下载。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("移除", (dialog, which) -> {
                     try {
-                        MatchRuleStore.removeMarketPack(this, item.id);
-                        SafeToast.show(this, "已移除：" + item.name, Toast.LENGTH_SHORT);
+                        MatchRuleStore.removeMarketPack(this, local.packId);
+                        SafeToast.show(this, "已移除：" + local.name, Toast.LENGTH_SHORT);
                     } catch (Throwable error) {
                         SafeToast.show(this, "移除失败：" + describe(error), Toast.LENGTH_LONG);
                     }
+                    renderRules();
                     renderMarketRows();
                 })
                 .show();
@@ -563,12 +750,12 @@ public final class MatchMarketActivity extends AppCompatActivity {
     // ── 规则包信息 ───────────────────────────────────────────────
 
     private static final class PackInfo {
-        final String id;
+        final String packId;
         final String name;
         final int version;
 
-        PackInfo(String id, String name, int version) {
-            this.id = id;
+        PackInfo(String packId, String name, int version) {
+            this.packId = packId;
             this.name = name;
             this.version = version;
         }

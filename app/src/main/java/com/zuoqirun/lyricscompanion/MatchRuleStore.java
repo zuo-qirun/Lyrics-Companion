@@ -9,8 +9,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -24,6 +27,8 @@ final class MatchRuleStore {
     static final String KEY_USER_RULES = "match_user_rules";
     static final String KEY_MARKET_RULES = "match_market_rules";
     static final String KEY_MARKET_ENABLED = "match_market_enabled";
+    /** 市场目录记录 id → 本机规则包 id 的映射，用于把服务器条目和已安装包对上。 */
+    static final String KEY_MARKET_RECORD_IDS = "match_market_record_ids";
 
     private MatchRuleStore() {
     }
@@ -65,6 +70,17 @@ final class MatchRuleStore {
 
     /** 安装或更新市场包，默认启用。 */
     static void installMarketPack(Context context, MatchRulePack pack) {
+        installMarketPack(context, pack, "");
+    }
+
+    /**
+     * 安装或更新市场包并记住服务器目录记录 id。
+     *
+     * <p>规则包自身的 id 来自规则 JSON（如 {@code general.numeric-suffix}），而市场目录
+     * 使用服务器提交记录 id（如 {@code r-4d7a8dc1}）。这里保存两者的映射，市场页才能
+     * 正确显示「已安装 / 已启用」并对对应包执行启停与移除。</p>
+     */
+    static void installMarketPack(Context context, MatchRulePack pack, String recordId) {
         if (pack == null) {
             return;
         }
@@ -82,9 +98,38 @@ final class MatchRuleStore {
         }
         writePacks(context, KEY_MARKET_RULES, packs);
         setMarketPackEnabled(context, pack.id, true);
+        if (recordId != null && !recordId.trim().isEmpty()) {
+            putMarketRecordId(context, pack.id, recordId.trim());
+        }
     }
 
-    /** 删除市场包并一并清除启停状态。 */
+    /** 本机已安装市场包 id → 服务器目录记录 id 的映射。 */
+    static Map<String, String> marketRecordIds(Context context) {
+        Map<String, String> result = new HashMap<String, String>();
+        if (context == null) {
+            return result;
+        }
+        String json = prefs(context).getString(KEY_MARKET_RECORD_IDS, "");
+        if (json == null || json.trim().isEmpty()) {
+            return result;
+        }
+        try {
+            JSONObject object = new JSONObject(json);
+            Iterator<String> keys = object.keys();
+            while (keys.hasNext()) {
+                String packId = keys.next();
+                String recordId = object.optString(packId, "").trim();
+                if (!packId.trim().isEmpty() && !recordId.isEmpty()) {
+                    result.put(packId, recordId);
+                }
+            }
+        } catch (JSONException e) {
+            return result;
+        }
+        return result;
+    }
+
+    /** 删除市场包并一并清除启停状态与目录映射。 */
     static void removeMarketPack(Context context, String id) {
         if (id == null || id.trim().isEmpty()) {
             return;
@@ -99,6 +144,7 @@ final class MatchRuleStore {
         Set<String> enabledIds = marketEnabledIds(context);
         enabledIds.remove(id);
         writeMarketEnabledIds(context, enabledIds);
+        removeMarketRecordId(context, id);
     }
 
     /** 启停一个市场包。 */
@@ -124,6 +170,28 @@ final class MatchRuleStore {
             return true;
         }
         return marketEnabledIds(context).contains(id);
+    }
+
+    /** 一键启用或停用全部已安装市场规则。 */
+    static void setAllMarketPacksEnabled(Context context, boolean enabled) {
+        Set<String> ids = new LinkedHashSet<String>();
+        if (enabled) {
+            for (MatchRulePack pack : marketPacks(context)) {
+                ids.add(pack.id);
+            }
+        }
+        writeMarketEnabledIds(context, ids);
+    }
+
+    /** 已安装且已启用的市场包数量。 */
+    static int enabledMarketPackCount(Context context) {
+        int count = 0;
+        for (MatchRulePack pack : marketPacks(context)) {
+            if (isMarketPackEnabled(context, pack.id)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // ---- 内部实现 ----
@@ -211,6 +279,34 @@ final class MatchRuleStore {
         }
         prefs(context).edit().putString(KEY_MARKET_ENABLED, array.toString()).apply();
         AppPreferences.changed(context);
+    }
+
+    private static void putMarketRecordId(Context context, String packId, String recordId) {
+        Map<String, String> mapping = marketRecordIds(context);
+        mapping.put(packId, recordId);
+        writeMarketRecordIds(context, mapping);
+    }
+
+    private static void removeMarketRecordId(Context context, String packId) {
+        Map<String, String> mapping = marketRecordIds(context);
+        if (mapping.remove(packId) != null) {
+            writeMarketRecordIds(context, mapping);
+        }
+    }
+
+    private static void writeMarketRecordIds(Context context, Map<String, String> mapping) {
+        if (context == null) {
+            return;
+        }
+        JSONObject object = new JSONObject();
+        for (Map.Entry<String, String> entry : mapping.entrySet()) {
+            try {
+                object.put(entry.getKey(), entry.getValue());
+            } catch (JSONException ignored) {
+                // 单个映射写入失败时跳过。
+            }
+        }
+        prefs(context).edit().putString(KEY_MARKET_RECORD_IDS, object.toString()).apply();
     }
 
     private static boolean containsPackId(List<MatchRulePack> packs, String id) {
